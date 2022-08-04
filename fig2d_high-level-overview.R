@@ -9,7 +9,6 @@ library(org.Hs.eg.db)
 library(clusterProfiler)
 library(org.Rn.eg.db)
 library(biomaRt)
-library(MotrpacBicQC)
 library(plotrix)
 library(ggplot2)
 library(testit)
@@ -18,6 +17,8 @@ library(jpeg)
 library(foreach)
 library(doParallel)
 library(pracma)
+library(invgamma)
+library(MotrpacBicQC)
 
 
 #### define functions ####
@@ -43,7 +44,7 @@ motrpac_gtex_map = c('t30-blood-rna'='Whole Blood',
                      't70-white-adipose'='Adipose - Subcutaneous')
 
 cols = list(Tissue=tissue_cols[names(motrpac_gtex_map)], 
-            Time=group_cols[paste0(c(1,2,4,8), "w")],
+            Time=MotrpacBicQC::group_cols[paste0(c(1,2,4,8), "w")],
             Sex=sex_cols[c('male','female')])
 cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
 
@@ -215,11 +216,22 @@ cols$category <- category_colors
 
 #### actually plot genetic correlations ####
 
-grDevices::cairo_pdf(filename = paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/figure1_high-level-overview.pdf"), 
-                     width = 1300 / 72, height = 600 / 72, family="Arial Unicode MS")
-layout(t(c(rep(1,1),rep(2,1))))
+vertically_oriented <- T
+grDevices::cairo_pdf(filename = paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/figure2s_high-level-overview",
+                                       ifelse(vertically_oriented, "_vertical", "_horizontal"),".pdf"), 
+                     width = ifelse(vertically_oriented, 775 / 72, 1300 / 72), height = ifelse(vertically_oriented, 1300/72, 600 / 72), family="Arial Unicode MS")
+if(vertically_oriented){
+  layout(t(t(c(rep(1,1),rep(2,1)))))
+} else {
+  layout(t(c(rep(1,1),rep(2,1))))  
+}
 
-par(mar = c(6,7,3,6), xpd = NA)
+if(vertically_oriented){
+  par(mar = c(6,8,3,10), xpd = NA)
+} else {
+  par(mar = c(6,7,3,6), xpd = NA)
+}
+
 # par(mar = c(6,5,3,4), xpd = NA)
 # layout(mat = t(as.matrix(c(rep(1,5), rep(2,6)))))
 
@@ -362,7 +374,9 @@ text(labels = latex2exp::TeX(paste0("• mark p-val < $10^{", round(log10(0.025 
      x = -0.5, y = yt + ydisp + nrow(gcor_mat)/5, cex = 0.75, srt = 90)
 text(labels = "bonferroni", x = -1.5, y = yt + ydisp + nrow(gcor_mat)/5, cex = 0.75, srt = 90, font = 3, family = "Arial")
 
-fig_label(text = "a)", region = "plot", cex = 3, shrinkX = -20, shrinkY = 1.065)
+if(!vertically_oriented){
+  fig_label(text = "a)", region = "plot", cex = 3, shrinkX = -20, shrinkY = 1.065)
+}
 
 #legend for h2 estimates
 xl = length(traitnames) - 4; xr = length(traitnames) - 3; yb = -12.75; yt = -0.55
@@ -402,7 +416,7 @@ col_df$Time = sapply(rownames(col_df), function(x) unname(unlist(strsplit(x, '_'
 col_df$Sex = sapply(rownames(col_df), function(x) unname(unlist(strsplit(x, '_')))[2])
 
 colours = list(Tissue=tissue_cols[unique(col_df$Tissue)], 
-               Time=group_cols[unique(col_df$Time)],
+               Time=MotrpacBicQC::group_cols[unique(col_df$Time)],
                Sex=sex_cols[c('male','female')])
 colours$Tissue["t56-vastus-lateralis"] <- colorRampPalette(c(as.character(colours$Tissue["t56-vastus-lateralis"]), "black"))(3)[2]
 nnmap <- as.data.frame(bic_animal_tissue_code[,4:5])
@@ -440,7 +454,14 @@ tissues <- unlist(tissues)
 tissues_to_include <- tissues
 print(tissues_to_include)
 
-par(mar = c(7,11.5,5.5,4.5), xpd = NA)
+
+if(vertically_oriented){
+  par(mar = c(7,12.5,5.5,8), xpd = NA)
+} else {
+  par(mar = c(7,11.5,5.5,4.5), xpd = NA)
+}
+
+
 
 if(tissue_names_not_colors){
   nice_names[nice_names == "LUNG"] <- "LUNGS"
@@ -758,15 +779,18 @@ if(!tissue_names_not_colors){
 }
 # addImg(png::readPNG("~/Pictures/deathrats1.png"), 0, 0, width = 1)
 
-fig_label(text = "b)", region = "plot", cex = 3, shrinkX = 1.5, shrinkY = 1.32)
+fig_label(text = "a)", region = "plot", cex = 3, shrinkX = 1.7, shrinkY = 4.25)
+if(vertically_oriented){
+  fig_label(text = "b)", region = "plot", cex = 3, shrinkX = 1.7, shrinkY = 1.32)
+}
 
 dev.off()
 
 #### figure 1 composite ####
 if(!exists("called_grex_script")){called_grex_script <- F}
 if(!called_grex_script){
-  source("~/scripts/montgomery_lab/GREx_RelativeEffectSize.R")
   called_grex_script <- T
+  source("~/repos/MoTrPAC_Complex_Traits/fig2b_GREx_RelativeEffectSize.R")
 }
 if(!exists("relative_expression_data")){
   load("~/data/smontgom/relative_expression_motrpac_gtex")
@@ -1427,6 +1451,8 @@ box("plot")
 
 #invgamma hyperpriors
 x_var <- 1:500/1000
+load("~/data/smontgom/GREx_sds_expression")
+load("~/data/smontgom/GREx_invgamma_estimate")
 var_dens <- sapply(invgamma_estimates, function(invgamma_estimate)
   dinvgamma(x_var, shape = invgamma_estimate[1], scale = invgamma_estimate[2]))
 colnames(var_dens) <- names(invgamma_estimates)
@@ -1445,10 +1471,14 @@ qs2use <- round(invlogit(seq(-9,9, length.out = 75)), 4)
 
 
 for(sex_i in c("male", "female")){
-  for(type in 3:4){
+  for(type in 3:4){ #the two sexhomo categories, which subsets to the 8w_M1/-1_F1/-1 nodes
     
     EZ_PZ <- relative_expression_data[[sex_i]][[type]]
-    EZ_PZ <- lapply(EZ_PZ, function(x) x[match(paste0(sprintf("%.2f", qs2use*100), "%"), paste0(sprintf("%.2f", as.numeric(gsub("%", "", rownames(x)))), "%")),])
+    EZ_PZ <- lapply(EZ_PZ, function(x) {
+      out <- x[match(paste0(sprintf("%.2f", qs2use*100), "%"), paste0(sprintf("%.2f", as.numeric(gsub("%", "", rownames(x)))), "%")),]
+      out[is.na(out)] <- 0
+      out
+    })
     
     ti = "8w"
     f_p <- 0.4
@@ -1490,6 +1520,7 @@ for(sex_i in c("male", "female")){
     
     
     for(tissue in colnames(EZ_PZ[[ti]])){
+      if(all(abs(EZ_PZ[[ti]][,tissue]) < 1E-5)){next()}
       lines(squish_middle_p(qs2use, f_p), squish_middle_x(EZ_PZ[[ti]][,tissue], f_x), col = cols$Tissue[tissue])
       text(nnmap$abbreviation[match(tissue, nnmap$tissue_name_release)], x = xylocs_tissue_names[tissue,"x"], y = xylocs_tissue_names[tissue,"y"], pos = 4, xpd = NA,
            col = cols$Tissue[tissue], cex = 0.75)
@@ -1768,6 +1799,387 @@ for(type in c(3,4)){
     shadowtext(x = -0.01, y = ylims[2] - diff(ylims) / 8, labels = ti, 
                cex = 5, col = cols$Time[ti], pos = 4, r = 0.2)
   }
+}
+
+dev.off()
+
+
+
+
+#### figure 2 composite REDUX ####
+if(!exists("called_grex_script")){called_grex_script <- F}
+if(!called_grex_script){
+  called_grex_script <- T
+  source("~/repos/MoTrPAC_Complex_Traits/fig2b_GREx_RelativeEffectSize.R")
+}
+if(!exists("relative_expression_data")){
+  load("~/data/smontgom/relative_expression_motrpac_gtex")
+}
+
+grDevices::cairo_pdf(filename = paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/fig2_high-level-overview_redux.pdf"), 
+                     width = 1350 / 72, height = 1125 / 72, family="Arial Unicode MS", pointsize = 18.5)
+
+layout_mat <- kronecker(rbind(
+  c(1,1,2,3),
+  c(1,1,4,5),
+  c(6,13,9,11),
+  c(7,8,10,12)
+), matrix(1,2,2))
+layout_mat[5:6, 1:3] <- layout_mat[5:6, 3:1]
+layout(layout_mat, heights = c(1,1,1,1))
+
+#node intersects plot
+par(mar = c(4,5,4,1), xpd = NA)
+load("~/data/smontgom/node_metadata_list.RData")
+ensembl_genes <- orig_ensembl_genes <- lapply(split(node_metadata_list$`8w`$human_ensembl_gene[!is.na(node_metadata_list$`8w`$human_ensembl_gene)], 
+                                                    node_metadata_list$`8w`$tissue[!is.na(node_metadata_list$`8w`$human_ensembl_gene)]), unique)
+symbol_map <- unique(node_metadata_list$`8w`[,c("human_gene_symbol", "human_ensembl_gene")])
+all_genes <- unlist(orig_ensembl_genes)
+n_tissues_per_gene <- table(all_genes)
+ensembl_genes$THREE <- names(n_tissues_per_gene)[n_tissues_per_gene > 2]
+
+
+tissue_colors <- c(tissue_cols, THREE = "black")
+jaccard <- function(x, y) length(intersect(x,y)) / length(union(x,y))
+jacmat <- sapply(orig_ensembl_genes, function(x) sapply(orig_ensembl_genes, function(y) jaccard(x,y)))
+jacmat_inds <- order(cmdscale(1-jacmat, k = 1))
+jacmat <- jacmat[jacmat_inds, jacmat_inds]
+n_tissues_per_gene <- table(unlist(orig_ensembl_genes))
+nt2pg <- table(n_tissues_per_gene)
+ensembl_genes_df <- data.frame(gene = unlist(orig_ensembl_genes),
+                               tissue = rep(names(orig_ensembl_genes), sapply(orig_ensembl_genes, length), each = T))
+ensembl_genes_df$n_tissue <- n_tissues_per_gene[match(ensembl_genes_df$gene, names(n_tissues_per_gene))]
+n_per_cat <- lapply(setNames(sort(unique(n_tissues_per_gene)), sort(unique(n_tissues_per_gene))), 
+                    function(nt){x <- table(ensembl_genes_df$tissue[ensembl_genes_df$n_tissue == nt]); x})
+prop_per_cat <- lapply(n_per_cat, function(nt) nt / sum(nt))
+
+
+plot(NA, xlim = c(0.5, length(prop_per_cat)+0.5), ylim = c(0,2), frame = F, xaxt = "n", yaxt = "n", xlab = "", ylab = "")
+for(nt in 1:length(prop_per_cat)){
+  ntcs <- cumsum(n_per_cat[[nt]])
+  ptcs <- ntcs / max(ntcs)
+  rect(xleft = nt - 0.5, xright = nt + 0.5, yb = c(0, ptcs[-length(ptcs)]), ytop = ptcs,
+       col = tissue_colors[names(ptcs)])
+  rect(xleft = nt - 0.5, xright = nt + 0.5, yb = 1.05, ytop = 1.05 + log10(nt2pg[nt]) / log10(max(nt2pg)) * 0.9 + 0.05,
+       col = "lightgrey")
+  text(nt, 1.05 + log10(nt2pg[nt]) / log10(max(nt2pg)) * 0.9 + 0.05, labels = nt2pg[nt], pos = 3, cex = 1.5, xpd = NA)
+}
+
+#axes
+#bottom plot
+text(x = 1:6, labels = 1:6, y = 0, pos = 1, cex = 1.5, font = 2)
+nnum <- 6
+segments(x0 = 0.425, x1 = 0.425, y = 0, y1 = 1, lwd = 2)
+segments(x0 = 0.425, x1 = 0.35, y = seq(0, 1, length.out = nnum), y1 = seq(0, 1, length.out = nnum), lwd = 2)
+text(x = 0.35, y = seq(0, 1, length.out = nnum), labels = seq(0,1,length.out=nnum), pos = 2, cex = 1.25, xpd = NA)
+text(labels = "Number of Tissues Differentially Expressing the Same Gene", x = (length(nt2pg) + 1) / 2, y = -0.125, pos = 1, cex = 1.5, xpd = NA)
+text(labels = "Tissue Composition of Bin", x = -0.15, y = 0.5, pos = 3, cex = 1.5, xpd = NA, srt = 90)
+
+#top plot
+log10_count_ticks <- (0:floor(max(log10(nt2pg))))
+log10_count_ylocs <- 1.1 + 0.9 * log10_count_ticks / log10(max(nt2pg))
+segments(x0 = 0.425, x1 = 0.425, y = 1.1, y1 = 2, lwd = 2)
+segments(x0 = 0.425, x1 = 0.35, y = log10_count_ylocs, y1 = log10_count_ylocs, lwd = 2)
+text(x = 0.375, y = log10_count_ylocs, labels = latex2exp::TeX(paste0("$10^{", log10_count_ticks, "}$")), pos = 2, cex = 1.25, xpd = NA)
+text(labels = "Number of Genes in Bin", x = -0.15, y = 1.525, pos = 3, cex = 1.5, xpd = NA, srt = 90)
+
+
+#jaccard matrix
+xl = 2; xr = 6; yb = 1.5; yt = 2
+ncols <- 101
+rate = 0.04
+exp_dist_cols <- round(cumsum(c(1, dexp(1:(ncols-1), rate = rate) / min(dexp(1:(ncols-1), rate = rate)))))
+colgrad <- viridis::viridis(max(exp_dist_cols))[exp_dist_cols]
+
+xyrat <- diff(par("usr")[1:2]) / diff(par("usr")[3:4])
+
+for(j in 2:ncol(jacmat)){
+  rect(xleft = xl + (j-1) / nrow(jacmat) * (xr - xl), xright = xl + j / nrow(jacmat) * (xr - xl), 
+       ybottom = yt + 1 / ncol(jacmat) * (yt - yb), ytop =  yt + 2 / ncol(jacmat) * (yt - yb),
+       col = tissue_cols[colnames(jacmat)[j]])
+  text(x = xl + (j-0.75) / nrow(jacmat) * (xr - xl), y = yt + 2.5 / ncol(jacmat) * (yt - yb),
+       labels = colnames(jacmat)[j], pos = 4, cex = 0.75, xpd = NA, srt = 45)
+  
+  for(i in 1:(j-1)){
+    rect(xleft = xl + (j-1) / nrow(jacmat) * (xr - xl), xright = xl + j / nrow(jacmat) * (xr - xl), 
+         ybottom = yb + (nrow(jacmat)-i) / ncol(jacmat) * (yt - yb), ytop =  yb + (nrow(jacmat)-i+1) / ncol(jacmat) * (yt - yb),
+         col = colgrad[floor(jacmat[i,j] * 100) + 1])
+    if(j == ncol(jacmat)){
+      rect(xleft = xr + 1 / xyrat / nrow(jacmat) * (xr - xl), xright = xr + (1 + 1 / xyrat) / nrow(jacmat) * (xr - xl), 
+           ybottom = yb + (nrow(jacmat)-i) / ncol(jacmat) * (yt - yb), ytop =  yb + (nrow(jacmat)-i+1) / ncol(jacmat) * (yt - yb),
+           col = tissue_cols[rownames(jacmat)[i]])
+      text(x = xr + (0.9 + 1 / xyrat) / nrow(jacmat) * (xr - xl), y = yb + (nrow(jacmat)-i+0.5) / ncol(jacmat) * (yt - yb),
+           labels = rownames(jacmat)[i], pos = 4, cex = 0.75)
+    }
+  }
+}
+
+#legend for heatmap
+rect(xleft = xr + (0.5 + 1 / xyrat) / nrow(jacmat) * (xr - xl), xright = xr + (1 + 1 / xyrat) / nrow(jacmat) * (xr - xl),
+     ybottom = seq(yb - (yt-yb)/1.5, yb, length.out = ncols+1)[-ncols], ytop =  seq(yb - (yt-yb)/1.5, yb, length.out = ncols+1)[-1],
+     col = colgrad, border = colgrad)
+rect(xleft = xr + (0.5 + 1 / xyrat) / nrow(jacmat) * (xr - xl), xright = xr + (1 + 1 / xyrat) / nrow(jacmat) * (xr - xl),
+     ybottom = yb, ytop =  yb - (yt-yb)/1.5, border = 1)
+nnum <- 6
+text(x = xr + (0.875 + 1 / xyrat) / nrow(jacmat) * (xr - xl), y = seq(yb - (yt-yb)/1.5, yb, length.out = nnum), labels = seq(0,1,length.out=nnum), pos = 4, cex = 0.75)
+text(x = xr + (0.375 + 1 / xyrat) / nrow(jacmat) * (xr - xl), y = yb - (yt-yb)/3, labels = "Jaccard Index", pos = 3, cex = 0.75, srt = 90)
+
+
+#now do the opentargets curves
+if(!exists("n_traits_above_at_least_1")){
+  use_indirect <- F
+  load(paste0("~/data/smontgom/open-targets_tissue-x-disease_", 
+              ifelse(use_indirect, "indirect", "direct"), 
+              "-associations"))
+  breakpoints <- 0:100/100
+  n_above <- sapply(names(tissue_x_disease), function(tissue) 
+    log10((data.frame(cats = cut(tissue_x_disease[[tissue]][tissue_x_disease[[tissue]] > 1E-6], breaks=c(breakpoints, Inf)), ordered_result=TRUE) %>% 
+             dplyr::count(cats, .drop=FALSE) %>% arrange(desc(cats)) %>% mutate(cumfreq = cumsum(n)) %>% arrange(cats))$cumfreq))
+  prop_above <- log10(10^n_above %*% (diag(1 / sapply(ensembl_genes, length))))
+  colnames(prop_above) <- colnames(n_above)
+  
+  n_above_at_least_1 <- sapply(names(tissue_x_disease), function(tissue) 
+    log10((data.frame(cats = cut(apply(tissue_x_disease[[tissue]], 1, max)[apply(tissue_x_disease[[tissue]], 1, max) > 1E-6], breaks=c(breakpoints, Inf)), ordered_result=TRUE) %>% 
+             dplyr::count(cats, .drop=FALSE) %>% arrange(desc(cats)) %>% mutate(cumfreq = cumsum(n)) %>% arrange(cats))$cumfreq))
+  
+  
+  n_traits_above_at_least_1 <- sapply(names(tissue_x_disease), function(tissue) 
+    log10((data.frame(cats = cut(apply(tissue_x_disease[[tissue]], 2, max)[apply(tissue_x_disease[[tissue]], 2, max) > 1E-6], breaks=c(breakpoints, Inf)), ordered_result=TRUE) %>% 
+             dplyr::count(cats, .drop=FALSE) %>% arrange(desc(cats)) %>% mutate(cumfreq = cumsum(n)) %>% arrange(cats))$cumfreq))
+}
+
+#now plot opentargets curves
+main_title <- paste0("OpenTargets ", ifelse(use_indirect, "Overall / Indirect", "Direct"), " Associations")
+
+par(xpd = F)
+
+
+curves_list <- list(n_above, prop_above, n_above_at_least_1, n_traits_above_at_least_1)
+vlabs <- c("# trait x gene pairs\n≥ given evidence score",
+           "average # traits per gene\n≥ given evidence score",
+           "# genes with ≥ one association\n≥ given evidence score",
+           "# traits with ≥ one association\n≥ given evidence score")
+
+for(i in 1:4){
+  
+  if(i < 3){
+    par(mar = c(3,4,2,4))
+  } else {
+    par(mar = c(4,4,1,4))
+  }
+  
+  curves_to_use <- curves_list[[i]]
+  vlab <- vlabs[[i]]
+  ylims <- range(curves_to_use[is.finite(curves_to_use)])
+  
+  plot(NA, NA, xlim = rev(c(0,1)), ylim = ylims, xlab = "", ylab = "", 
+       yaxt = "n", xaxt = "n", main = "", xpd = NA, frame = F)
+  text(x = 1.1675, y = mean(par("usr")[3:4]), label = vlab, srt = 90, pos = 3, xpd = T)
+  text(x = mean(par("usr")[1:2]), y = par("usr")[3] - diff(par("usr")[3:4])/10, pos = 1, xpd = T, label = "evidence score")
+  
+  if(i == 1){
+    text(main_title, x = -0.425, y = ylims[2] + diff(ylims) / 20, pos = 3, xpd = NA, cex = 2)
+  }
+  segments(y0 = ceiling(ylims[1]):floor(ylims[2]), y1 = ceiling(ylims[1]):floor(ylims[2]), x0 = 0, x1 = 1, lty = 3)
+  segments(y0 =ceiling(ylims[1]):floor(ylims[2]), y1 = ceiling(ylims[1]):floor(ylims[2]), x0 = 0, x1 = 1, lty = 3)
+  minticks <- log10(2:9) + rep(floor(ylims[1]):ceiling(ylims[2]), each = 8)
+  minticks <- minticks[minticks < par("usr")[4] & minticks > par("usr")[3]]
+  segments(y0 = minticks, y1 = minticks, x0 = 0, x1 = 1, lty = 3, lwd = 0.5)
+  segments(y0 = minticks, x0 = 1, y1 = minticks, x1 = 1.0125, lwd = 0.75, xpd = NA)
+  segments(y0 = -1E9, x0 = 0:5/5, y1 = 1E9, x1 = 0:5/5, lwd = 0.75, lty = 3)
+  
+  #yax
+  segments(x0 = 1, x1 = 1, y0 = par("usr")[3], y1 = par("usr")[4], lwd = 2)
+  segments(x0 = 1.025, x1 = 1, y0 = ceiling(ylims[1]):floor(ylims[2]), y1 = ceiling(ylims[1]):floor(ylims[2]), lwd = 2)
+  text(x = 0.99, y = ceiling(ylims[1]):floor(ylims[2]), pos = 2, xpd = T,
+       labels = latex2exp::TeX(paste0("$10^{", ceiling(ylims[1]):floor(ylims[2]), "}$")))
+  
+  #hax
+  segments(x0 = 0, x1 = 1, y0 = par("usr")[3], y1 = par("usr")[3], lwd = 5)
+  segments(x0 = 0:5/5, x1 = 0:5/5, y0 = par("usr")[3], y1 =  par("usr")[3] - diff(par("usr")[3:4]) / 40, xpd = T, lwd = 2)
+  text(x = 0:5/5, y = par("usr")[3] - diff(par("usr")[3:4]) / 100, pos = 1, xpd = T,
+       labels = 0:5/5)
+  
+  #the actual curves
+  for(tissue in names(tissue_x_disease)){
+    lines(breakpoints, curves_to_use[,tissue], lwd = 2, col = tissue_colors[tissue])
+  }
+  
+  #tissue labels
+  tiss_order <- colnames(curves_to_use)[order(curves_to_use[1,], decreasing = T)]
+  text(labels = tiss_order, col = tissue_colors[tiss_order], cex = 0.75, font = 2, xpd = NA,
+       pos = 4, x = -0.05, y = ylims[2] - cumsum(c(0,rep(strheight(tiss_order[1], units = "user"), length(tissue_x_disease) - 1))))
+  segments(x0 = -0.08, x1 = 0, y0 = ylims[2] - cumsum(c(0,rep(strheight(tiss_order[1], units = "user"), length(tissue_x_disease) - 1))),
+           y1 = curves_to_use[1,tiss_order], col = tissue_colors[tiss_order], xpd = T)
+  
+}
+
+# fig_label(text = "b)", region = "plot", cex = 3, shrinkX = 1.5, shrinkY = 1.32)
+# fig_label(text = "c)", region = "plot", cex = 3, shrinkX = -1.5, shrinkY = 1.32, xpd = NA)
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~
+#relative expression plots
+# ~~~~~~~~~~~~~~~~~~~~~~~~
+
+par(mar = c(3,3,1,3) + 1)
+#logFCs
+xr <- c(-2,2)
+x_logfc <- seq(from = xr[1], to = xr[2], length.out = 256)
+logfc_dens <- sapply(deg_eqtl_list, function(del)
+  density((del$logFC), na.rm = T, from = xr[1], to = xr[2], n = 256)$y)
+plot(NA,NA, xlim = xr, ylim = c(0, quantile(logfc_dens, 1)), xlab = "", ylab = "",
+     xaxt = "n", xpd = NA)
+xvals <- seq(xr[1], xr[2], length.out = 5)
+segments(y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/50, x0 = xvals, x1 = xvals, xpd = NA)
+text(y = par("usr")[3] - diff(par("usr")[3:4])/50, pos = 1, x = xvals, labels = round((xvals), 2), xpd = NA)
+text(x = par("usr")[1] - diff(par("usr")[1:2])/4.5, y = mean(par("usr")[3:4]), labels = "", srt = 90, xpd = NA)
+text(x = par("usr")[1] - diff(par("usr")[1:2])/4.5, y = mean(par("usr")[3:4]), labels = "Density", srt = 90, xpd = NA)
+text(x = mean(par("usr")[1:2]), y = par("usr")[3] - diff(par("usr")[3:4])/4.5, labels = latex2exp::TeX("Exercise-induced $log_2FC$"), srt = 0, xpd = NA)
+
+for(tissue in colnames(logfc_dens)){
+  polygon(c(x_logfc, rev(x_logfc)), c(logfc_dens[,tissue], rep(0,length(x_logfc))), col = adjustcolor(cols$Tissue[tissue], 0.5))  
+}
+
+#surrounding text
+# text(x = -6, y = -6.5, labels = "(", cex = 16, xpd = NA, family = "Helvetica Narrow", srt = 0, col = 1)
+par(xpd = NA)
+arc(t1 = pi/2, t2 = 3*pi/2, r1 = 3, r2 = 3, center = c(-5.8, -6.4), adjx = 0.2, lwd = 3)
+arc(t1 = pi/2-1E-5, t2 = 3*pi/2, r1 = 3, r2 = 3, center = c(5.3, -6.4), adjx = 0.2, lwd = 3)
+text(x = 6, -3.75, labels = "1/2", cex = 2)
+segments(x0 = -5.5, x1 = 5, y0 = -2.75, y1 = -2.75, lwd = 5, xpd = NA)
+segments(x0 = 6, x1 = 7, y0 = -2.5, y1 = -2.5, lwd = 10, xpd = NA, col = 2)
+points(7.25, -2.5, pch = -9658, cex = 5, xpd = NA, col = 2)
+par(xpd = T)
+
+fig_label(text = "a)", region = "plot", cex = 3, shrinkX = 3.25, shrinkY = 4.35)
+fig_label(text = "b)", region = "plot", cex = 3, shrinkX = -3.75, shrinkY = 4.35)
+fig_label(text = "c)", region = "plot", cex = 3, shrinkX = 2, shrinkY = 1.065)
+fig_label(text = "d)", region = "plot", cex = 3, shrinkX = -3.75, shrinkY = 1.065)
+
+
+#snp heritability
+par(mar = c(3,3.5,1,3.5)+1.5)
+if(!exists("gcta_output")){
+  load(file = "gcta_output_GTEx_allTissues_list_IHW.RData")
+  load(paste0(gcta_directory, "gcta_output_GTEx_allTissues.RData"))
+}
+n_h2s <- sum(sapply(gcta_output, function(i) nrow(i)))
+gcta_output_h2s <- lapply(setNames((names(gcta_output)), (names(gcta_output))), function(tissue) gcta_output[[tissue]]$h2)
+if(!exists("h2_freqs")){
+  h2_freqs <- lapply(setNames(rev(names(gcta_output)), rev(names(gcta_output))), function(tissue){
+    out <- hist(do.call(c, gcta_output_h2s[1:match(tissue, names(gcta_output_h2s))]), breaks = 0:5/5, plot = F)
+    out$counts <- out$counts / n_h2s
+    out
+  })
+}
+tissues <- rev(names(gcta_output))
+plot(h2_freqs[[tissues[1]]], col = adjustcolor(cols$Tissue[tissues[1]], 0.5), xlab = "", ylab = "Density",
+     main = "")
+for(tissue in tissues[-1]){
+  plot(h2_freqs[[tissue]], col = adjustcolor(cols$Tissue[tissue], 0.5), add = T)
+}
+text(x = par("usr")[1] - diff(par("usr")[1:2])/4, y = mean(par("usr")[3:4]), labels = "Density", srt = 90, xpd = NA)
+text(x = mean(par("usr")[1:2]), y = par("usr")[3] - diff(par("usr")[3:4])/4.5, labels = latex2exp::TeX("Estimated $h^2_{SNP}$"), srt = 0, xpd = NA)
+box("plot")
+
+
+#invgamma hyperpriors
+x_var <- 1:500/1000
+load("~/data/smontgom/GREx_sds_expression")
+load("~/data/smontgom/GREx_invgamma_estimate")
+var_dens <- sapply(invgamma_estimates, function(invgamma_estimate)
+  dinvgamma(x_var, shape = invgamma_estimate[1], scale = invgamma_estimate[2]))
+colnames(var_dens) <- names(invgamma_estimates)
+plot(NA,NA, xlim = range(x_var), ylim = c(0, quantile(var_dens, 1)), xlab = "", ylab = "Density")
+for(tissue in colnames(var_dens)){
+  polygon(c(x_var, rev(x_var)), c(var_dens[,tissue], rep(0,length(x_var))), col = adjustcolor(cols$Tissue[tissue], 0.5))  
+}
+text(x = par("usr")[1] - diff(par("usr")[1:2])/4, y = mean(par("usr")[3:4]), labels = "Density", srt = 90, xpd = NA)
+text(x = par("usr")[1] - diff(par("usr")[1:2])/2.65, y = mean(par("usr")[3:4]), labels = "•", srt = 90, xpd = NA, cex = 4)
+text(x = mean(par("usr")[1:2]), y = par("usr")[3] - diff(par("usr")[3:4])/4.5, labels = latex2exp::TeX("Expression Variance"), srt = 0, xpd = NA)
+
+#quantile plots
+par(mar = c(4,5,2,0), xpd = NA)
+nnmap <- as.data.frame(bic_animal_tissue_code[,4:5])
+qs2use <- round(invlogit(seq(-9,9, length.out = 75)), 4)
+
+
+for(sex_i in c("male", "female")){
+  for(type in 3:4){ #the two sexhomo categories, which subsets to the 8w_M1/-1_F1/-1 nodes
+    
+    EZ_PZ <- relative_expression_data[[sex_i]][[type]]
+    EZ_PZ <- lapply(EZ_PZ, function(x) {
+      out <- x[match(paste0(sprintf("%.2f", qs2use*100), "%"), paste0(sprintf("%.2f", as.numeric(gsub("%", "", rownames(x)))), "%")),]
+      out[is.na(out)] <- 0
+      out
+    })
+    
+    ti = "8w"
+    f_p <- 0.4
+    f_x <- 2
+    ylims = c(min(sort(EZ_PZ[[ti]])[sort(EZ_PZ[[ti]]) != -Inf]),max(sort(EZ_PZ[[ti]],T)[sort(EZ_PZ[[ti]],T) != Inf]))
+    ylims <- squish_middle_x(ylims, f_x)
+    
+    plot(100,100,xlim = c(0,1.3), ylim = ylims, xpd=NA, ylab = "", xlab = "", xaxt = "n", yaxt = "n", bty="n", cex.lab = 1.25, cex.axis = 1.25)
+    text(x = par("usr")[1] - diff(par("usr")[1:2])/10, y = mean(par("usr")[3:4]), labels = "Standardized Effect Size (SD)", srt = 90, xpd = NA)
+    
+    text("Quantile", x = 0.5, y = ylims[1] - diff(ylims)/5, pos = 1, cex = 1)
+    if(ti == "2w"){
+      text(latex2exp::TeX(paste0("Ratio of Exercise DE to \\sqrt{", ifelse(type == 1, "Phenotypic", "Genetic"), " Variance in $log_2$(Gene Expression)}")), 
+           x = 1.35, y = ylims[2] + diff(ylims) / 15, pos = 3, cex = 3)
+      }
+    if(ti == "1w"){
+      fig_label(ifelse(type == 1, "a)", "b)"), region = "figure", pos = "topleft", cex = 3.5)
+    }
+    
+    xylocs_tissue_names <- cbind(rep(1.05, ncol(EZ_PZ[[ti]])), redistribute(as.numeric(squish_middle_x(tail(EZ_PZ[[ti]], 1), f_x)), diff(ylims) / 20))
+    rownames(xylocs_tissue_names) <- colnames(EZ_PZ[[ti]]); colnames(xylocs_tissue_names) <- c("x", "y")
+    
+    #horiz axis
+    segments(x0 = 0, y0 = ylims[1] - diff(ylims) / 100, x1 = 1, y1 = ylims[1] - diff(ylims) / 100, lwd = 2)
+    segments(x0 = 0:10/10, y0 = ylims[1] - diff(ylims) / 100, x1 = 0:10/10, y1 = ylims[1] - diff(ylims) / 50, lwd = 2, xpd = NA)
+    horiz_axis_labels <- round(unsquish_middle_p(0:10/10, f_p), 3)
+    horiz_axis_labels[1] <- 0; horiz_axis_labels[length(horiz_axis_labels)] <- 1;
+    text(labels = horiz_axis_labels, x = 0:10/10 + 0.035, y = rep(ylims[1] - diff(ylims) / 25, 10), pos = 2, xpd = NA, srt = 90, cex = 0.75)
+    segments(x0 = 0.5, y0 = ylims[1], x1 = 0.5, y1 = ylims[2], lwd = 2, lty = 2, col = "grey50")
+    segments(x0 = 0:10/10, y0 = ylims[1], x1 = 0:10/10, y1 = ylims[2], lwd = 1, lty = 3, col = "grey75")
+    
+    #vert axis
+    segments(x0 = -1/100, y0 = ylims[1] + diff(ylims)/100, x1 = -1/100, y1 = ylims[2], lwd = 2)
+    segments(x0 = -1/100, y0 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), x1 = -1/50,
+             y1 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), lwd = 2)
+    text(labels = round(unsquish_middle_x(seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), f_x), 2),
+         x = -1/50, y = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), pos = 2, xpd = NA, cex = 0.75)
+    segments(x0 = 0, y0 = 0, x1 = 1, y1 = 0, lwd = 2, lty = 2, col = "grey50")
+    segments(x0 = 0, y0 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), x1 = 1, 
+             y1 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), lwd = 1, lty = 3, col = "grey75")
+    
+    
+    for(tissue in colnames(EZ_PZ[[ti]])){
+      if(all(abs(EZ_PZ[[ti]][,tissue]) < 1E-5)){next()}
+      lines(squish_middle_p(qs2use, f_p), squish_middle_x(EZ_PZ[[ti]][,tissue], f_x), col = cols$Tissue[tissue])
+      text(nnmap$abbreviation[match(tissue, nnmap$tissue_name_release)], x = xylocs_tissue_names[tissue,"x"], y = xylocs_tissue_names[tissue,"y"], pos = 4, xpd = NA,
+           col = cols$Tissue[tissue], cex = 0.75)
+      segments(x0 = squish_middle_p(tail(qs2use, 1), f_p), x1 = xylocs_tissue_names[tissue,"x"]+0.01,
+               y0 = squish_middle_x(tail(EZ_PZ[[ti]][,tissue], 1), f_x), y1 = xylocs_tissue_names[tissue,"y"],
+               lty = 3, col = cols$Tissue[tissue])
+    }
+    text(x = -0.01, y = ylims[2] - diff(ylims) / 8, labels = ti, 
+         cex = 3, col = cols$Time[ti], pos = 4)
+    text(x = 0.275, y = ylims[2] - diff(ylims) / 8, labels = ",", 
+         cex = 3, col = cols$Time[ti], pos = 4)
+    text(labels = c(female = "\u2640", male = "\u2642")[sex_i], x = 0.35, y = ylims[2] - diff(ylims) / 8, pos = 4, cex = 3, 
+         col = sex_cols[sex_i], family = "Arial Unicode MS")
+    
+    if(sex_i == "male"){
+      text(latex2exp::TeX(paste0("Ratio of Exercise DE to \\sqrt{", 
+                                 ifelse(type == 3, "Phenotypic", "Genetic"), " Variance in $log_2$(Gene Expression)}")), 
+           x = 1.5, y = ylims[2] + diff(ylims) / 50, pos = 3, cex = 1)
+    }
+  }
+  
+  
 }
 
 dev.off()

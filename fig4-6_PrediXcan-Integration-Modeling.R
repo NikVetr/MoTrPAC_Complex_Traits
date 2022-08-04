@@ -1,5 +1,10 @@
-# knitr::opts_knit$set(root.dir = '/oak/stanford/groups/smontgom/nicolerg/MOTRPAC/PASS_ANALYSIS/PASS1B/RNA/eqtl-coloc')
-
+#### load libraries ####
+library(ensembldb)
+library(EnsDb.Hsapiens.v86)
+library(cmdstanr)
+library(posterior)
+library(caret)
+library(MASS)
 library(ks)
 library(data.table)
 library(edgeR)
@@ -23,5070 +28,8459 @@ library(pracma)
 #### define functions ####
 source(file = "~/scripts/montgomery_lab/deg-trait_functions.R")
 
-#gsutil = '~/google-cloud-sdk/bin/gsutil'
-#source('/oak/stanford/groups/smontgom/nicolerg/src/MOTRPAC/motrpac-mawg/pass1b-06/integrative/outliers_covariates/pi1_cook_fx.R')
-#source('/oak/stanford/groups/smontgom/nicolerg/src/MOTRPAC/motrpac-mawg/pass1b-06/tools/get_fx.R')
+#### get ortholog map ####
+gencode_gene_map <- fread("~/data/smontgom/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
+gencode_gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID <- gsub(gencode_gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID, pattern = "\\..*", replacement = "")
 
-#### load data ####
-source(file = "~/scripts/montgomery_lab/load_deg-eqtl_merged_file.R")
-
-
-#### plot basic figure ####
-
-#getting some plotting code up -- just the raw DE x eQTL first
-sign_filter <- T #for the motrpac DE
-use_abs_slope <- T
-sign_filter_alpha <- 0.1
-n_genes_to_label_by_eQTL_effectSizes <- 5
-n_genes_to_label_by_logFC <- 5
-use_overall_fdr_threshold_across_sex_time <- T
-
-# p_val_cols = colorRampPalette(c("blue", "red"))(100)
-p_val_cols = viridis::magma(440)[c(1:20*10, 200+1:20*5, 300+1:20*4, 380+1:20*2, 420+1:20)]
-
-
-
-plot_basic_figure = T
-if(plot_basic_figure){
+use_panther_map = F
+if(use_panther_map){
+  panther_gene_map <- fread("~/data/smontgom/PANTHER17_human_rat_ref_genome_orthologs.tsv", sep = "\t", header = F)
+  colnames(panther_gene_map) <- c("human_ID", "rat_ID", "type", "superorder", "ID") 
+  panther_gene_map$UniProt_human <- do.call(rbind, strsplit(panther_gene_map$human_ID, "UniProtKB="))[,2]
+  panther_gene_map$UniProt_rat <- do.call(rbind, strsplit(panther_gene_map$rat_ID, "UniProtKB="))[,2]
+  panther_gene_map <- panther_gene_map[,c("UniProt_human", "UniProt_rat")]
   
-grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/basic_figure_eQTLxDE", ifelse(use_overall_fdr_threshold_across_sex_time, "", "_timesexthresh"),".pdf"), width = 2000 / 72, height = 10000 / 72 *18 / 17, family="Arial Unicode MS")
-# png(filename = "~/Documents/DExEQTL/basic_figure_eQTLxDE.png", width = 2000, height = 10000 * 18 / 17, family="Arial Unicode MS")
-par(mfrow = c(18, 1), mar = c(4,4,4,8), xpd = T)
-for(tissue in names(deg_eqtl_list)){
-# for(tissue in names(deg_eqtl_list)[1]){
+  # 11/15/21 RGD mapping
   
-  # grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/basic_figure_", tissue,".pdf"), width = 2000 / 72, height = 10000 / 72 / length(names(deg_eqtl_list)))
-
-  min_logpval <- floor(min(log(deg_eqtl_list[[tissue]]$pval_beta))) #gtex p-val
+  ratmap <- fread("~/data/smontgom/GENES_RAT.txt", sep='\t')[,c("UNIPROT_ID","ENSEMBL_ID","SYMBOL")]
+  ratmap <- ratmap[ratmap$UNIPROT_ID != "" & ratmap$ENSEMBL_ID != ""] 
+  manmap = fread("~/data/smontgom/GENES_HUMAN.txt", sep='\t')[,c("UNIPROT_ID","ENSEMBL_ID","SYMBOL")]
+  manmap <- manmap[manmap$UNIPROT_ID != "" & manmap$ENSEMBL_ID != ""] 
   
-  # if(tissue != names(deg_eqtl_list)[1]){break}
+  semicolons <- grep(";", ratmap$UNIPROT_ID)
+  ratmap <- rbind(ratmap[-semicolons,], do.call(rbind, lapply(semicolons, function(i) {
+    data.frame(UNIPROT_ID = strsplit(ratmap[i,]$UNIPROT_ID, ";")[[1]], ENSEMBL_ID = ratmap[i,]$ENSEMBL_ID, SYMBOL = ratmap[i,]$SYMBOL)
+  })))
+  semicolons <- grep(";", ratmap$ENSEMBL_ID)
+  ratmap <- rbind(ratmap[-semicolons,], do.call(rbind, lapply(semicolons, function(i) {
+    data.frame(UNIPROT_ID = ratmap[i,]$UNIPROT_ID, ENSEMBL_ID = strsplit(ratmap[i,]$ENSEMBL_ID, ";")[[1]], SYMBOL = ratmap[i,]$SYMBOL)
+  })))
   
-  plot(1,1,xlim = c(0,4), ylim = c(0,2.15), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
+  semicolons <- grep(";", manmap$UNIPROT_ID)
+  manmap <- rbind(manmap[-semicolons,], do.call(rbind, lapply(semicolons, function(i) {
+    data.frame(UNIPROT_ID = strsplit(manmap[i,]$UNIPROT_ID, ";")[[1]], ENSEMBL_ID = manmap[i,]$ENSEMBL_ID, SYMBOL = manmap[i,]$SYMBOL)
+  })))
+  semicolons <- grep(";", manmap$ENSEMBL_ID)
+  manmap <- rbind(manmap[-semicolons,], do.call(rbind, lapply(semicolons, function(i) {
+    data.frame(UNIPROT_ID = manmap[i,]$UNIPROT_ID, ENSEMBL_ID = strsplit(manmap[i,]$ENSEMBL_ID, ";")[[1]], SYMBOL = manmap[i,]$SYMBOL)
+  })))
   
-  #legend for dots and dashes
-  stponr <- c(1,7) #set_to_put_on_first_row
-  legend(x = 3.7165, y = ifelse(any(tissue == names(deg_eqtl_list)[stponr]), 1.26, 0.25775), col = c(1,1,"lightgray"), lwd = c(NA, 1, 2), lty = c(NA, 1, 2), pch = c(19, NA, NA), 
-     legend = c("Point Estimates", "±1 SE", "DE = 0 LFC"), cex = 1.5, box.lty = 3, box.lwd = 2, ncol = 1)
+  mean(panther_gene_map$UniProt_rat %in% ratmap$UNIPROT_ID)
+  mean(panther_gene_map$UniProt_human %in% manmap$UNIPROT_ID)
   
-  rect(xleft = 0, ybottom = 0, xright = 4, ytop = 2.15, lwd = 3) #whole plot
-  rect(xleft = 0, ybottom = 2, xright = 4, ytop = 2.15, col = rgb(0,0,0.1, alpha = 0.05), border = NA) #whole plot
-  segments(x0 = 0, x1 = 4, y0 = 2, y1 = 2, lwd = 3) #week title
-  segments(x0 = 0, x1 = 4, y0 = 1, y1 = 1, lwd = 2) #sex divisor
-  shadowtext(x = 2, y = 2.15, labels = stringr::str_to_title(paste0(strsplit(tissue, "-")[[1]][-1], collapse = " ")), 
-             cex = 5, col = cols$Tissue[tissue], pos = 3, r = 0.2) #timepoint labels
-  mtext(text = latex2exp::TeX("lead eVariant eQTL effect size (absolute value, log_{2}-fold change)"), cex = 2, line = 4) #horiz axis label
-  mtext(text = latex2exp::TeX("MoTrPAC Diff. Expression (log_{2}-fold change)"), cex = 2, line = -4.25, side = 2) #vert axis label
+  panther_gene_map <- cbind(panther_gene_map, manmap[match(panther_gene_map$UniProt_human, manmap$UNIPROT_ID), c("ENSEMBL_ID", "SYMBOL")])
+  colnames(panther_gene_map)[colnames(panther_gene_map) == c("ENSEMBL_ID", "SYMBOL")] <- paste0("HUMAN_ORTHOLOG_", c("ENSEMBL_ID", "SYMBOL"))
+  panther_gene_map <- cbind(panther_gene_map, ratmap[match(panther_gene_map$UniProt_rat, ratmap$UNIPROT_ID), c("ENSEMBL_ID", "SYMBOL")])
+  colnames(panther_gene_map)[colnames(panther_gene_map) == c("ENSEMBL_ID", "SYMBOL")] <- paste0("RAT_", c("ENSEMBL_ID", "SYMBOL"))
   
-  #note filtration scheme
-  text(labels = latex2exp::TeX("Results filtered at MoTrPAC FDR-$\\alpha$ = "), 
-      x = 3.37, y = 2.18, pos = 4, cex = 1.75)
-  text(labels = sign_filter_alpha, x = 3.91, y = 2.18, pos = 4, cex = 1.75, font = 2)
+  mean(tolower(gencode_gene_map$HUMAN_ORTHOLOG_SYMBOL) == tolower(gencode_gene_map$RAT_SYMBOL))
+  mean(tolower(panther_gene_map$HUMAN_ORTHOLOG_SYMBOL) == tolower(panther_gene_map$RAT_SYMBOL), na.rm = T)
+  gene_map <- panther_gene_map
   
-  #plot gtex p-value legend
-  xl <- 4.025; yb <- 0; xr <- 4.075; yt <- 2;
-  rect(
-    xl,
-    head(seq(yb,yt,(yt-yb)/100),-1),
-    xr,
-    tail(seq(yb,yt,(yt-yb)/100),-1),
-    col=p_val_cols
-  )
-  text(labels = round(seq(from = 0, to = -min_logpval, length.out = 10)), y = seq(yb, yt - 0.025, length.out = 10), x = 4.07, pos = 4, las=2, cex=1.5)
-  text(labels = latex2exp::TeX("-log_e(p-value)"), pos = 4, x = xl - 0.0175, y = yt + 0.035, cex = 2, font = 2)
-  addImg(GTEx_logo, x = xr - 0.01, y = yt + 0.125, width = 0.1) #much better
-  # text(labels = "GTEx", pos = 4, x = xl - 0.0175, y = yt + 0.125, cex = 2, font = 4)
-  
-  
-  
-  
-  for(sex in 1:2){
-  # for(sex in 1){
-    
-    sex_inds <- which(deg_eqtl_list[[tissue]]$sex == c("male", "female")[sex])
-    
-    for(timepoint in 1:4){
-    # for(timepoint in 1){
-      segments(x0 = timepoint, x1 = timepoint, y0 = 2.15, y1 = 2, lwd = 3) #timepoint divisor title
-      segments(x0 = timepoint, x1 = timepoint, y0 = 2, y1 = 0, lwd = 2) #timepoint divisor title
-      shadowtext(x = timepoint - 0.5, y = 2, labels = paste0(c(1,2,4,8), "w")[timepoint], 
-                 cex = 4, col = cols$Time[timepoint], pos = 3, r = ifelse(timepoint == 4, 0.05, 0.2)) #timepoint labels
-      
-      #plot sex symbol
-      text(labels = c("\u2642", "\u2640")[sex], x = timepoint - 1.01, y = 1 + sex - ifelse(sex == 1, 1.0675, 1.0825), pos = 4, cex = 4, col = cols$Sex[sex])
-      
-      timepoint_inds <- which(deg_eqtl_list[[tissue]]$comparison_group == paste0(c(1,2,4,8), "w")[timepoint])
-      
-      if(length(deg_eqtl_list[[tissue]]$selection_fdr) > 0 & use_overall_fdr_threshold_across_sex_time){
-        motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$selection_fdr < sign_filter_alpha)
-      } else {
-        motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)
-      }
-      
-      #incompatible gonads message
-      if((tissue == "t64-ovaries" & sex == 1) | (tissue == "t63-testes" & sex == 2)){
-        text(x = 0.5 + timepoint - 1, y = 0.5 + sex - 1, labels = "(not available)", cex = 2)
-        next()
-      }
-      
-      if(sign_filter){
-        delsub <- deg_eqtl_list[[tissue]][intersect(intersect(sex_inds, timepoint_inds), motrpac_signif_inds),]
-      } else{
-        delsub <- deg_eqtl_list[[tissue]][intersect(sex_inds, timepoint_inds),]
-      }
-      
-      
-      if(!sign_filter){
-        if(!use_abs_slope){
-          slope_rescale <- c(min(deg_eqtl_list[[tissue]][timepoint_inds,]$slope), max(deg_eqtl_list[[tissue]][sex_inds,]$slope))
-        } else {
-          slope_rescale <- c(min(deg_eqtl_list[[tissue]][timepoint_inds,]$abs_slope), max(deg_eqtl_list[[tissue]][sex_inds,]$abs_slope))
-        }
-        logFC_rescale <- c(min(deg_eqtl_list[[tissue]][sex_inds,]$logFC), max(deg_eqtl_list[[tissue]][timepoint_inds,]$logFC))
-      } else{
-        if(!use_abs_slope){
-          slope_rescale <- c(min(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$slope - deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$slope_se), 
-                             max(deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$slope + deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$slope_se))
-        } else {
-          slope_rescale <- c(min(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope - deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$slope_se), 
-                             max(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope + deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$slope_se))
-        }
-        logFC_rescale <- c(min(deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$logFC - deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$logFC_se), 
-                           max(deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$logFC + deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$logFC_se))
-      }
-      tarb <- 0.05 #total_axis_rescaling_buffer, so points don't fall on lines
-      
-      #add horizontal line to mark 0
-      if(timepoint == 1){
-        segments(x0 = 0, x1 = 4, lwd = 2, col = "lightgray", lty = 2,
-                 y0 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                 y1 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb)
-      }
-        
-      #point estimates
-      points(x = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-             y = (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-             pch = 19, col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta) / min_logpval * 100)], alpha.f = 0.75), cex = 1.5)
-      
-      print(paste0(tissue, ", ", c("male", "female")[sex], ", timepoint ", timepoint, ", min = ", round(min(delsub$logFC), 3), ", max = ", round(max(delsub$logFC), 3)))
-      
-      #vertical standard-error bars
-      segments(x0 = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-               x1 = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-               y0 = ((delsub$logFC + delsub$logFC_se) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb, 
-               y1 = ((delsub$logFC - delsub$logFC_se) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-               grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta) / min_logpval * 100)], alpha.f = 0.75), lwd = 1.5)
-      
-      #horizontal standard-error bars
-      segments(x0 = ((delsub$abs_slope + delsub$slope_se) / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-               x1 = ((delsub$abs_slope - delsub$slope_se) / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-               y0 = (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb, 
-               y1 = (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-               grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta) / min_logpval * 100)], alpha.f = 0.75), lwd = 1.5)
-      
-      #timepoint axes
-      if(sex == 1 | (tissue == "t64-ovaries" & sex == 2)){
-        tick_vals <- round(seq(from = slope_rescale[1], to = slope_rescale[2], length.out = 10), 2)
-        tick_locs <- (tick_vals / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb
-        axis(1, at = tick_locs, labels = rep("", 10), lwd = 2, cex.axis = 2, tck = -0.015, line = -2)
-        mtext(text = tick_vals, side = 1, at = tick_locs, cex = 1, line = -0.5)
-      }
-      
-      #sex axes
-      if(timepoint == 1 & !(tissue == "t64-ovaries" & sex == 1) & !(tissue == "t63-testes" & sex == 2)){
-        # tick_vals <- round(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5), 1)
-        tick_vals <- trunc(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5))
-        tick_locs <- (tick_vals / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb
-        axis(2, at = tick_locs, labels = rep("", 5), lwd = 2, cex.axis = 2, tck = -0.015, line = -7.35)
-        mtext(text = tick_vals, side = 2, at = tick_locs, cex = 1, line = -6)
-      }
-      
-      #label genes
-      ptl <- order(delsub$abs_slope, decreasing = T)[1:n_genes_to_label_by_eQTL_effectSizes] #points to label
-      ptl <- c(ptl, order(delsub$logFC, decreasing = T)[1:n_genes_to_label_by_logFC]) #points to label
-      text(x = (delsub$abs_slope[ptl] / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb - 0.005,
-           y = (delsub$logFC[ptl] / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb + 0.025,
-           labels = delsub$gene_name[ptl], col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta[ptl]) / min_logpval * 100)], alpha.f = 0.75), 
-           cex = 1.5, pos = 4)
-      
-      
-    }
-      
-  }
-  # dev.off()
-}
-dev.off()
-
-}
-
-#### connect the dots by sex ####
-
-#now let's connect the dots! first by sex
-sign_filter_alpha <- 0.1
-use_abs_slope <- T
-n_genes_to_label_by_contrastMagnitude <- 5
-cols = list(Tissue=tissue_cols[names(deg_eqtl_list)], 
-            Time=group_cols[paste0(c(1,2,4,8), "w")],
-            Sex=sex_cols[c('male','female')])
-cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
-names(cols$Tissue)[which(is.na(names(cols$Tissue)))] <- "t1000-gonads"
-
-plot_sexdots_figure = F
-if(plot_sexdots_figure){
-  
-  grDevices::cairo_pdf(filename = "~/Documents/DExEQTL/basic_figure_eQTLxDE_connectTheDots_sex.pdf", width = 2000 / 72, height = 6000 / 72, family="Arial Unicode MS")
-  par(mfrow = c(16, 1), mar = c(4,4,4,8), xpd = T)
-  
-  for(tissue in setdiff(names(deg_eqtl_list), c("t63-testes", "t64-ovaries"))){
-  # for(tissue in names(deg_eqtl_list)[1]){
-    print(tissue)
-    # grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/basic_figure_", tissue,".pdf"), width = 2000 / 72, height = 10000 / 72 / length(names(deg_eqtl_list)))
-    
-    min_logpval <- floor(min(log(deg_eqtl_list[[tissue]]$pval_beta))) #gtex p-val
-    
-    # if(tissue != names(deg_eqtl_list)[1]){break}
-    
-    plot(1,1,xlim = c(0,4), ylim = c(0,1.15), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-    
-    #legend for arrows
-    text(labels = "\u2642", x = 3.75, y = 0.075, pos = 4, cex = 4, col = cols$Sex[1])
-    text(labels = "\u2640", x = 3.925, y = 0.075, pos = 4, cex = 4, col = cols$Sex[2])
-    arrows(x0 = 3.815, y0 = 0.075, x1 = 3.935, y1 = 0.075, lwd = 2)
-    rect(xleft = 3.75, ybottom = 0, xright = 4, ytop = 0.175, lty = 3, lwd = 2)
-    
-    rect(xleft = 0, ybottom = 0, xright = 4, ytop = 1.15, lwd = 3) #whole plot
-    rect(xleft = 0, ybottom = 1, xright = 4, ytop = 1.15, col = rgb(0,0,0.1, alpha = 0.05), border = NA) #whole plot
-    segments(x0 = 0, x1 = 4, y0 = 1, y1 = 1, lwd = 3) #week title
-    shadowtext(x = 2, y = 1.15, labels = stringr::str_to_title(paste0(strsplit(tissue, "-")[[1]][-1], collapse = " ")), 
-               cex = 5, col = cols$Tissue[tissue], pos = 3, r = 0.2) #tissue labels
-    mtext(text = latex2exp::TeX("lead eVariant eQTL effect size (absolute value, log_{2}-fold change)"), cex = 2, line = 3.5, side = 1) #horiz axis label
-    mtext(text = latex2exp::TeX("MoTrPAC Diff. Expression"), cex = 2, line = -1.5, side = 2) #vert axis label
-    mtext(text = latex2exp::TeX("(log_{2}-fold change)"), cex = 2, line = -4.5, side = 2) #vert axis label
-    
-    #plot gtex p-value legend
-    xl <- 4.025; yb <- 0; xr <- 4.075; yt <- 1;
-    rect(
-      xl,
-      head(seq(yb,yt,(yt-yb)/100),-1),
-      xr,
-      tail(seq(yb,yt,(yt-yb)/100),-1),
-      col=p_val_cols
-    )
-    text(labels = round(seq(from = 0, to = -min_logpval, length.out = 10)), y = seq(yb, yt - 0.025, length.out = 10), x = 4.07, pos = 4, las=2, cex=1.5)
-    text(labels = latex2exp::TeX("-log_e(p-value)"), pos = 4, x = xl - 0.0175, y = yt + 0.035, cex = 2, font = 2)
-    addImg(GTEx_logo, x = xr - 0.01, y = yt + 0.125, width = 0.1) #much better
-    # text(labels = "GTEx", pos = 4, x = xl - 0.0175, y = yt + 0.125, cex = 2, font = 4)
-    
-    #note filtration scheme
-    text(labels = latex2exp::TeX("Results filtered at MoTrPAC FDR-$\\alpha$ = "), 
-         x = 3.37, y = 1.18, pos = 4, cex = 1.75)
-    text(labels = sign_filter_alpha, x = 3.91, y = 1.18, pos = 4, cex = 1.75, font = 2)
-    
-    for(timepoint in 1:4){
-      # for(timepoint in 1){
-      segments(x0 = timepoint, x1 = timepoint, y0 = 1.15, y1 = 1, lwd = 3) #timepoint divisor title
-      segments(x0 = timepoint, x1 = timepoint, y0 = 1, y1 = 0, lwd = 2) #timepoint divisor title
-      shadowtext(x = timepoint - 0.5, y = 1, labels = paste0(c(1,2,4,8), "w")[timepoint], 
-                 cex = 4, col = cols$Time[timepoint], pos = 3, r = ifelse(timepoint == 4, 0.05, 0.2)) #timepoint labels
-      
-      #find indices
-      timepoint_inds <- which(deg_eqtl_list[[tissue]]$comparison_group == paste0(c(1,2,4,8), "w")[timepoint])
-      motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$selection_fdr < 0.05)
-      motrpac_signif_genes <- unique(deg_eqtl_list[[tissue]]$gene_name[intersect(timepoint_inds, motrpac_signif_inds)])
-      motrpac_signif_inds <- unlist(sapply(motrpac_signif_genes, function(signif_gene) which(deg_eqtl_list[[tissue]]$gene_name == signif_gene)))
-      male_inds <- which(deg_eqtl_list[[tissue]]$sex == "male")
-      female_inds <- which(deg_eqtl_list[[tissue]]$sex == "female")
-      sex_inds <- c(male_inds, female_inds)
-      if(tissue == "t1000-gonads"){
-        motrpac_signif_genes <- intersect(motrpac_signif_genes, 
-                                intersect(deg_eqtl_list[[tissue]]$gene_name[male_inds], deg_eqtl_list[[tissue]]$gene_name[female_inds]))
-        motrpac_signif_inds <- unlist(sapply(motrpac_signif_genes, function(signif_gene) which(deg_eqtl_list[[tissue]]$gene_name == signif_gene)))
-      }
-      
-      
-      
-      if(sign_filter){
-        delsub_m <- deg_eqtl_list[[tissue]][intersect(intersect(male_inds, timepoint_inds), motrpac_signif_inds),]
-        delsub_m <- delsub_m[order(delsub_m$gene_name),]
-        delsub_f <- deg_eqtl_list[[tissue]][intersect(intersect(female_inds, timepoint_inds), motrpac_signif_inds),]
-        delsub_f <- delsub_f[order(delsub_f$gene_name),]
-        if(!all(delsub_f$gene_name == delsub_m$gene_name)){
-          print("incompatible gene sets?") #ah due to the duplication
-          #let's just deduplicate naively, keeping only the first entry
-          tablef <- table(delsub_f$gene_name)
-          delsub_f <- delsub_f[-unlist(sapply(names(tablef)[tablef > 1], function(x) which(delsub_f$gene_name == x)[-1])),]
-          tablem <- table(delsub_m$gene_name)
-          delsub_m <- delsub_m[-unlist(sapply(names(tablem)[tablem > 1], function(x) which(delsub_m$gene_name == x)[-1])),]
-          if(!all(delsub_f$gene_name == delsub_m$gene_name)){
-            break()
-          }
-        }
-        delsub <- rbind(delsub_m, delsub_f)
-      } else{
-        # delsub <- deg_eqtl_list[[tissue]][intersect(sex_inds, timepoint_inds),]
-      }
-      
-      
-      if(!sign_filter){
-        if(!use_abs_slope){
-          slope_rescale <- c(min(deg_eqtl_list[[tissue]][timepoint_inds,]$slope), max(deg_eqtl_list[[tissue]][sex_inds,]$slope))
-        } else {
-          slope_rescale <- c(min(deg_eqtl_list[[tissue]][timepoint_inds,]$abs_slope), max(deg_eqtl_list[[tissue]][sex_inds,]$abs_slope))
-        }
-        logFC_rescale <- c(min(deg_eqtl_list[[tissue]][sex_inds,]$logFC), max(deg_eqtl_list[[tissue]][timepoint_inds,]$logFC))
-      } else{
-        if(!use_abs_slope){
-          slope_rescale <- c(min(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$slope), 
-                             max(deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$slope))
-        } else {
-          slope_rescale <- c(min(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope), 
-                             max(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope))
-        }
-        logFC_rescale <- c(min(deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$logFC), 
-                           max(deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$logFC))
-      }
-      
-      tarb <- 0.075 #total_axis_rescaling_buffer, so points don't fall on lines
-      
-      #add horizontal line to mark 0
-      if(timepoint == 1){
-        segments(x0 = 0, x1 = 4, lwd = 2, col = "lightgray", lty = 2,
-                 y0 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb,
-                 y1 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb)
-      }
-      
-      #arrows connecting M & F points
-      arrows(x0 = (delsub_m$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-             x1 = (delsub_f$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-             y0 = (delsub_m$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb,
-             y1 = (delsub_f$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb,
-             col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub_m$pval_beta) / min_logpval * 100)], alpha.f = 0.75), length = 0.2, lwd = 1.75)
-      
-      # #point estimates
-      # points(x = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-      #        y = (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-      #        pch = 19, col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta) / min_logpval * 100)], alpha.f = 0.75), cex = 1.5)
-      # 
-      # #vertical standard-error bars
-      # segments(x0 = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-      #          x1 = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-      #          y0 = ((delsub$logFC + delsub$logFC_se) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb, 
-      #          y1 = ((delsub$logFC - delsub$logFC_se) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-      #          grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta) / min_logpval * 100)], alpha.f = 0.75), lwd = 1.5)
-      # 
-      # #horizontal standard-error bars
-      # segments(x0 = ((delsub$abs_slope + delsub$slope_se) / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-      #          x1 = ((delsub$abs_slope - delsub$slope_se) / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-      #          y0 = (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb, 
-      #          y1 = (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-      #          grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta) / min_logpval * 100)], alpha.f = 0.75), lwd = 1.5)
-      
-      #timepoint axes
-      if(T){
-        tick_vals <- round(seq(from = slope_rescale[1], to = slope_rescale[2], length.out = 10), 2)
-        tick_locs <- (tick_vals / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb
-        axis(1, at = tick_locs, labels = rep("", 10), lwd = 2, cex.axis = 2, tck = -0.015, line = -1.15)
-        mtext(text = tick_vals, side = 1, at = tick_locs, cex = 1, line = 0)
-      }
-      
-      #vertical axis
-      if(timepoint == 1 & !(tissue == "t64-ovaries" & sex == 1) & !(tissue == "t63-testes" & sex == 2)){
-        # tick_vals <- round(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5), 1)
-        tick_vals <- trunc(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5))
-        tick_locs <- (tick_vals / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb
-        axis(2, at = tick_locs, labels = rep("", 5), lwd = 2, cex.axis = 2, tck = -0.015, line = -7.35)
-        mtext(text = tick_vals, side = 2, at = tick_locs, cex = 1, line = -6)
-      }
-      
-      #label genes
-      ptl <- order(abs(delsub_m$logFC - delsub_f$logFC), decreasing = T)[1:n_genes_to_label_by_contrastMagnitude] #points to label
-      text(x = (delsub_m$abs_slope[ptl] / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-           y = (delsub_m$logFC[ptl] / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb,
-           labels = delsub_m$gene_name[ptl], col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub_m$pval_beta[ptl]) / min_logpval * 100)], alpha.f = 0.75), 
-           cex = 1.5, pos = c(1,3)[as.integer(delsub_m$logFC[ptl] - delsub_f$logFC[ptl] > 0) + 1])
-      text(x = (delsub_f$abs_slope[ptl] / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-           y = (delsub_f$logFC[ptl] / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb,
-           labels = delsub_f$gene_name[ptl], col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub_f$pval_beta[ptl]) / min_logpval * 100)], alpha.f = 0.75), 
-           cex = 1.5, pos = c(1,3)[as.integer(delsub_f$logFC[ptl] - delsub_m$logFC[ptl] > 0) + 1])
-      
-      
-    }
-    
-  
-    # dev.off()
-  }
-  dev.off()
-  
-}
-
-#### connect the dots by time ####
-
-#now let's connect the dots! now by time
-sign_filter_alpha <- 0.1
-use_abs_slope <- T
-jitter_eQTLs <- F; jitterVariance <- 0.0001
-n_genes_to_label_by_contrastMagnitude <- 5
-cols = list(Tissue=tissue_cols[names(deg_eqtl_list)], 
-            Time=group_cols[paste0(c(1,2,4,8), "w")],
-            Sex=sex_cols[c('male','female')])
-cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
-names(cols$Tissue)[which(is.na(names(cols$Tissue)))] <- "t1000-gonads"
-
-plot_timedots_figure = F
-if(plot_timedots_figure){
-  
-  grDevices::cairo_pdf(filename = "~/Documents/DExEQTL/basic_figure_eQTLxDE_connectTheDots_time.pdf", width = 2000 / 72 / 1 / 1.75, height = 6000 / 72 * 18 / 16, family="Arial Unicode MS")
-  par(mfrow = c(18, 1), mar = c(4,4,4,8), xpd = T)
-  
-  for(tissue in names(deg_eqtl_list)){
-  # for(tissue in names(deg_eqtl_list)[1]){
-    print(tissue)
-    # grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/basic_figure_", tissue,".pdf"), width = 2000 / 72, height = 10000 / 72 / length(names(deg_eqtl_list)))
-    
-    min_logpval <- floor(min(log(deg_eqtl_list[[tissue]]$pval_beta))) #gtex p-val
-    
-    # if(tissue != names(deg_eqtl_list)[1]){break}
-    
-    plot(1,1,xlim = c(0,2), ylim = c(0,1.15), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-    
-    # legend for arrows
-    arrowShift <- 0.025
-    text(labels = "1W", x = 1.525 + arrowShift, y = 0.05, pos = 4, cex = 2, col = 1)
-    text(labels = "2W", x = 1.65 + arrowShift, y = 0.05, pos = 4, cex = 2, col = 1)
-    text(labels = "4W", x = 1.775 + arrowShift, y = 0.05, pos = 4, cex = 2, col = 1)
-    text(labels = "8W", x = 1.9 + arrowShift, y = 0.05, pos = 4, cex = 2, col = 1)
-    
-    arrows(x0 = 1.592 + arrowShift, y0 = 0.055, x1 = 1.655 + arrowShift, y1 = 0.055, lwd = 2, length = 0.1, col = cols$Time[2])
-    arrows(x0 = 1.655 + arrowShift, y0 = 0.055, x1 = 1.592 + arrowShift, y1 = 0.055, lwd = 2, length = 0.05, col = cols$Time[2], angle = 90)
-    arrows(x0 = 1.592 + 0.125 + arrowShift, y0 = 0.055, x1 = 1.655 + 0.125 + arrowShift, y1 = 0.055, lwd = 2, length = 0.1, col = cols$Time[3])
-    arrows(x0 = 1.592 + 0.125*2 + arrowShift, y0 = 0.055, x1 = 1.655 + 0.125*2 + arrowShift, y1 = 0.055, lwd = 2, length = 0.1, col = cols$Time[4])
-    rect(xleft = 1.525 + arrowShift, ybottom = 0, xright = 2, ytop = 0.125, lty = 3, lwd = 2)
-    
-    rect(xleft = 0, ybottom = 0, xright = 2, ytop = 1.15, lwd = 3) #whole plot
-    rect(xleft = 0, ybottom = 1, xright = 2, ytop = 1.15, col = rgb(0,0,0.1, alpha = 0.05), border = NA) #whole plot
-    segments(x0 = 0, x1 = 2, y0 = 1, y1 = 1, lwd = 3) #week title
-    shadowtext(x = 1, y = 1.15, labels = stringr::str_to_title(paste0(strsplit(tissue, "-")[[1]][-1], collapse = " ")), 
-               cex = 5, col = cols$Tissue[tissue], pos = 3, r = 0.2) #tissue labels
-    mtext(text = latex2exp::TeX("lead eVariant eQTL effect size (absolute value, log_{2}-fold change)"), cex = 1.5, line = 3, side = 1) #horiz axis label
-    mtext(text = latex2exp::TeX("MoTrPAC Diff. Expression"), cex = 1.5, line = 0.5, side = 2) #vert axis label
-    mtext(text = latex2exp::TeX("(log_{2}-fold change)"), cex = 1.5, line = -1.5, side = 2) #vert axis label
-    
-    #plot gtex p-value legend
-    xl <- 2.025; yb <- 0; xr <- 2.065; yt <- 1;
-    rect(
-      xl,
-      head(seq(yb,yt,(yt-yb)/100),-1),
-      xr,
-      tail(seq(yb,yt,(yt-yb)/100),-1),
-      col=p_val_cols
-    )
-    text(labels = round(seq(from = 0, to = -min_logpval, length.out = 10)), y = seq(yb, yt - 0.025, length.out = 10), x = 2.06, pos = 4, las=2, cex=1.5)
-    text(labels = latex2exp::TeX("-log_e(p-value)"), pos = 4, x = xl - 0.0175, y = yt + 0.035, cex = 2, font = 2)
-    addImg(GTEx_logo, x = xr + 0.009, y = yt + 0.125, width = 0.1) #much better
-    # text(labels = "GTEx", pos = 4, x = xl - 0.0175, y = yt + 0.125, cex = 2, font = 4)
-    
-    #note filtration scheme
-    text(labels = latex2exp::TeX("Results filtered at MoTrPAC FDR-$\\alpha$ = "), 
-         x = 1.4175, y = 1.18, pos = 4, cex = 1.75)
-    text(labels = sign_filter_alpha, x = 1.91, y = 1.18, pos = 4, cex = 1.75, font = 2)
-    
-    for(sex in 1:2){
-      
-      # for(timepoint in 1){
-      segments(x0 = sex, x1 = sex, y0 = 1.15, y1 = 1, lwd = 3) #timepoint divisor title
-      segments(x0 = sex, x1 = sex, y0 = 1, y1 = 0, lwd = 2) #timepoint divisor title
-      shadowtext(x = sex - 0.5, y = 1 + ifelse(sex == 1, 0, 0.01), labels = c("\u2642", "\u2640")[sex], 
-                 cex = ifelse(sex == 1, 5.5, 4.5), col = cols$Sex[sex], pos = 3) #timepoint labels
-      
-      if((tissue == "t64-ovaries" & sex == 1) | (tissue == "t63-testes" & sex == 2)){
-        text(x = 0.5 + sex - 1, y = 0.5 , labels = "(not available)", cex = 2)
-        next()
-      }
-      
-      #find indices
-      sex_inds <- which(deg_eqtl_list[[tissue]]$sex == c("male", "female")[sex])
-      
-      motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$selection_fdr < 0.05)
-      motrpac_signif_genes <- unique(deg_eqtl_list[[tissue]]$gene_name[intersect(sex_inds, motrpac_signif_inds)])
-      motrpac_signif_inds <- unlist(sapply(motrpac_signif_genes, function(signif_gene) which(deg_eqtl_list[[tissue]]$gene_name == signif_gene)))
-      timepoint_inds_1 <- which(deg_eqtl_list[[tissue]]$comparison_group == paste0(c(1,2,4,8), "w")[1])
-      timepoint_inds_2 <- which(deg_eqtl_list[[tissue]]$comparison_group == paste0(c(1,2,4,8), "w")[2])
-      timepoint_inds_3 <- which(deg_eqtl_list[[tissue]]$comparison_group == paste0(c(1,2,4,8), "w")[3])
-      timepoint_inds_4 <- which(deg_eqtl_list[[tissue]]$comparison_group == paste0(c(1,2,4,8), "w")[4])
-      timepoint_inds <- c(timepoint_inds_1, timepoint_inds_2, timepoint_inds_3, timepoint_inds_4)
-      
-      if(sign_filter){
-        delsub_t1 <- deg_eqtl_list[[tissue]][intersect(intersect(timepoint_inds_1, sex_inds), motrpac_signif_inds),]
-        delsub_t1 <- delsub_t1[order(delsub_t1$gene_name),]
-        delsub_t2 <- deg_eqtl_list[[tissue]][intersect(intersect(timepoint_inds_2, sex_inds), motrpac_signif_inds),]
-        delsub_t2 <- delsub_t2[order(delsub_t2$gene_name),]
-        delsub_t3 <- deg_eqtl_list[[tissue]][intersect(intersect(timepoint_inds_3, sex_inds), motrpac_signif_inds),]
-        delsub_t3 <- delsub_t3[order(delsub_t3$gene_name),]
-        delsub_t4 <- deg_eqtl_list[[tissue]][intersect(intersect(timepoint_inds_4, sex_inds), motrpac_signif_inds),]
-        delsub_t4 <- delsub_t4[order(delsub_t4$gene_name),]
-        
-        if(!all(c(delsub_t1$gene_name == delsub_t2$gene_name,
-                  delsub_t1$gene_name == delsub_t3$gene_name,
-                  delsub_t1$gene_name == delsub_t4$gene_name
-                  ))){
-          print("incompatible gene sets?") #ah due to the duplication
-          #let's just deduplicate naively, keeping only the first entry
-          table_t1 <- table(delsub_t1$gene_name)
-          delsub_t1 <- delsub_t1[-unlist(sapply(names(table_t1)[table_t1 > 1], function(x) which(delsub_t1$gene_name == x)[-1])),]
-          
-          table_t2 <- table(delsub_t2$gene_name)
-          delsub_t2 <- delsub_t2[-unlist(sapply(names(table_t2)[table_t2 > 1], function(x) which(delsub_t2$gene_name == x)[-1])),]
-          
-          table_t3 <- table(delsub_t3$gene_name)
-          delsub_t3 <- delsub_t3[-unlist(sapply(names(table_t3)[table_t3 > 1], function(x) which(delsub_t3$gene_name == x)[-1])),]
-          
-          table_t4 <- table(delsub_t4$gene_name)
-          delsub_t4 <- delsub_t4[-unlist(sapply(names(table_t4)[table_t4 > 1], function(x) which(delsub_t4$gene_name == x)[-1])),]
-          
-          if(!all(c(delsub_t1$gene_name == delsub_t2$gene_name,
-                    delsub_t1$gene_name == delsub_t3$gene_name,
-                    delsub_t1$gene_name == delsub_t4$gene_name
-          ))){
-            break()
-          }
-        }
-        delsub <- rbind(delsub_m, delsub_f)
-      } else{
-        # delsub <- deg_eqtl_list[[tissue]][intersect(sex_inds, timepoint_inds),]
-      }
-      
-      if(jitter_eQTLs){
-        delsub_t1$abs_slope <- delsub_t1$abs_slope + rnorm(length(delsub_t1$abs_slope), 0, sqrt(jitterVariance))
-        delsub_t2$abs_slope <- delsub_t2$abs_slope + rnorm(length(delsub_t2$abs_slope), 0, sqrt(jitterVariance))
-        delsub_t3$abs_slope <- delsub_t3$abs_slope + rnorm(length(delsub_t3$abs_slope), 0, sqrt(jitterVariance))
-        delsub_t4$abs_slope <- delsub_t4$abs_slope + rnorm(length(delsub_t4$abs_slope), 0, sqrt(jitterVariance))
-      }  
-      
-      
-      
-      if(!sign_filter){
-        if(!use_abs_slope){
-          slope_rescale <- c(min(deg_eqtl_list[[tissue]][timepoint_inds,]$slope), max(deg_eqtl_list[[tissue]][sex_inds,]$slope))
-        } else {
-          slope_rescale <- c(min(deg_eqtl_list[[tissue]][timepoint_inds,]$abs_slope), max(deg_eqtl_list[[tissue]][sex_inds,]$abs_slope))
-        }
-        logFC_rescale <- c(min(deg_eqtl_list[[tissue]][sex_inds,]$logFC), max(deg_eqtl_list[[tissue]][timepoint_inds,]$logFC))
-      } else{
-        if(!use_abs_slope){
-          slope_rescale <- c(min(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$slope), 
-                             max(deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$slope))
-        } else {
-          slope_rescale <- c(min(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope), 
-                             max(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope))
-        }
-        logFC_rescale <- c(min(deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$logFC), 
-                           max(deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$logFC))
-      }
-      tarb <- 0.075 #total_axis_rescaling_buffer, so points don't fall on lines
-      
-      #add horizontal line to mark 0
-      if(timepoint == 1){
-        segments(x0 = 0, x1 = 2, lwd = 2, col = "lightgray", lty = 2,
-                 y0 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb,
-                 y1 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb)
-      }
-      
-      #arrows connecting timepoints
-      arrows(x0 = (delsub_t2$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-             x1 = (delsub_t1$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-             y0 = (delsub_t2$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb,
-             y1 = (delsub_t1$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb,
-             col = cols$Time[2], length = 0.05, lwd = 2, angle = 90)
-      
-      arrows(x0 = (delsub_t1$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-             x1 = (delsub_t2$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-             y0 = (delsub_t1$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb,
-             y1 = (delsub_t2$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb,
-             col = cols$Time[2], length = 0.1, lwd = 2)
-      
-      arrows(x0 = (delsub_t2$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-             x1 = (delsub_t3$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-             y0 = (delsub_t2$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb,
-             y1 = (delsub_t3$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb,
-             col = cols$Time[3], length = 0.1, lwd = 2)
-      
-      arrows(x0 = (delsub_t3$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-             x1 = (delsub_t4$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-             y0 = (delsub_t3$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb,
-             y1 = (delsub_t4$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb,
-             col = cols$Time[4], length = 0.1, lwd = 2)
-      
-      # #point estimates
-      # points(x = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-      #        y = (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-      #        pch = 19, col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta) / min_logpval * 100)], alpha.f = 0.75), cex = 1.5)
-      # 
-      # #vertical standard-error bars
-      # segments(x0 = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-      #          x1 = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-      #          y0 = ((delsub$logFC + delsub$logFC_se) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb, 
-      #          y1 = ((delsub$logFC - delsub$logFC_se) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-      #          grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta) / min_logpval * 100)], alpha.f = 0.75), lwd = 1.5)
-      # 
-      # #horizontal standard-error bars
-      # segments(x0 = ((delsub$abs_slope + delsub$slope_se) / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-      #          x1 = ((delsub$abs_slope - delsub$slope_se) / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-      #          y0 = (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb, 
-      #          y1 = (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-      #          grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta) / min_logpval * 100)], alpha.f = 0.75), lwd = 1.5)
-      
-      #timepoint axes
-      if(T){
-        tick_vals <- round(seq(from = slope_rescale[1], to = slope_rescale[2], length.out = 10), 2)
-        tick_locs <- (tick_vals / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + sex - 1 + tarb
-        axis(1, at = tick_locs, labels = rep("", 10), lwd = 2, cex.axis = 2, tck = -0.015, line = -1.15)
-        mtext(text = tick_vals, side = 1, at = tick_locs, cex = 1, line = 0)
-      }
-      
-      #vertical axis
-      if(sex == 1 & !(tissue == "t64-ovaries" & sex == 1) & !(tissue == "t63-testes" & sex == 2)){
-        # tick_vals <- round(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5), 1)
-        tick_vals <- trunc(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5))
-        tick_locs <- (tick_vals / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb
-        axis(2, at = tick_locs, labels = rep("", 5), lwd = 2, cex.axis = 2, tck = -0.015, line = -4)
-        mtext(text = tick_vals, side = 2, at = tick_locs, cex = 1, line = -3)
-      }
-      
-      #label genes
-      ptl <- order(abs(delsub_t1$logFC - delsub_t2$logFC) + abs(delsub_t2$logFC - delsub_t3$logFC) + abs(delsub_t3$logFC - delsub_t4$logFC), 
-                   decreasing = T)[1:n_genes_to_label_by_contrastMagnitude] #points to label
-      max_FC <- apply(cbind(delsub_t1$logFC, delsub_t2$logFC, delsub_t3$logFC, delsub_t4$logFC), 1, max)
-      min_FC <- apply(cbind(delsub_t1$logFC, delsub_t2$logFC, delsub_t3$logFC, delsub_t4$logFC), 1, min)
-      text(x = (delsub_t1$abs_slope[ptl] / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-           y = (max_FC[ptl] / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb,
-           labels = delsub_t1$gene_name[ptl], col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub_t1$pval_beta[ptl]) / min_logpval * 100)], alpha.f = 0.75), 
-           cex = 1.5, pos = 3)
-      text(x = (delsub_t4$abs_slope[ptl] / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-           y = (min_FC[ptl] / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + tarb,
-           labels = delsub_t4$gene_name[ptl], col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub_t4$pval_beta[ptl]) / min_logpval * 100)], alpha.f = 0.75), 
-           cex = 1.5, pos = 1)
-      
-      
-    }
-    
-    
-    # dev.off()
-  }
-  dev.off()
-  
-}
-
-
-##### draw contour envelopes figure ####
-
-#now let's draw some envelopes
-
-sign_filter_alpha <- 0.1
-use_abs_slope <- T
-prop_in_envelope <- 0.85
-cols = list(Tissue=tissue_cols[names(deg_eqtl_list)], 
-            Time=group_cols[paste0(c(1,2,4,8), "w")],
-            Sex=sex_cols[c('male','female')])
-cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
-names(cols$Tissue)[which(is.na(names(cols$Tissue)))] <- "t1000-gonads"
-
-if(!exits("deg_eqtl_list_all")){
-  deg_eqtl_list_all <- do.call(rbind, deg_eqtl_list)
-  deg_eqtl_list_all$tissue[deg_eqtl_list_all$tissue == "t64-ovaries"] <- "t1000-gonads"
-  deg_eqtl_list_all$tissue[deg_eqtl_list_all$tissue == "t63-testes"] <- "t1000-gonads"
-  deg_eqtl_list_all$tissue_abbreviation[deg_eqtl_list_all$tissue_abbreviation == "TESTES"] <- "GONADS"
-  deg_eqtl_list_all$tissue_abbreviation[deg_eqtl_list_all$tissue_abbreviation == "OVARIES"] <- "GONADS"
-}
-
-plot_tissueEnvelope_figure = F
-if(plot_tissueEnvelope_figure){
-  
-  for(g in 1:2){
-    
-    if(g == 1){
-      grDevices::cairo_pdf(filename = "~/Documents/DExEQTL/basic_figure_tissueEnvelope.pdf", width = 2000 / 72, height = 600 / 72, family="Arial Unicode MS")
-      # png(filename = "~/Documents/DExEQTL/basic_figure_eQTLxDE.png", width = 2000, height = 10000 * 18 / 17, family="Arial Unicode MS")
-      par(mfrow = c(1, 1), mar = c(4,2,4,8), xpd = T)
-    
-      min_logpval <- floor(min(log(deg_eqtl_list_all$pval_beta))) #gtex p-val
-      
-      # if(tissue != names(deg_eqtl_list)[1]){break}
-      
-      plot(1,1,xlim = c(0,4), ylim = c(0,2.15), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-    }  
-      #legend for dots and dashes
-      # stponr <- c(1,7) #set_to_put_on_first_row
-      # legend(x = 3.7165, y = ifelse(any(tissue == names(deg_eqtl_list)[stponr]), 1.26, 0.25775), col = c(1,1,"lightgray"), lwd = c(NA, 1, 2), lty = c(NA, 1, 2), pch = c(19, NA, NA), 
-      #        legend = c("Point Estimates", "±1 SE", "DE = 0 LFC"), cex = 1.5, box.lty = 3, box.lwd = 2, ncol = 1)
-    if(g == 2){
-      rect(xleft = 0, ybottom = 0, xright = 4, ytop = 2.15, lwd = 3) #whole plot
-      rect(xleft = 0, ybottom = 2, xright = 4, ytop = 2.15, col = rgb(0,0,0.1, alpha = 0.05), border = NA) #whole plot
-      segments(x0 = 0, x1 = 4, y0 = 2, y1 = 2, lwd = 3) #week title
-      segments(x0 = 0, x1 = 4, y0 = 1, y1 = 1, lwd = 2) #sex divisor
-      # shadowtext(x = 2, y = 2.15, labels = stringr::str_to_title(paste0(strsplit(tissue, "-")[[1]][-1], collapse = " ")), 
-      #            cex = 5, col = cols$Tissue[tissue], pos = 3, r = 0.2) #timepoint labels
-      mtext(text = latex2exp::TeX("lead eVariant eQTL effect size (absolute value, log_{2}-fold change)"), cex = 2, line = 2, side = 1) #horiz axis label
-      mtext(text = latex2exp::TeX("MoTrPAC Diff. Expression (log_{2}-fold change)"), cex = 2, line = -2, side = 2) #vert axis label
-      
-      #note filtration scheme
-      text(labels = latex2exp::TeX("Results filtered at MoTrPAC FDR-$\\alpha$ = "), 
-           x = 3.0825, y = 2.19, pos = 4, cex = 1.75)
-      text(labels = sign_filter_alpha, x = 3.91, y = 2.19, pos = 4, cex = 1.75, font = 2)
-      
-      #note polygon envelope boundaries
-      text(labels = paste0("tetragons drawn to contain approximately ", prop_in_envelope * 100, "% of the mass"), x = 0, y = 2.19, pos = 4, cex = 1.75)
-      
-      #draw tissue legend
-      plotMatrix(t(t(sapply(names(cols$Tissue), function(name) paste0(strsplit(x = name, split = "-")[[1]][-1], collapse = "-")))), size = c(0.225,1.25), 
-                 location = c(4.025,0), title = F, rownames = F, colnames = F, cex = 1.1)
-      rect(xleft = 4.26, 
-          xright = 4.26 + 1.25 / 36,
-          ybottom = 0 + 0:17 * 1.25 / 18,
-          ytop = 0 + 1:18 * 1.25 / 18,
-          col = rev(grDevices::adjustcolor(cols$Tissue, alpha.f = 0.5)))
-      text(x = 4.075, y = 1.25, labels = "Tissue", pos = 3, cex = 1.5, font = 2)
-      
-      
-      #plot gtex p-value legend
-      # xl <- 4.025; yb <- 0; xr <- 4.075; yt <- 2;
-      # rect(
-      #   xl,
-      #   head(seq(yb,yt,(yt-yb)/100),-1),
-      #   xr,
-      #   tail(seq(yb,yt,(yt-yb)/100),-1),
-      #   col=p_val_cols
-      # )
-      # text(labels = round(seq(from = 0, to = -min_logpval, length.out = 10)), y = seq(yb, yt - 0.025, length.out = 10), x = 4.07, pos = 4, las=2, cex=1.5)
-      # text(labels = latex2exp::TeX("-log_e(p-value)"), pos = 4, x = xl - 0.0175, y = yt + 0.035, cex = 2, font = 2)
-      # addImg(GTEx_logo, x = xr - 0.01, y = yt + 0.125, width = 0.1) #much better
-      # text(labels = "GTEx", pos = 4, x = xl - 0.0175, y = yt + 0.125, cex = 2, font = 4)
-    }
-      for(sex in 1:2){
-        
-        sex_inds <- which(deg_eqtl_list_all$sex == c("male", "female")[sex])
-        
-        for(timepoint in 1:4){
-          
-          cat(paste0(c("M", "F")[sex],timepoint, " "))
-          
-          if(g == 2){
-            segments(x0 = timepoint, x1 = timepoint, y0 = 2.15, y1 = 2, lwd = 3) #timepoint divisor title
-            segments(x0 = timepoint, x1 = timepoint, y0 = 2, y1 = 0, lwd = 2) #timepoint divisor title
-            shadowtext(x = timepoint - 0.5, y = 1.99, labels = paste0(c(1,2,4,8), "w")[timepoint], 
-                       cex = 2.5, col = cols$Time[timepoint], pos = 3, r = ifelse(timepoint == 4, 0.05, 0.2)) #timepoint labels
-            
-            #plot sex symbol
-            text(labels = c("\u2642", "\u2640")[sex], x = timepoint - 1.01, y = 1 + sex - ifelse(sex == 1, 1.0675, 1.0825) - 0.025, pos = 4, cex = 3, col = cols$Sex[sex])
-          }
-          
-          timepoint_inds <- which(deg_eqtl_list_all$comparison_group == paste0(c(1,2,4,8), "w")[timepoint])
-          
-          if(length(deg_eqtl_list_all$selection_fdr) > 0){
-            motrpac_signif_inds <- which(deg_eqtl_list_all$selection_fdr < sign_filter_alpha)
-          } else {
-            motrpac_signif_inds <- which(deg_eqtl_list_all$adj_p_value < sign_filter_alpha)
-          }
-          
-          if(!sign_filter){
-            if(!use_abs_slope){
-              slope_rescale <- c(min(deg_eqtl_list_all[timepoint_inds,]$slope), max(deg_eqtl_list_all[sex_inds,]$slope))
-            } else {
-              slope_rescale <- c(min(deg_eqtl_list_all[timepoint_inds,]$abs_slope), max(deg_eqtl_list_all[sex_inds,]$abs_slope))
-            }
-            logFC_rescale <- c(min(deg_eqtl_list_all[sex_inds,]$logFC), max(deg_eqtl_list_all[timepoint_inds,]$logFC))
-          } else{
-            if(!use_abs_slope){
-              slope_rescale <- c(min(deg_eqtl_list_all[intersect(timepoint_inds, motrpac_signif_inds),]$slope), 
-                                 max(deg_eqtl_list_all[intersect(sex_inds, motrpac_signif_inds),]$slope))
-            } else {
-              slope_rescale <- c(min(deg_eqtl_list_all[intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope), 
-                                 max(deg_eqtl_list_all[intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope))
-            }
-            logFC_rescale <- c(min(deg_eqtl_list_all[intersect(sex_inds, motrpac_signif_inds),]$logFC), 
-                               max(deg_eqtl_list_all[intersect(sex_inds, motrpac_signif_inds),]$logFC))
-          }
-          tarb <- 0.025 #total_axis_rescaling_buffer, so points don't fall on lines
-          
-          for(tissue in unique(deg_eqtl_list_all$tissue)){
-            
-            tissue_inds <- which(deg_eqtl_list_all$tissue == tissue)
-            
-            delsub <- deg_eqtl_list_all[intersect(intersect(intersect(sex_inds, timepoint_inds), motrpac_signif_inds), tissue_inds),]
-            
-            if(g == 2){
-              #add horizontal line to mark 0
-              if(timepoint == 1){
-                segments(x0 = 0, x1 = 4, lwd = 2, col = "lightgray", lty = 2,
-                         y0 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                         y1 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb)
-              }
-            }
-            
-            if(g == 1){
-            #compute bivariate kde
-            bvkde <- MASS::kde2d(x = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                                 y = (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb, n = 100)
-            # bvkde <- KernSmooth::bkde2D(x = cbind((delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-            #                      (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb), bandwidth = c(0.00001, 0.0002))
-            # names(bvkde) <- c("x", "y", "z")
-            # landscape <- cbind((delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-            #                    (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb)
-            # bandw <- ks::Hpi(landscape,binned=T)
-            # bvkde <- kde(landscape,H=bandw)
-            # bvkde <- kde.truncate(bvkde, matrix(c(-Inf, Inf, 0, Inf),2,2, byrow = F))
-            
-            #find appropriate contour height to contain prop_in_envelope of mass
-            mass_grid <- diff(bvkde$y)[1] * diff(bvkde$x)[1] * bvkde$z
-            dens_seq <- seq(max(bvkde$z), min(bvkde$z), length.out = 1E3)
-            mass_contained = 0
-            index <- 1
-            while(mass_contained < prop_in_envelope & index < length(dens_seq)){
-              highwater <- dens_seq[index]
-              mass_contained <- sum(mass_grid[bvkde$z > highwater])
-              index = index + 1
-            }
-            
-            # contour(x = bvkde$x, y = bvkde$y, z = bvkde$z, levels = highwater, col = cols$Tissue[names(cols$Tissue) == tissue],
-            #         labels = "", add = T, lwd = 2)
-            # .filled.contour(bvkde$x, bvkde$y, bvkde$z, levels = highwater, col = cols$Tissue[names(cols$Tissue) == tissue])
-            # plot(bvkde,cont=c(prop_in_envelope * 100),lty=2, lwd=0, display="filled.contour2",
-            #      col=c(NA,grDevices::adjustcolor(cols$Tissue[names(cols$Tissue) == tissue], alpha.f = 0.5)),
-            #      add=T)
-            # holy crap how hard is it to get a single contour-filling function around here :[
-            # let's try drawing the vertices of a polygon
-            ptd <- bvkde$z > highwater
-            
-            tops <- apply(ptd, 2, minwhich)
-            tops <- cbind(which(tops < Inf), tops[tops < Inf])
-            
-            rights <- apply(ptd, 1, maxwhich)
-            rights <- cbind(rights[rights > -Inf], which(rights > -Inf))
-            
-            bottoms <- apply(ptd, 2, maxwhich)
-            bottoms <- cbind(rev(which(bottoms > -Inf)), rev(bottoms[bottoms > -Inf]))
-            
-            lefts <- apply(ptd, 1, minwhich)
-            lefts <- cbind(rev(lefts[lefts < Inf]), rev(which(lefts < Inf)))
-            
-            vs <- rbind(tops[which.min(tops[,2]),], rights[which.max(rights[,1]),], bottoms[which.max(bottoms[,2]),], lefts[which.min(lefts[,1]),])
-            # vs <- rbind(tops, rights, apply(bottoms, 2, rev), lefts, tops[1,])
-            polygon(x = bvkde$x[vs[,1]], y = bvkde$y[vs[,2]], col = grDevices::adjustcolor(cols$Tissue[names(cols$Tissue) == tissue], alpha.f = 0.5), 
-                    border = grDevices::adjustcolor(cols$Tissue[names(cols$Tissue) == tissue], alpha.f = 0.5))
-            
-            }
-            
-            
-            if(g == 2){
-            
-          #timepoint axes
-          if(sex == 1 & tissue == unique(deg_eqtl_list_all$tissue)[1]){
-            tick_vals <- trunc(seq(from = slope_rescale[1], to = slope_rescale[2], length.out = 10) * 10) / 10
-            tick_locs <- (tick_vals / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb
-            axis(1, at = tick_locs, labels = rep("", 10), lwd = 2, cex.axis = 2, tck = -0.015, line = -1.25)
-            mtext(text = tick_vals, side = 1, at = tick_locs, cex = 1.15, line = -0.5)
-          }
-          
-          #sex axes
-          if(timepoint == 1 & tissue == unique(deg_eqtl_list_all$tissue)[1]){
-            # tick_vals <- round(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5), 1)
-            tick_vals <- trunc(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5))
-            tick_locs <- (tick_vals / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb
-            axis(2, at = tick_locs, labels = rep("", 5), lwd = 2, cex.axis = 2, tck = -0.015, line = -4.74)
-            mtext(text = tick_vals, side = 2, at = tick_locs, cex = 1.15, line = -4.1)
-          }
-            }
-          
-        }
-        
-      }
-    
-      }
-    
-    if(g == 2){
-    dev.off()
-    } else {
-      box(which = "plot", lwd = 4, col = "white")
-    }
-  }
-}
-
-#### colocalization figure -- just the colocs ####
-
-
-if(!file.exists('~/data/smontgom/coloc_list.RData')){
-  coloc_list = list()
-  pp4_threshold <- 0.01
-  i = 1
-  for(tissue in unname(motrpac_gtex_map)){
-    # download all coloc results for this tissue 
-    # only save coloc with PP4 > 0.5
-    motrpac_tissues = names(motrpac_gtex_map)[motrpac_gtex_map==tissue]
-    for(cfile in list.files(sprintf('%s/%s', coloc, tissue), full.names = T)){
-      cat(gsub('__PM__.*','',basename(cfile)), '\n')
-      c = fread(cfile, sep='\t', header=T)
-      c = c[p4 > pp4_threshold]
-      c[,gtex_tissue := tissue]
-      
-      if(length(motrpac_tissues)>1){
-        clist = list()
-        for(j in motrpac_tissues){
-          cj <- copy(c)
-          cj[,motrpac_tissue := j]
-          clist[[j]] = cj
-        }
-        c = rbindlist(clist)
-      }else{
-        c[,motrpac_tissue := motrpac_tissues]
-      }
-      c[,gwas_trait := gsub('__PM__.*','',basename(cfile))]
-      coloc_list[[i]] = c
-      i = i+1
-    }
-  }
-  coloc_list <- as.data.frame(do.call(rbind, coloc_list))
-  coloc_list <- coloc_list[,c("gene_id", "p4", "motrpac_tissue", "gwas_trait")]
-  save(coloc_list, file=paste0('~/data/smontgom/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
-}
-
-load('~/data/smontgom/coloc_list.RData')
-colocs <- coloc_list
-gonocs <- coloc_list[colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[1] | colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[2],]
-gonocs$motrpac_tissue <- "t1000-gonads"
-colocs <- rbind(colocs, gonocs)
-# table(coloc_list$motrpac_tissue)
-
-
-coloc_phenotypes <- sort(unique(colocs$gwas_trait))
-n_genes_to_label_by_coloc_PP4 <- 5
-plot_coloc_figures = F
-if(plot_coloc_figures){
-  
-  if(!exists("cl")){
-    cl <- makeCluster(16, outfile="")
-    registerDoParallel(cl)
-  }
-  getDoParWorkers()
-  
-  foreach(coloc_phenotype=coloc_phenotypes, .packages = c("latex2exp")) %dopar% {
-  # for(coloc_phenotype in coloc_phenotypes){
-    print(coloc_phenotype)
-    
-    grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/coloc_filter/", coloc_phenotype, "_eQTLxDE.pdf"), width = 2000 / 72, height = 10000 / 72 *18 / 17, family="Arial Unicode MS")
-    # png(filename = "~/Documents/DExEQTL/basic_figure_eQTLxDE.png", width = 2000, height = 10000 * 18 / 17, family="Arial Unicode MS")
-    par(mfrow = c(18, 1), mar = c(4,4,4,8), xpd = T)
-    for(tissue in names(deg_eqtl_list)){
-      
-      # for(tissue in names(deg_eqtl_list)[1]){
-      # grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/basic_figure_", tissue,".pdf"), width = 2000 / 72, height = 10000 / 72 / length(names(deg_eqtl_list)))
-      
-      coloc_genes <- intersect(deg_eqtl_list[[tissue]]$gene_id, colocs$gene_id[colocs$motrpac_tissue == tissue & colocs$gwas_trait == coloc_phenotype])
-      coloc_inds <- as.vector(unname(unlist(sapply(coloc_genes, function(cg) which(deg_eqtl_list[[tissue]]$gene_id == cg)))))
-      
-      
-      pp4s <- unname(unlist(sapply(coloc_genes, function(cg) colocs$p4[colocs$gene_id == cg & colocs$motrpac_tissue == tissue])))
-      if(length(pp4s) > 0){
-        pp4s[pp4s > (1 - 1E-10)] <- (1 - 1E-10) #*sigh* totes getting those probs of 1 in 10B lol
-        min_logpp4 <- floor(min(log10(1-pp4s))) #gtex p-val
-      }
-      # if(tissue != names(deg_eqtl_list)[1]){break}
-      
-      plot(1,1,xlim = c(0,4), ylim = c(0,2.15), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-      
-      #legend for dots and dashes
-      stponr <- c(1,7) #set_to_put_on_first_row
-      legend(x = 3.7165, y = ifelse(any(tissue == names(deg_eqtl_list)[stponr]), 1.26, 0.25775), col = c(1,1,"lightgray"), lwd = c(NA, 1, 2), lty = c(NA, 1, 2), pch = c(19, NA, NA), 
-             legend = c("Point Estimates", "±1 SE", "DE = 0 LFC"), cex = 1.5, box.lty = 3, box.lwd = 2, ncol = 1)
-      
-      rect(xleft = 0, ybottom = 0, xright = 4, ytop = 2.15, lwd = 3) #whole plot
-      rect(xleft = 0, ybottom = 2, xright = 4, ytop = 2.15, col = rgb(0,0,0.1, alpha = 0.05), border = NA) #whole plot
-      segments(x0 = 0, x1 = 4, y0 = 2, y1 = 2, lwd = 3) #week title
-      segments(x0 = 0, x1 = 4, y0 = 1, y1 = 1, lwd = 2) #sex divisor
-      shadowtext(x = 2, y = 2.15, labels = stringr::str_to_title(paste0(strsplit(tissue, "-")[[1]][-1], collapse = " ")), 
-                 cex = 5, col = cols$Tissue[tissue], pos = 3, r = 0.2) #timepoint labels
-      mtext(text = latex2exp::TeX("lead eVariant eQTL effect size (absolute value, log_{2}-fold change)"), cex = 2, line = 4) #horiz axis label
-      mtext(text = latex2exp::TeX("MoTrPAC Diff. Expression (log_{2}-fold change)"), cex = 2, line = -4.25, side = 2) #vert axis label
-      
-      #note filtration scheme
-      text(labels = latex2exp::TeX("Results filtered at MoTrPAC FDR-$\\alpha$ = "), 
-           x = 3, y = 2.18, pos = 4, cex = 1.75)
-      text(labels = paste0(sign_filter_alpha, " & Colocalization PP4 > 0.5"), x = 3 + 0.54, y = 2.18, pos = 4, cex = 1.75, font = 2)
-      text(labels = paste0("Top ", n_genes_to_label_by_coloc_PP4, " Colocalization 'PP4's labeled"), x = 0, y = 2.18, pos = 4, cex = 1.75, font = 2)
-      
-      #plot gtex p-value legend
-      xl <- 4.025; yb <- 0; xr <- 4.075; yt <- 2;
-      rect(
-        xl,
-        head(seq(yb,yt,(yt-yb)/100),-1),
-        xr,
-        tail(seq(yb,yt,(yt-yb)/100),-1),
-        col=p_val_cols
-      )
-      text(labels = c(0:-min_logpp4), y = seq(yb, yt - 0.025, length.out = length(0:-min_logpp4)), x = 4.07, pos = 4, las=2, cex=1.5)
-      text(labels = latex2exp::TeX("-log_{10}(1-PP4)"), pos = 4, x = xl - 0.0175, y = yt + 0.035, cex = 2, font = 2)
-      # addImg(GTEx_logo, x = xr - 0.01, y = yt + 0.125, width = 0.1) #much better
-      # text(labels = "GTEx", pos = 4, x = xl - 0.0175, y = yt + 0.125, cex = 2, font = 4)
-      
-      
-      
-      
-      for(sex in 1:2){
-        
-        
-        sex_inds <- which(deg_eqtl_list[[tissue]]$sex == c("male", "female")[sex])
-        
-        for(timepoint in 1:4){
-          
-          segments(x0 = timepoint, x1 = timepoint, y0 = 2.15, y1 = 2, lwd = 3) #timepoint divisor title
-          segments(x0 = timepoint, x1 = timepoint, y0 = 2, y1 = 0, lwd = 2) #timepoint divisor title
-          shadowtext(x = timepoint - 0.5, y = 2, labels = paste0(c(1,2,4,8), "w")[timepoint], 
-                     cex = 4, col = cols$Time[timepoint], pos = 3, r = ifelse(timepoint == 4, 0.05, 0.2)) #timepoint labels
-          
-          #plot sex symbol
-          text(labels = c("\u2642", "\u2640")[sex], x = timepoint - 1.01, y = 1 + sex - ifelse(sex == 1, 1.0675, 1.0825), pos = 4, cex = 4, col = cols$Sex[sex])
-          
-          timepoint_inds <- which(deg_eqtl_list[[tissue]]$comparison_group == paste0(c(1,2,4,8), "w")[timepoint])
-          
-          if(length(deg_eqtl_list[[tissue]]$selection_fdr) > 0){
-            motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$selection_fdr < sign_filter_alpha)
-          } else {
-            motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)
-          }
-          
-          #incompatible gonads message
-          if((tissue == "t64-ovaries" & sex == 1) | (tissue == "t63-testes" & sex == 2)){
-            text(x = 0.5 + timepoint - 1, y = 0.5 + sex - 1, labels = "(not available)", cex = 2)
-            next()
-          }
-          
-          
-          
-          if(sign_filter){
-            delsub <- deg_eqtl_list[[tissue]][intersect(intersect(intersect(sex_inds, timepoint_inds), motrpac_signif_inds), coloc_inds),]
-            if(length(delsub$feature_ID) == 0){
-              text(x = 0.5 + timepoint - 1, y = 0.5 + sex - 1, labels = "nothing passes our filters :[", cex = 2)
-              next()
-            }
-            delsub$pp4 <- sapply(delsub$gene_id, function(cg) colocs$p4[colocs$gene_id == cg & colocs$motrpac_tissue == tissue & colocs$gwas_trait == coloc_phenotype][1])
-            
-          } else{
-            delsub <- deg_eqtl_list[[tissue]][intersect(intersect(sex_inds, timepoint_inds), coloc_inds),]
-          }
-          
-          
-          if(!sign_filter){
-            if(!use_abs_slope){
-              slope_rescale <- c(min(deg_eqtl_list[[tissue]][timepoint_inds,]$slope), max(deg_eqtl_list[[tissue]][sex_inds,]$slope))
-            } else {
-              slope_rescale <- c(min(deg_eqtl_list[[tissue]][timepoint_inds,]$abs_slope), max(deg_eqtl_list[[tissue]][sex_inds,]$abs_slope))
-            }
-            logFC_rescale <- c(min(deg_eqtl_list[[tissue]][sex_inds,]$logFC), max(deg_eqtl_list[[tissue]][timepoint_inds,]$logFC))
-          } else{
-            if(!use_abs_slope){
-              slope_rescale <- c(min(deg_eqtl_list[[tissue]][intersect(intersect(timepoint_inds, motrpac_signif_inds), coloc_inds),]$slope - deg_eqtl_list[[tissue]][intersect(intersect(timepoint_inds, motrpac_signif_inds), coloc_inds),]$slope_se), 
-                                 max(deg_eqtl_list[[tissue]][intersect(intersect(sex_inds, motrpac_signif_inds), coloc_inds),]$slope + deg_eqtl_list[[tissue]][intersect(intersect(sex_inds, motrpac_signif_inds), coloc_inds),]$slope_se))
-            } else {
-              slope_rescale <- c(min(deg_eqtl_list[[tissue]][intersect(intersect(timepoint_inds, motrpac_signif_inds), coloc_inds),]$abs_slope - deg_eqtl_list[[tissue]][intersect(intersect(timepoint_inds, motrpac_signif_inds), coloc_inds),]$slope_se), 
-                                 max(deg_eqtl_list[[tissue]][intersect(intersect(timepoint_inds, motrpac_signif_inds), coloc_inds),]$abs_slope + deg_eqtl_list[[tissue]][intersect(intersect(timepoint_inds, motrpac_signif_inds), coloc_inds),]$slope_se))
-            }
-            logFC_rescale <- c(min(deg_eqtl_list[[tissue]][intersect(intersect(sex_inds, motrpac_signif_inds), coloc_inds),]$logFC - deg_eqtl_list[[tissue]][intersect(intersect(sex_inds, motrpac_signif_inds), coloc_inds),]$logFC_se), 
-                               max(deg_eqtl_list[[tissue]][intersect(intersect(sex_inds, motrpac_signif_inds), coloc_inds),]$logFC + deg_eqtl_list[[tissue]][intersect(intersect(sex_inds, motrpac_signif_inds), coloc_inds),]$logFC_se))
-          }
-          
-          #correct logFC_rescale that do not straddle zero
-          if(all(logFC_rescale > 0)){
-            logFC_rescale[1] <- -0.1
-          } else if(all(logFC_rescale < 0)){
-            logFC_rescale[2] <- 0.1
-          }
-          
-          tarb <- 0.05 #total_axis_rescaling_buffer, so points don't fall on lines
-          
-          #add horizontal line to mark 0
-          if(timepoint == 1){
-            segments(x0 = 0, x1 = 4, lwd = 2, col = "lightgray", lty = 2,
-                     y0 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                     y1 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb)
-          }
-          
-          #point estimates
-          points(x = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                 y = (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                 pch = 19, col = grDevices::adjustcolor(p_val_cols[ceiling(log10(1-delsub$pp4) / min_logpp4 * 100)], alpha.f = 0.75), cex = 1.5)
-          
-          
-          
-          
-          
-          # print(paste0(tissue, ", ", c("male", "female")[sex], ", timepoint ", timepoint, ", min = ", round(min(delsub$logFC), 3), ", max = ", round(max(delsub$logFC), 3)))
-          
-          #vertical standard-error bars
-          segments(x0 = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                   x1 = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                   y0 = ((delsub$logFC + delsub$logFC_se) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb, 
-                   y1 = ((delsub$logFC - delsub$logFC_se) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                   col = grDevices::adjustcolor(p_val_cols[ceiling(log10(1-delsub$pp4) / min_logpp4 * 100)], alpha.f = 0.75), lwd = 1.5)
-          
-          #horizontal standard-error bars
-          segments(x0 = ((delsub$abs_slope + delsub$slope_se) / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                   x1 = ((delsub$abs_slope - delsub$slope_se) / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                   y0 = (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb, 
-                   y1 = (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                   col = grDevices::adjustcolor(p_val_cols[ceiling(log10(1-delsub$pp4) / min_logpp4 * 100)], alpha.f = 0.75), lwd = 1.5)
-          
-          #timepoint axes
-          if(sex == 1 | (tissue == "t64-ovaries" & sex == 2)){
-            tick_vals <- round(seq(from = slope_rescale[1], to = slope_rescale[2], length.out = 10), 2)
-            tick_locs <- (tick_vals / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb
-            axis(1, at = tick_locs, labels = rep("", 10), lwd = 2, cex.axis = 2, tck = -0.015, line = -2)
-            mtext(text = tick_vals, side = 1, at = tick_locs, cex = 1, line = -0.5)
-          }
-          
-          #sex axes
-          if(timepoint == 1 & !(tissue == "t64-ovaries" & sex == 1) & !(tissue == "t63-testes" & sex == 2)){
-            # tick_vals <- round(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5), 1)
-            tick_vals <- trunc(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5))
-            tick_locs <- (tick_vals / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb
-            axis(2, at = tick_locs, labels = rep("", 5), lwd = 2, cex.axis = 2, tck = -0.015, line = -7.35)
-            mtext(text = tick_vals, side = 2, at = tick_locs, cex = 1, line = -6)
-          }
-          
-          #label genes
-          ptl <- order(delsub$pp4, decreasing = T)[1:n_genes_to_label_by_coloc_PP4] #points to label
-          text(x = (delsub$abs_slope[ptl] / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb - 0.005,
-               y = (delsub$logFC[ptl] / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb + 0.025,
-               labels = delsub$gene_name[ptl], col = grDevices::adjustcolor(p_val_cols[ceiling(log10(1-delsub$pp4[ptl]) / min_logpp4 * 100)], alpha.f = 0.75), 
-               cex = 1.5, pos = 4)
-          
-          
-        }
-        
-      }
-      # dev.off()
-    }
-    dev.off()
-  } 
-  system("cd Documents/DExEQTL/; zip -r eQTLxDE_ColocsFilter.zip coloc_filter")
-}
-
-
-p_val_cols = viridis::magma(440)[c(1:20*10, 200+1:20*5, 300+1:20*4, 380+1:20*2, 420+1:20)]
-
-#### basic figure, z-scores ####
-
-plot_basic_figure_zcores = F
-if(plot_basic_figure_zcores){
-  
-  grDevices::cairo_pdf(filename = "~/Documents/DExEQTL/basic_figure_eQTLxDE_zscoreEdition.pdf", width = 2000 / 72, height = 10000 / 72 *18 / 17, family="Arial Unicode MS")
-  # png(filename = "~/Documents/DExEQTL/basic_figure_eQTLxDE.png", width = 2000, height = 10000 * 18 / 17, family="Arial Unicode MS")
-  par(mfrow = c(18, 1), mar = c(4,4,4,8), xpd = T)
-  # for(tissue in names(deg_eqtl_list)){
-    for(tissue in names(deg_eqtl_list)){
-    
-    print(tissue)
-    # grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/basic_figure_", tissue,".pdf"), width = 2000 / 72, height = 10000 / 72 / length(names(deg_eqtl_list)))
-    
-    min_logpval <- floor(min(log(deg_eqtl_list[[tissue]]$pval_beta))) #gtex p-val
-    
-    # if(tissue != names(deg_eqtl_list)[1]){break}
-    
-    plot(1,1,xlim = c(0,4), ylim = c(0,2.15), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-    
-    #legend for dots and dashes
-    stponr <- c(1,7) #set_to_put_on_first_row
-    legend(x = 3.7165, y = 1.194 - ifelse(any(tissue == names(deg_eqtl_list)[stponr]), 0, 1.00225), col = c(1,"lightgray"), lwd = c(NA, 2), lty = c(NA, 2), pch = c(19, NA), 
-           legend = c("Point Estimates", "DE = 0 LFC"), cex = 1.5, box.lty = 3, box.lwd = 2, ncol = 1)
-    
-    rect(xleft = 0, ybottom = 0, xright = 4, ytop = 2.15, lwd = 3) #whole plot
-    rect(xleft = 0, ybottom = 2, xright = 4, ytop = 2.15, col = rgb(0,0,0.1, alpha = 0.05), border = NA) #whole plot
-    segments(x0 = 0, x1 = 4, y0 = 2, y1 = 2, lwd = 3) #week title
-    segments(x0 = 0, x1 = 4, y0 = 1, y1 = 1, lwd = 2) #sex divisor
-    shadowtext(x = 2, y = 2.15, labels = stringr::str_to_title(paste0(strsplit(tissue, "-")[[1]][-1], collapse = " ")), 
-               cex = 5, col = cols$Tissue[tissue], pos = 3, r = 0.2) #timepoint labels
-    mtext(text = latex2exp::TeX("lead eVariant eQTL effect size (absolute value, log_{2}-fold change, z-score)"), cex = 1.75, line = 3, side = 1) #horiz axis label
-    mtext(text = latex2exp::TeX("MoTrPAC Diff. Expression (log_{2}-fold change, z-score)"), cex = 1.75, line = -4.25, side = 2) #vert axis label
-    
-    #note filtration scheme
-    text(labels = latex2exp::TeX("Results filtered at MoTrPAC FDR-$\\alpha$ = "), 
-         x = 3.37, y = 2.18, pos = 4, cex = 1.75)
-    text(labels = sign_filter_alpha, x = 3.91, y = 2.18, pos = 4, cex = 1.75, font = 2)
-    
-    #plot gtex p-value legend
-    xl <- 4.025; yb <- 0; xr <- 4.075; yt <- 2;
-    rect(
-      xl,
-      head(seq(yb,yt,(yt-yb)/100),-1),
-      xr,
-      tail(seq(yb,yt,(yt-yb)/100),-1),
-      col=p_val_cols
-    )
-    text(labels = round(seq(from = 0, to = -min_logpval, length.out = 10)), y = seq(yb, yt - 0.025, length.out = 10), x = 4.07, pos = 4, las=2, cex=1.5)
-    text(labels = latex2exp::TeX("-log_e(p-value)"), pos = 4, x = xl - 0.0175, y = yt + 0.035, cex = 2, font = 2)
-    addImg(GTEx_logo, x = xr - 0.01, y = yt + 0.125, width = 0.1) #much better
-    # text(labels = "GTEx", pos = 4, x = xl - 0.0175, y = yt + 0.125, cex = 2, font = 4)
-    
-    
-    
-    
-    for(sex in 1:2){
-      # for(sex in 1){
-      
-      sex_inds <- which(deg_eqtl_list[[tissue]]$sex == c("male", "female")[sex])
-      
-      for(timepoint in 1:4){
-        # for(timepoint in 1){
-        segments(x0 = timepoint, x1 = timepoint, y0 = 2.15, y1 = 2, lwd = 3) #timepoint divisor title
-        segments(x0 = timepoint, x1 = timepoint, y0 = 2, y1 = 0, lwd = 2) #timepoint divisor title
-        shadowtext(x = timepoint - 0.5, y = 2, labels = paste0(c(1,2,4,8), "w")[timepoint], 
-                   cex = 4, col = cols$Time[timepoint], pos = 3, r = ifelse(timepoint == 4, 0.05, 0.2)) #timepoint labels
-        
-        #plot sex symbol
-        text(labels = c("\u2642", "\u2640")[sex], x = timepoint - 1.01, y = 1 + sex - ifelse(sex == 1, 1.0675, 1.0825), pos = 4, cex = 4, col = cols$Sex[sex])
-        
-        timepoint_inds <- which(deg_eqtl_list[[tissue]]$comparison_group == paste0(c(1,2,4,8), "w")[timepoint])
-        
-        if(length(deg_eqtl_list[[tissue]]$selection_fdr) > 0){
-          motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$selection_fdr < sign_filter_alpha)
-        } else {
-          motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)
-        }
-        
-        #incompatible gonads message
-        if((tissue == "t64-ovaries" & sex == 1) | (tissue == "t63-testes" & sex == 2)){
-          text(x = 0.5 + timepoint - 1, y = 0.5 + sex - 1, labels = "(not available)", cex = 2)
-          next()
-        }
-        
-        if(sign_filter){
-          delsub <- deg_eqtl_list[[tissue]][intersect(intersect(sex_inds, timepoint_inds), motrpac_signif_inds),]
-          delsub$abs_slope <- delsub$abs_slope / delsub$slope_se
-          delsub$logFC <- delsub$logFC / delsub$logFC_se
-          delsub$logFC_se <- 1
-          delsub$slope_se <- 1
-        } else{
-          delsub <- deg_eqtl_list[[tissue]][intersect(sex_inds, timepoint_inds),]
-        }
-        
-        
-        # if(!sign_filter){
-        #   if(!use_abs_slope){
-        #     slope_rescale <- c(min(deg_eqtl_list[[tissue]][timepoint_inds,]$slope), max(deg_eqtl_list[[tissue]][sex_inds,]$slope))
-        #   } else {
-        #     slope_rescale <- c(min(deg_eqtl_list[[tissue]][timepoint_inds,]$abs_slope), max(deg_eqtl_list[[tissue]][sex_inds,]$abs_slope))
-        #   }
-        #   logFC_rescale <- c(min(deg_eqtl_list[[tissue]][sex_inds,]$logFC), max(deg_eqtl_list[[tissue]][timepoint_inds,]$logFC))
-        # } else{
-        #   if(!use_abs_slope){
-        #     slope_rescale <- c(min(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$slope - deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$slope_se), 
-        #                        max(deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$slope + deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$slope_se))
-        #   } else {
-            slope_rescale <- c(min(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope / deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$slope_se - 1), 
-                               max(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope / deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$slope_se + 1))
-          # }
-          logFC_rescale <- c(min(deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$logFC / deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$logFC_se   - 1), 
-                             max(deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$logFC / deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$logFC_se + 1))
-        # }
-        tarb <- 0.05 #total_axis_rescaling_buffer, so points don't fall on lines
-        
-        #add horizontal line to mark 0
-        if(timepoint == 1){
-          segments(x0 = 0, x1 = 4, lwd = 2, col = "lightgray", lty = 2,
-                   y0 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                   y1 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb)
-        }
-        
-        #point estimates
-        points(x = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-               y = (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-               pch = 19, col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta) / min_logpval * 100)], alpha.f = 0.75), cex = 1.5)
-        
-        # print(paste0(tissue, ", ", c("male", "female")[sex], ", timepoint ", timepoint, ", min = ", round(min(delsub$logFC), 3), ", max = ", round(max(delsub$logFC), 3)))
-        
-        #timepoint axes
-        if(sex == 1 | (tissue == "t64-ovaries" & sex == 2)){
-          tick_vals <- round(seq(from = slope_rescale[1], to = slope_rescale[2], length.out = 10), 2)
-          tick_locs <- (tick_vals / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb
-          axis(1, at = tick_locs, labels = rep("", 10), lwd = 2, cex.axis = 2, tck = -0.015, line = -2)
-          mtext(text = tick_vals, side = 1, at = tick_locs, cex = 1, line = -0.5)
-        }
-        
-        #sex axes
-        if(timepoint == 1 & !(tissue == "t64-ovaries" & sex == 1) & !(tissue == "t63-testes" & sex == 2)){
-          # tick_vals <- round(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5), 1)
-          tick_vals <- trunc(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5))
-          tick_locs <- (tick_vals / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb
-          axis(2, at = tick_locs, labels = rep("", 5), lwd = 2, cex.axis = 2, tck = -0.015, line = -7.35)
-          mtext(text = tick_vals, side = 2, at = tick_locs, cex = 1, line = -6)
-        }
-        
-        #label genes
-        ptl <- order(delsub$abs_slope, decreasing = T)[1:n_genes_to_label_by_eQTL_effectSizes] #points to label
-        text(x = (delsub$abs_slope[ptl] / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb - 0.005,
-             y = (delsub$logFC[ptl] / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb + 0.025,
-             labels = delsub$gene_name[ptl], col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta[ptl]) / min_logpval * 100)], alpha.f = 0.75), 
-             cex = 1.5, pos = 4)
-        
-        
-      }
-      
-    }
-    # dev.off()
-  }
-  dev.off()
-  
-}
-
-#### ratio figure ####
-
-divide_one_by_the_other = F
-n_genes_to_label_by_ratioMagnitude <- 10
-if(divide_one_by_the_other){
-  
-  grDevices::cairo_pdf(filename = "~/Documents/DExEQTL/divide_one_by_the_other.pdf", width = 2000 / 72, height = 10000 / 72 *18 / 17, family="Arial Unicode MS")
-  par(mfrow = c(18, 1), mar = c(4,0,4,8), xpd = T)
-  for(tissue in names(deg_eqtl_list)){
-    # for(tissue in names(deg_eqtl_list)[1]){
-    
-    # grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/basic_figure_", tissue,".pdf"), width = 2000 / 72, height = 10000 / 72 / length(names(deg_eqtl_list)))
-    
-    min_logpval <- floor(min(log(deg_eqtl_list[[tissue]]$pval_beta))) #gtex p-val
-    
-    # if(tissue != names(deg_eqtl_list)[1]){break}
-    
-    plot(1,1,xlim = c(0,4), ylim = c(0,2.15), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-    
-    #legend for dots and dashes
-    stponr <- c(99) #set_to_put_on_first_row
-    legend(x = 3.5155, y = 1.194 - ifelse(any(tissue == names(deg_eqtl_list)[stponr]), 0, 1.00225), col = c(1,"lightgray"), lwd = c(NA, 2), lty = c(NA, 2), pch = c(19, NA), 
-           legend = c("Point Estimate Ratio (log2-scale)", "Same Magnitude DE as LFC"), cex = 1.5, box.lty = 3, box.lwd = 2, ncol = 1)
-    
-    rect(xleft = 0, ybottom = 0, xright = 4, ytop = 2.15, lwd = 3) #whole plot
-    rect(xleft = 0, ybottom = 2, xright = 4, ytop = 2.15, col = rgb(0,0,0.1, alpha = 0.05), border = NA) #whole plot
-    segments(x0 = 0, x1 = 4, y0 = 2, y1 = 2, lwd = 3) #week title
-    segments(x0 = 0, x1 = 4, y0 = 1, y1 = 1, lwd = 2) #sex divisor
-    shadowtext(x = 2, y = 2.15, labels = stringr::str_to_title(paste0(strsplit(tissue, "-")[[1]][-1], collapse = " ")), 
-               cex = 5, col = cols$Tissue[tissue], pos = 3, r = 0.2) #timepoint labels
-    mtext(text = latex2exp::TeX("Differential Expression ÷ Lead eVariant eQTL Effect Size (log_{2}ratio)"), cex = 2, line = 3.5, side = 1) #horiz axis label
-    text(labels = "density                genes", cex = 1.5, x = -0.0225, y = 0.5, font = 3, srt = 90) #horiz axis label
-    text(labels = "density                genes", cex = 1.5, x = -0.0225, y = 1.5, font = 3, srt = 90) #horiz axis label
-    
-    #note filtration scheme
-    text(labels = latex2exp::TeX("Results filtered at MoTrPAC FDR-$\\alpha$ = "), 
-         x = 3.3775, y = 2.18, pos = 4, cex = 1.75)
-    text(labels = sign_filter_alpha, x = 3.91, y = 2.18, pos = 4, cex = 1.75, font = 2)
-    
-    #plot gtex p-value legend
-    xl <- 4.025; yb <- 0; xr <- 4.075; yt <- 2;
-    rect(
-      xl,
-      head(seq(yb,yt,(yt-yb)/100),-1),
-      xr,
-      tail(seq(yb,yt,(yt-yb)/100),-1),
-      col=p_val_cols
-    )
-    text(labels = round(seq(from = 0, to = -min_logpval, length.out = 10)), y = seq(yb, yt - 0.025, length.out = 10), x = 4.07, pos = 4, las=2, cex=1.5)
-    text(labels = latex2exp::TeX("-log_e(p-value)"), pos = 4, x = xl - 0.0175, y = yt + 0.035, cex = 2, font = 2)
-    addImg(GTEx_logo, x = xr - 0.01, y = yt + 0.125, width = 0.1) #much better
-    # text(labels = "GTEx", pos = 4, x = xl - 0.0175, y = yt + 0.125, cex = 2, font = 4)
-    
-    for(sex in 1:2){
-      # for(sex in 1){
-      
-      sex_inds <- which(deg_eqtl_list[[tissue]]$sex == c("male", "female")[sex])
-      
-      for(timepoint in 1:4){
-        # for(timepoint in 1){
-        segments(x0 = timepoint, x1 = timepoint, y0 = 2.15, y1 = 2, lwd = 3) #timepoint divisor title
-        segments(x0 = timepoint, x1 = timepoint, y0 = 2, y1 = 0, lwd = 2) #timepoint divisor title
-        shadowtext(x = timepoint - 0.5, y = 2, labels = paste0(c(1,2,4,8), "w")[timepoint], 
-                   cex = 4, col = cols$Time[timepoint], pos = 3, r = ifelse(timepoint == 4, 0.05, 0.2)) #timepoint labels
-        
-        #plot sex symbol
-        text(labels = c("\u2642", "\u2640")[sex], x = timepoint - 1.01, y = 1 + sex - ifelse(sex == 1, 1.0675, 1.0825), pos = 4, cex = 4, col = cols$Sex[sex])
-        
-        timepoint_inds <- which(deg_eqtl_list[[tissue]]$comparison_group == paste0(c(1,2,4,8), "w")[timepoint])
-        
-        if(length(deg_eqtl_list[[tissue]]$selection_fdr) > 0){
-          motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$selection_fdr < sign_filter_alpha)
-        } else {
-          motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)
-        }
-        
-        #incompatible gonads message
-        if((tissue == "t64-ovaries" & sex == 1) | (tissue == "t63-testes" & sex == 2)){
-          text(x = 0.5 + timepoint - 1, y = 0.5 + sex - 1, labels = "(not available)", cex = 2)
-          next()
-        }
-        
-        
-          delsub <- deg_eqtl_list[[tissue]][intersect(intersect(sex_inds, timepoint_inds), motrpac_signif_inds),]
-          delsub$abs_slope <- (abs(delsub$logFC) - delsub$abs_slope) * sign(delsub$logFC)
-          delsub$logFC <- 0
-        
-          slope_rescale <- c(min((abs(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$logFC) - 
-                                    deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope) * 
-                                   sign(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$logFC)), 
-                               max((abs(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$logFC) - 
-                                      deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope) *
-                                     sign(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$logFC)))
-          
-          logFC_rescale <- c(-1,1)
-        
-        tarb <- 0.125 #total_axis_rescaling_buffer, so points don't fall on lines
-        
-        #add horizontal line to names
-        if(timepoint == 1){
-          segments(x0 = 0, x1 = 4, lwd = 1, col = "lightgray", lty = 1,
-                   y0 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                   y1 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb)
-        }
-        
-        # print(paste0(tissue, ", ", c("male", "female")[sex], ", timepoint ", timepoint, ", min = ", round(min(delsub$logFC), 3), ", max = ", round(max(delsub$logFC), 3)))
-        
-        #plot KDE for ratios
-        kde1d <- density(x = delsub$abs_slope, bw = 0.2)
-        lines(x = (kde1d$x / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb, lwd = 3, xpd = F,
-              y = ((-kde1d$y / max(kde1d$y)) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1.05 + tarb)
-        segments(x0 = (kde1d$x / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                 x1 = (kde1d$x / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                 y0 = ((0 / max(kde1d$y)) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1.05 + tarb,
-                 y1 = ((-kde1d$y / max(kde1d$y)) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1.05 + tarb,
-                 col = "grey90", lwd = 2, xpd = F)
-        
-        #add vertical line to mark zero
-        segments(y0 = sex - 1, y1 = sex, lwd = 2, col = "lightgray", lty = 2,
-                 x0 = (0 / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                 x1 = (0 / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb)
-        
-        #point estimates
-        points(x = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-               y = (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-               pch = 19, col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta) / min_logpval * 100)], alpha.f = 0.75), cex = 1.5)
-        
-        #timepoint axes
-        if(sex == 1 | (tissue == "t64-ovaries" & sex == 2)){
-          tick_vals <- round(seq(from = slope_rescale[1], to = slope_rescale[2], length.out = 10), 2)
-          tick_locs <- (tick_vals / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb
-          axis(1, at = tick_locs, labels = rep("", 10), lwd = 2, cex.axis = 2, tck = -0.015, line = -2)
-          mtext(text = tick_vals, side = 1, at = tick_locs, cex = 1, line = -0.5)
-        }
-        
-        # #sex axes
-        # if(timepoint == 1 & !(tissue == "t64-ovaries" & sex == 1) & !(tissue == "t63-testes" & sex == 2)){
-        #   # tick_vals <- round(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5), 1)
-        #   tick_vals <- trunc(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5))
-        #   tick_locs <- (tick_vals / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb
-        #   axis(2, at = tick_locs, labels = rep("", 5), lwd = 2, cex.axis = 2, tck = -0.015, line = -7.35)
-        #   mtext(text = tick_vals, side = 2, at = tick_locs, cex = 1, line = -6)
-        # }
-        
-        #label genes
-        ptl <- order(abs(delsub$abs_slope), decreasing = T)[1:n_genes_to_label_by_ratioMagnitude] #points to label
-        text(x = (delsub$abs_slope[ptl] / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb - 0.005,
-             y = (delsub$logFC[ptl] / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb + 0.025,
-             labels = delsub$gene_name[ptl], col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta[ptl]) / min_logpval * 100)], alpha.f = 0.75), 
-             cex = 1.5, pos = 4, srt = 65)
-        
-        
-      }
-      
-    }
-    # dev.off()
-  }
-  dev.off()
-  
-}
-
-
-#### coloc figure -- all points with circles ####
-
-p_val_cols = viridis::magma(100, begin = 0, end = 0.8)
-# plot(1:length(p_val_cols), 1:length(p_val_cols), col = p_val_cols, pch = 19)
-coloc_cols = viridis::viridis(50, begin = 0.5, end = 1)
-plot(1:length(coloc_cols), 1:length(coloc_cols), col = coloc_cols, pch = 19)
-
-coloc_phenotypes <- sort(unique(colocs$gwas_trait))
-n_genes_to_label_by_coloc_PP4 <- 5
-plot_coloc_allPoints_figures = F
-if(plot_coloc_allPoints_figures){
-  
-  if(!exists("cl")){
-    cl <- makeCluster(16, outfile="")
-    registerDoParallel(cl)
-  }
-  getDoParWorkers()
-
-  foreach(coloc_phenotype=coloc_phenotypes, .packages = c("latex2exp")) %dopar% {
-  # for(coloc_phenotype in coloc_phenotypes[51]){
-    print(coloc_phenotype)
-    
-    grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/coloc_filter_allPoints/", coloc_phenotype, "_eQTLxDE.pdf"), width = 2000 / 72, height = 10000 / 72 *18 / 17, family="Arial Unicode MS")
-    # png(filename = "~/Documents/DExEQTL/basic_figure_eQTLxDE.png", width = 2000, height = 10000 * 18 / 17, family="Arial Unicode MS")
-    par(mfrow = c(18, 1), mar = c(4,4,4,12), xpd = T)
-    for(tissue in names(deg_eqtl_list)){
-    
-      min_logpval <- floor(min(log(deg_eqtl_list[[tissue]]$pval_beta))) #gtex p-val
-        
-      # for(tissue in names(deg_eqtl_list)[1]){
-      # grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/basic_figure_", tissue,".pdf"), width = 2000 / 72, height = 10000 / 72 / length(names(deg_eqtl_list)))
-      
-      coloc_genes <- intersect(deg_eqtl_list[[tissue]]$gene_id, colocs$gene_id[colocs$motrpac_tissue == tissue & colocs$gwas_trait == coloc_phenotype])
-      coloc_inds <- as.vector(unname(unlist(sapply(coloc_genes, function(cg) which(deg_eqtl_list[[tissue]]$gene_id == cg)))))
-      
-      pp4s <- unname(unlist(sapply(coloc_genes, function(cg) colocs$p4[colocs$gene_id == cg & colocs$motrpac_tissue == tissue])))
-      if(length(pp4s) > 0){
-        pp4s[pp4s > (1 - 1E-10)] <- (1 - 1E-10) #*sigh* totes getting those probs of 1 in 10B lol
-        min_logpp4 <- floor(min(log10(1-pp4s))) #gtex p-val
-      }
-      # if(tissue != names(deg_eqtl_list)[1]){break}
-      
-      plot(1,1,xlim = c(0,4), ylim = c(0,2.15), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-      
-      #legend for dots and dashes
-      stponr <- c(1,7) #set_to_put_on_first_row
-      legend(x = 3.7125, y = ifelse(any(tissue == names(deg_eqtl_list)[stponr]), 1.26, 0.25775), col = c(1,1,"lightgray"), lwd = c(NA, 1, 2), lty = c(NA, 1, 2), pch = c(19, NA, NA), 
-             legend = c("Point Estimates", "±1 SE", "DE = 0 LFC"), cex = 1.5, box.lty = 3, box.lwd = 2, ncol = 1)
-      
-      rect(xleft = 0, ybottom = 0, xright = 4, ytop = 2.15, lwd = 3) #whole plot
-      rect(xleft = 0, ybottom = 2, xright = 4, ytop = 2.15, col = rgb(0,0,0.1, alpha = 0.05), border = NA) #whole plot
-      segments(x0 = 0, x1 = 4, y0 = 2, y1 = 2, lwd = 3) #week title
-      segments(x0 = 0, x1 = 4, y0 = 1, y1 = 1, lwd = 2) #sex divisor
-      shadowtext(x = 2, y = 2.15, labels = stringr::str_to_title(paste0(strsplit(tissue, "-")[[1]][-1], collapse = " ")), 
-                 cex = 5, col = cols$Tissue[tissue], pos = 3, r = 0.2) #timepoint labels
-      mtext(text = latex2exp::TeX("lead eVariant eQTL effect size (absolute value, log_{2}-fold change)"), cex = 2, line = 4) #horiz axis label
-      mtext(text = latex2exp::TeX("MoTrPAC Diff. Expression (log_{2}-fold change)"), cex = 2, line = -4.25, side = 2) #vert axis label
-      
-      #note filtration scheme
-      text(labels = latex2exp::TeX("Results filtered at MoTrPAC FDR-$\\alpha$ = "), 
-           x = 3, y = 2.18, pos = 4, cex = 1.75)
-      text(labels = paste0(sign_filter_alpha, " & Colocalization PP4 > 0.5"), x = 3 + 0.54, y = 2.18, pos = 4, cex = 1.75, font = 2)
-      text(labels = paste0("Top ", n_genes_to_label_by_coloc_PP4, " Colocalization 'PP4's labeled"), x = 0, y = 2.18, pos = 4, cex = 1.75, font = 2)
-      
-      #plot colocs pp4 legend
-      xl <- 4.15; yb <- 0; xr <- 4.2; yt <- 1;
-      rect(
-        xl,
-        head(seq(yb,yt,(yt-yb)/50),-1),
-        xr,
-        tail(seq(yb,yt,(yt-yb)/50),-1),
-        col=coloc_cols
-      )
-      text(labels = c(0:-min_logpp4), y = seq(yb, yt - 0.025, length.out = length(0:-min_logpp4)), x = xr - 0.005, pos = 4, las=2, cex=1.5)
-      text(labels = latex2exp::TeX("-log_{10}(1-PP_{4})"), pos = 4, x = xl - 0.0175, y = yt + 0.035, cex = 2, font = 2)
-      # addImg(GTEx_logo, x = xr - 0.01, y = yt + 0.125, width = 0.1) #much better
-      # text(labels = "GTEx", pos = 4, x = xl - 0.0175, y = yt + 0.125, cex = 2, font = 4)
-      
-      #plot gtex p-value legend
-      xl <- 4.025; yb <- 0; xr <- 4.075; yt <- 2;
-      rect(
-        xl,
-        head(seq(yb,yt,(yt-yb)/100),-1),
-        xr,
-        tail(seq(yb,yt,(yt-yb)/100),-1),
-        col=p_val_cols
-      )
-      text(labels = round(seq(from = 0, to = -min_logpval, length.out = 10)), y = seq(yb, yt - 0.025, length.out = 10), x = 4.07, pos = 4, las=2, cex=1.5)
-      text(labels = latex2exp::TeX("-log_e(p-value)"), pos = 4, x = xl - 0.0175, y = yt + 0.035, cex = 2, font = 2)
-      addImg(GTEx_logo, x = xr - 0.01, y = yt + 0.125, width = 0.1) #much better
-      
-      
-      for(sex in 1:2){
-        
-        
-        sex_inds <- which(deg_eqtl_list[[tissue]]$sex == c("male", "female")[sex])
-        
-        for(timepoint in 1:4){
-          
-          segments(x0 = timepoint, x1 = timepoint, y0 = 2.15, y1 = 2, lwd = 3) #timepoint divisor title
-          segments(x0 = timepoint, x1 = timepoint, y0 = 2, y1 = 0, lwd = 2) #timepoint divisor title
-          shadowtext(x = timepoint - 0.5, y = 2, labels = paste0(c(1,2,4,8), "w")[timepoint], 
-                     cex = 4, col = cols$Time[timepoint], pos = 3, r = ifelse(timepoint == 4, 0.05, 0.2)) #timepoint labels
-          
-          #plot sex symbol
-          text(labels = c("\u2642", "\u2640")[sex], x = timepoint - 1.01, y = 1 + sex - ifelse(sex == 1, 1.0675, 1.0825), pos = 4, cex = 4, col = cols$Sex[sex])
-          
-          timepoint_inds <- which(deg_eqtl_list[[tissue]]$comparison_group == paste0(c(1,2,4,8), "w")[timepoint])
-          
-          if(length(deg_eqtl_list[[tissue]]$selection_fdr) > 0){
-            motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$selection_fdr < sign_filter_alpha)
-          } else {
-            motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)
-          }
-          
-          #incompatible gonads message
-          if((tissue == "t64-ovaries" & sex == 1) | (tissue == "t63-testes" & sex == 2)){
-            text(x = 0.5 + timepoint - 1, y = 0.5 + sex - 1, labels = "(not available)", cex = 2)
-            next()
-          }
-          
-          
-          
-          delsub <- deg_eqtl_list[[tissue]][intersect(intersect(sex_inds, timepoint_inds), motrpac_signif_inds),]
-          delsub_colocs <- deg_eqtl_list[[tissue]][intersect(intersect(intersect(sex_inds, timepoint_inds), motrpac_signif_inds), coloc_inds),]
-          if(length(delsub_colocs$feature_ID) != 0){
-            delsub_colocs$pp4 <- sapply(delsub_colocs$gene_id, function(cg) colocs$p4[colocs$gene_id == cg & colocs$motrpac_tissue == tissue & colocs$gwas_trait == coloc_phenotype][1]) 
-          }
-          
-          
-          if(!sign_filter){
-            if(!use_abs_slope){
-              slope_rescale <- c(min(deg_eqtl_list[[tissue]][timepoint_inds,]$slope), max(deg_eqtl_list[[tissue]][sex_inds,]$slope))
-            } else {
-              slope_rescale <- c(min(deg_eqtl_list[[tissue]][timepoint_inds,]$abs_slope), max(deg_eqtl_list[[tissue]][sex_inds,]$abs_slope))
-            }
-            logFC_rescale <- c(min(deg_eqtl_list[[tissue]][sex_inds,]$logFC), max(deg_eqtl_list[[tissue]][timepoint_inds,]$logFC))
-          } else{
-            if(!use_abs_slope){
-              slope_rescale <- c(min(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$slope - deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$slope_se), 
-                                 max(deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$slope + deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$slope_se))
-            } else {
-              slope_rescale <- c(min(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope - deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$slope_se), 
-                                 max(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope + deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$slope_se))
-            }
-            logFC_rescale <- c(min(deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$logFC - deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$logFC_se), 
-                               max(deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$logFC + deg_eqtl_list[[tissue]][intersect(sex_inds, motrpac_signif_inds),]$logFC_se))
-          }
-          
-          #correct logFC_rescale that do not straddle zero
-          if(all(logFC_rescale > 0)){
-            logFC_rescale[1] <- -0.1
-          } else if(all(logFC_rescale < 0)){
-            logFC_rescale[2] <- 0.1
-          }
-          
-          tarb <- 0.075 #total_axis_rescaling_buffer, so points don't fall on lines
-          
-          #add horizontal line to mark 0
-          if(timepoint == 1){
-            segments(x0 = 0, x1 = 4, lwd = 2, col = "lightgray", lty = 2,
-                     y0 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                     y1 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb)
-          }
-          
-          #point estimates
-          points(x = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                 y = (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                 pch = 19, col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta) / min_logpval * 100)], alpha.f = 0.75), cex = 1.5)
-          
-          # print(paste0(tissue, ", ", c("male", "female")[sex], ", timepoint ", timepoint, ", min = ", round(min(delsub$logFC), 3), ", max = ", round(max(delsub$logFC), 3)))
-          
-          #vertical standard-error bars
-          segments(x0 = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                   x1 = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                   y0 = ((delsub$logFC + delsub$logFC_se) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb, 
-                   y1 = ((delsub$logFC - delsub$logFC_se) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                   col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta) / min_logpval * 100)], alpha.f = 0.75), lwd = 1.5)
-          
-          #horizontal standard-error bars
-          segments(x0 = ((delsub$abs_slope + delsub$slope_se) / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                   x1 = ((delsub$abs_slope - delsub$slope_se) / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                   y0 = (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb, 
-                   y1 = (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                   col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta) / min_logpval * 100)], alpha.f = 0.75), lwd = 1.5)
-          
-          #timepoint axes
-          if(sex == 1 | (tissue == "t64-ovaries" & sex == 2)){
-            tick_vals <- round(seq(from = slope_rescale[1], to = slope_rescale[2], length.out = 10), 2)
-            tick_locs <- (tick_vals / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb
-            axis(1, at = tick_locs, labels = rep("", 10), lwd = 2, cex.axis = 2, tck = -0.015, line = -2)
-            mtext(text = tick_vals, side = 1, at = tick_locs, cex = 1, line = -0.5)
-          }
-          
-          #sex axes
-          if(timepoint == 1 & !(tissue == "t64-ovaries" & sex == 1) & !(tissue == "t63-testes" & sex == 2)){
-            # tick_vals <- round(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5), 1)
-            tick_vals <- trunc(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5))
-            tick_locs <- (tick_vals / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb
-            axis(2, at = tick_locs, labels = rep("", 5), lwd = 2, cex.axis = 2, tck = -0.015, line = -7.35)
-            mtext(text = tick_vals, side = 2, at = tick_locs, cex = 1, line = -6)
-          }
-          
-          #label genes by eQTL
-          ptl <- order(delsub$abs_slope, decreasing = T)[1:n_genes_to_label_by_eQTL_effectSizes] #points to label
-          text(x = (delsub$abs_slope[ptl] / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb - 0.005,
-               y = (delsub$logFC[ptl] / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb + 0.025,
-               labels = delsub$gene_name[ptl], col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta[ptl]) / min_logpval * 100)], alpha.f = 0.75), 
-               cex = 1.5, pos = 4)
-          
-          #label genes by colocalization
-          if(length(delsub_colocs$feature_ID) != 0){
-            ptl <- order(delsub_colocs$pp4, decreasing = T)[1:n_genes_to_label_by_coloc_PP4] #points to label
-            shadowtext(x = (delsub_colocs$abs_slope[ptl] / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb - 0.005,
-                 y = (delsub_colocs$logFC[ptl] / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb + 0.025,
-                 labels = delsub_colocs$gene_name[ptl], col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub_colocs$pval_beta[ptl]) / min_logpval * 100)], alpha.f = 0.75), 
-                 cex = 1.5, pos = 4, bg = 1)
-          }
-          
-          #circle colocs
-          if(length(delsub_colocs$feature_ID) != 0){
-            for(np in 1:5){
-              points(x = (delsub_colocs$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                     y = (delsub_colocs$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                     pch = 19, col = grDevices::adjustcolor(coloc_cols[ceiling(log10(1-delsub_colocs$pp4) / min_logpp4 * 50)], alpha.f = 1 / np), cex = 1.6 * np)       
-            }
-            
-          }
-          
-          #label genes by colocalization
-          if(length(delsub_colocs$feature_ID) != 0){
-            ptl <- order(delsub_colocs$pp4, decreasing = T)[1:min(n_genes_to_label_by_coloc_PP4,nrow(delsub_colocs))] #points to label
-            shadowtext(x = (delsub_colocs$abs_slope[ptl] / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb + 0.005,
-                 y = (delsub_colocs$logFC[ptl] / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb + 0.025,
-                 labels = delsub_colocs$gene_name[ptl], col = coloc_cols[ceiling(log10(1-delsub_colocs$pp4[ptl]) / min_logpp4 * 50)], srt = 45, 
-                 cex = 1.6, pos = 4, font = 4)
-            text(x = (delsub_colocs$abs_slope[ptl] / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb + 0.005,
-                 y = (delsub_colocs$logFC[ptl] / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb + 0.025,
-                 labels = delsub_colocs$gene_name[ptl], col = grDevices::adjustcolor("white", 0.5), srt = 45, 
-                 cex = 1.6, pos = 4, font = 4)
-          }
-          
-          
-        }
-        
-      }
-      # dev.off()
-    }
-    dev.off()
-  } 
-  # system("cd Documents/DExEQTL/; zip -r eQTLxDE_ColocsFilter_allPoints.zip coloc_filter_allPoints")
-}
-
-#### coloc figure -- percentile plot ####
-
-coloc_cols = viridis::viridis(50, begin = 0.5, end = 1)
-plot(1:length(coloc_cols), 1:length(coloc_cols), col = coloc_cols, pch = 19)
-
-coloc_phenotypes <- sort(unique(colocs$gwas_trait))
-plot_coloc_percentile_figure = F
-
-# percentiles <- array(data = NA, dim = c(length(names(deg_eqtl_list)), 2, 4, length(coloc_phenotypes)), 
-#                      dimnames = list(names(deg_eqtl_list), c("male", "female"), paste0(c(1,2,4,8), "w"), coloc_phenotypes)) #dims are tissue, sex, time, phenotype
-if(!file.exists("~/data/smontgom/coloc_DEeQTL_percentiles")){
-  percentiles <- list()
-  for(tissue in names(deg_eqtl_list)){
-    motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$selection_fdr < sign_filter_alpha)
-    print(tissue)
-    for(coloc_phenotype in coloc_phenotypes){
-      coloc_genes <- intersect(deg_eqtl_list[[tissue]]$gene_id, colocs$gene_id[colocs$motrpac_tissue == tissue & colocs$gwas_trait == coloc_phenotype])
-      coloc_inds <- as.vector(unname(unlist(sapply(coloc_genes, function(cg) which(deg_eqtl_list[[tissue]]$gene_id == cg)))))
-      for(sex in 1:2){
-        sex_inds <- which(deg_eqtl_list[[tissue]]$sex == c("male", "female")[sex])
-        for(timepoint in 1:4){
-          timepoint_inds <- which(deg_eqtl_list[[tissue]]$comparison_group == paste0(c(1,2,4,8), "w")[timepoint])
-          delsub_noncolocs <- deg_eqtl_list[[tissue]][setdiff(intersect(intersect(sex_inds, timepoint_inds), motrpac_signif_inds), coloc_inds),]
-          delsub_colocs <- deg_eqtl_list[[tissue]][intersect(intersect(intersect(sex_inds, timepoint_inds), motrpac_signif_inds), coloc_inds),]
-          if(length(delsub_colocs$feature_ID) != 0){
-            delsub_colocs$pp4 <- sapply(delsub_colocs$gene_id, function(cg) colocs$p4[colocs$gene_id == cg & colocs$motrpac_tissue == tissue & colocs$gwas_trait == coloc_phenotype][1])
-            absLogFC_percentile <- sapply(delsub_colocs$logFC, function(x) sum(abs(x) > abs(delsub_noncolocs$logFC)) / length(delsub_noncolocs$logFC))
-            absSlope_percentile <- sapply(delsub_colocs$abs_slope, function(x) sum(x > delsub_noncolocs$abs_slope) / length(delsub_noncolocs$abs_slope))
-            # percentiles[tissue, c("male", "female")[sex], paste0(c(1,2,4,8), "w")[timepoint], coloc_phenotype] <- list(rbind(absLogFC_percentile, absSlope_percentile))
-            percentiles[[tissue]][[c("male", "female")[sex]]][[paste0(c(1,2,4,8), "w")[timepoint]]][[coloc_phenotype]] <- cbind(absLogFC = absLogFC_percentile, 
-                                                                                                                                absSlope = absSlope_percentile, 
-                                                                                                                                pp4 = delsub_colocs$pp4,
-                                                                                                                                phenotype = which(coloc_phenotype == coloc_phenotypes))
-            # print(c(coloc_phenotype, absLogFC_percentile, absSlope_percentile))
-          }
-          
-        }
-      }
-    }
-  } 
-  save(percentiles, file = "~/data/smontgom/coloc_DEeQTL_percentiles")
-}
-
-load("~/data/smontgom/coloc_DEeQTL_percentiles")
-pheno_cols <- disco::disco("rainbow")
-pheno_cols <- rev(colorRampPalette(pheno_cols)(length(coloc_phenotypes)))
-if(plot_coloc_percentile_figure){
-  
-  grDevices::cairo_pdf(filename = "~/Documents/DExEQTL/coloc_percentiles_eQTLxDE.pdf", width = 2000 / 72, height = 10000 / 72 *18 / 17, family="Arial Unicode MS")
-  # png(filename = "~/Documents/DExEQTL/basic_figure_eQTLxDE.png", width = 2000, height = 10000 * 18 / 17, family="Arial Unicode MS")
-  par(mfrow = c(18, 1), mar = c(4,4,4,8), xpd = T)
-  for(tissue in names(deg_eqtl_list)){
-    
-    plot(1,1,xlim = c(0,4), ylim = c(0,2.15), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-    
-    # #legend for dots and dashes
-    # stponr <- c(1,7) #set_to_put_on_first_row
-    # legend(x = 3.7165, y = ifelse(any(tissue == names(deg_eqtl_list)[stponr]), 1.26, 0.25775), col = c(1,1,"lightgray"), lwd = c(NA, 1, 2), lty = c(NA, 1, 2), pch = c(19, NA, NA), 
-    #        legend = c("Point Estimates", "±1 SE", "DE = 0 LFC"), cex = 1.5, box.lty = 3, box.lwd = 2, ncol = 1)
-    
-    rect(xleft = 0, ybottom = 0, xright = 4, ytop = 2.15, lwd = 3) #whole plot
-    rect(xleft = 0, ybottom = 2, xright = 4, ytop = 2.15, col = rgb(0,0,0.1, alpha = 0.05), border = NA) #whole plot
-    segments(x0 = 0, x1 = 4, y0 = 2, y1 = 2, lwd = 3) #week title
-    segments(x0 = 0, x1 = 4, y0 = 1, y1 = 1, lwd = 2) #sex divisor
-    shadowtext(x = 2, y = 2.15, labels = stringr::str_to_title(paste0(strsplit(tissue, "-")[[1]][-1], collapse = " ")), 
-               cex = 5, col = cols$Tissue[tissue], pos = 3, r = 0.2) #timepoint labels
-    mtext(text = latex2exp::TeX("lead eVariant eQTL effect size (absolute value, log_{2}-fold change percentile)"), cex = 2, line = 4) #horiz axis label
-    mtext(text = latex2exp::TeX("MoTrPAC Differential Expression"), cex = 1.75, line = -1.5, side = 2) #vert axis label
-    mtext(text = latex2exp::TeX("(absolute value, log_{2}-fold change percentile)"), cex = 1.75, line = -4.25, side = 2) #vert axis label
-    
-    #note size legend
-    points(x = rep(4.075, 15), cex = 1:15, col = grDevices::adjustcolor("black", 0.75), y = cumsum(1:15) / 120 * 2, pch = 19)
-    text(x = 4.075 + 1:15 / 250, y = cumsum(1:15) / 120 * 2, labels = round(1-10^(-10*(1:15)/50), 3), pos = 4, cex = seq(1, 3, length.out = 15))
-    text(x = 4.15, font = 3, y = 2.125, pos = 3, labels = "Coloc. PP4", cex = 3)
-    
-    #note filtration scheme
-    text(labels = latex2exp::TeX("Results filtered at MoTrPAC FDR-$\\alpha$ = "), 
-         x = 3.37, y = 2.18, pos = 4, cex = 1.75)
-    text(labels = sign_filter_alpha, x = 3.91, y = 2.18, pos = 4, cex = 1.75, font = 2)
-    
-    
-    for(sex in 1:2){
-
-      for(timepoint in 1:4){
-        segments(x0 = timepoint, x1 = timepoint, y0 = 2.15, y1 = 2, lwd = 3) #timepoint divisor title
-        segments(x0 = timepoint, x1 = timepoint, y0 = 2, y1 = 0, lwd = 2) #timepoint divisor title
-        shadowtext(x = timepoint - 0.5, y = 2, labels = paste0(c(1,2,4,8), "w")[timepoint], 
-                   cex = 4, col = cols$Time[timepoint], pos = 3, r = ifelse(timepoint == 4, 0.05, 0.2)) #timepoint labels
-        
-        #plot sex symbol
-        text(labels = c("\u2642", "\u2640")[sex], x = timepoint - 1.01, y = 1 + sex - ifelse(sex == 1, 1.0675, 1.0825), pos = 4, cex = 4, col = cols$Sex[sex])
-        
-        #incompatible gonads message
-        if((tissue == "t64-ovaries" & sex == 1) | (tissue == "t63-testes" & sex == 2)){
-          text(x = 0.5 + timepoint - 1, y = 0.5 + sex - 1, labels = "(not available)", cex = 2)
-          next()
-        }
-        
-        #hack-y rescaling
-        slope_rescale <- c(0,1)
-        logFC_rescale <- c(0,1)
-        tarb <- 0.05 #total_axis_rescaling_buffer, so points don't fall on lines
-        
-        
-        #timepoint axes
-        if(sex == 1 | (tissue == "t64-ovaries" & sex == 2)){
-          tick_vals <- round(seq(from = slope_rescale[1], to = slope_rescale[2], length.out = 11), 2)
-          tick_locs <- (tick_vals / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb
-          axis(1, at = tick_locs, labels = rep("", 11), lwd = 2, cex.axis = 2, tck = -0.015, line = -2)
-          mtext(text = tick_vals, side = 1, at = tick_locs, cex = 1, line = -0.5)
-        }
-        
-        #sex axes
-        if(timepoint == 1 & !(tissue == "t64-ovaries" & sex == 1) & !(tissue == "t63-testes" & sex == 2)){
-          # tick_vals <- round(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5), 1)
-          tick_vals <- round(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5), 2)
-          tick_locs <- (tick_vals / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb
-          axis(2, at = tick_locs, labels = rep("", 5), lwd = 2, cex.axis = 2, tck = -0.015, line = -7.35)
-          mtext(text = tick_vals, side = 2, at = tick_locs, cex = 1, line = -6)
-        }
-        
-        #retrieve appropriate percentiles
-        if(length(percentiles[[tissue]][[c("male", "female")[sex]]][[paste0(c(1,2,4,8), "w")[timepoint]]]) == 0){
-          next()
-        }
-        if(length(percentiles[[tissue]][[c("male", "female")[sex]]][[paste0(c(1,2,4,8), "w")[timepoint]]])[1] == 1){
-          percsub <- as.data.frame(percentiles[[tissue]][[c("male", "female")[sex]]][[paste0(c(1,2,4,8), "w")[timepoint]]])
-        } else {
-          percsub <- as.data.frame(do.call(rbind, percentiles[[tissue]][[c("male", "female")[sex]]][[paste0(c(1,2,4,8), "w")[timepoint]]]))
-        }
-        # point estimates
-        points(x = (percsub$absSlope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-               y = (percsub$absLogFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-               pch = 19, col = grDevices::adjustcolor(pheno_cols[percsub$phenotype], 0.9), cex = (log10(1-percsub$pp4) / -10 * 50))
-        text(labels = percsub$phenotype, x = (percsub$absSlope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb + (log10(1-percsub$pp4) / -200),
-               y = (percsub$absLogFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb + (log10(1-percsub$pp4) / -80),
-               col = "white", srt = -45, cex = (log10(1-percsub$pp4) / -1))
-        
-        # grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta) / min_logpval * 100)], alpha.f = 0.75)
-
-        
-        #label genes
-        # ptl <- order(delsub$abs_slope, decreasing = T)[1:n_genes_to_label_by_eQTL_effectSizes] #points to label
-        # text(x = (delsub$abs_slope[ptl] / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb - 0.005,
-        #      y = (delsub$logFC[ptl] / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb + 0.025,
-        #      labels = delsub$gene_name[ptl], col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta[ptl]) / min_logpval * 100)], alpha.f = 0.75), 
-        #      cex = 1.5, pos = 4)
-        
-        
-      }
-      
-    }
-    # dev.off()
-  }
-  dev.off()
-
-  grDevices::cairo_pdf(filename = "~/Documents/DExEQTL/coloc_percentiles_eQTLxDE_colorLegend.pdf", width = 1000 / 72, height = 2000 / 72 *18 / 17, family="Arial Unicode MS")
-  plot(1,1,xlim = c(0,1), ylim = c(0,10), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-  text(paste0(1:61, ": ", coloc_phenotypes), col = pheno_cols, x = 0.5, y = seq(10, 0, length.out = length(pheno_cols)), pos = 3, cex = 2)
-  text(labels = "Phenotype Color Legend", x = 0.5, y = 10.25, pos = 3, cex = 4, xpd = NA)
-  dev.off()
-  
-}
-
-
-#### DE / eQTL vs. PP4 figure ####
-
-pp4_threshold <- 0.01
-if(!exists("coloc_list") & !exists("colocs")){
-  load(paste0('~/data/smontgom/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
-  colocs <- coloc_list
-  rm(coloc_list)
-}
-gonocs <- colocs[colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[1] | colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[2],]
-gonocs$motrpac_tissue <- "t1000-gonads"
-colocs <- rbind(colocs, gonocs)
-coloc_phenotypes <- sort(unique(colocs$gwas_trait))
-
-# coloc_phenotypes <- sort(unique(colocs$gwas_trait))
-# deg_eqtl_list_colocs <- deg_eqtl_list
-# deg_eqtl_list_colocs <- lapply(names(deg_eqtl_list_colocs), function(tissue) cbind(as.data.frame(deg_eqtl_list_colocs[[tissue]]), 
-#                       as.data.frame(matrix(data = NA, nrow = nrow(deg_eqtl_list_colocs[[tissue]]), ncol = length(coloc_phenotypes), 
-#                         dimnames = list(rep("", nrow(deg_eqtl_list_colocs[[tissue]])), coloc_phenotypes)))))
-# names(deg_eqtl_list_colocs) <- names(deg_eqtl_list)
-# for(tissue in names(deg_eqtl_list)){
-#   matching_colocs <- lapply(sort(unique(deg_eqtl_list_colocs[[tissue]]$gene_id)), function(gene) which(colocs$gene_id == gene & colocs$motrpac_tissue == tissue))
-#   rbind(colocs$gwas_trait[matching_colocs], colocs$p4[matching_colocs])
-# }
-
-coloc_cols = viridis::viridis(50, begin = 0.5, end = 1)
-plot(1:length(coloc_cols), 1:length(coloc_cols), col = coloc_cols, pch = 19)
-
-plot_DE_EQTL_PP4_figure = F
-
-pheno_cols <- disco::disco("rainbow")
-pheno_cols <- rev(colorRampPalette(pheno_cols)(length(coloc_phenotypes)))
-if(plot_DE_EQTL_PP4_figure){
-  
-  if(!exists("cl")){
-    cl <- makeCluster(8, outfile="")
-    registerDoParallel(cl)
-  }
-  getDoParWorkers()
-  foreach(coloc_phenotype=coloc_phenotypes, .packages = c("latex2exp")) %dopar% {
-  # for(coloc_phenotype in coloc_phenotypes[2]){
-    
-  grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/dobtoaPP4/dobtoaPP4_", coloc_phenotype,".pdf"), 
-                       width = 2000 / 72, height = 10000 / 72 *18 / 17, family="Arial Unicode MS")
-  par(mfrow = c(18, 1), mar = c(4,0,4,8), xpd = T)
-  for(tissue in names(deg_eqtl_list)){
-
-    coloc_genes <- intersect(deg_eqtl_list[[tissue]]$gene_id, colocs$gene_id[colocs$motrpac_tissue == tissue & colocs$gwas_trait == coloc_phenotype])
-    coloc_inds <- as.vector(unname(unlist(sapply(coloc_genes, function(cg) which(deg_eqtl_list[[tissue]]$gene_id == cg)))))
-    
-    
-    # grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/basic_figure_", tissue,".pdf"), width = 2000 / 72, height = 10000 / 72 / length(names(deg_eqtl_list)))
-    
-    min_logpval <- floor(min(log(deg_eqtl_list[[tissue]]$pval_beta))) #gtex p-val
-    
-    # if(tissue != names(deg_eqtl_list)[1]){break}
-    
-    plot(1,1,xlim = c(0,4), ylim = c(0,2.15), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-    
-    #legend for dots and dashes
-    stponr <- c(99) #set_to_put_on_first_row
-    legend(x = 3.5155, y = 1.194 - ifelse(any(tissue == names(deg_eqtl_list)[stponr]), 0, 1.00225), col = c(1,"lightgray"), lwd = c(NA, 2), lty = c(NA, 2), pch = c(19, NA), 
-           legend = c("Point Estimate Ratio (log2-scale)", "Same Magnitude DE as LFC"), cex = 1.5, box.lty = 3, box.lwd = 2, ncol = 1)
-    
-    rect(xleft = 0, ybottom = 0, xright = 4, ytop = 2.15, lwd = 3) #whole plot
-    rect(xleft = 0, ybottom = 2, xright = 4, ytop = 2.15, col = rgb(0,0,0.1, alpha = 0.05), border = NA) #whole plot
-    segments(x0 = 0, x1 = 4, y0 = 2, y1 = 2, lwd = 3) #week title
-    segments(x0 = 0, x1 = 4, y0 = 1, y1 = 1, lwd = 2) #sex divisor
-    shadowtext(x = 2, y = 2.15, labels = stringr::str_to_title(paste0(strsplit(tissue, "-")[[1]][-1], collapse = " ")), 
-               cex = 5, col = cols$Tissue[tissue], pos = 3, r = 0.2) #timepoint labels
-    mtext(text = latex2exp::TeX("Abs. Differential Expression ÷ Abs. Lead eVariant eQTL Effect Size (log_{2}ratio)"), cex = 2, line = 3.5, side = 1) #horiz axis label
-    text(labels = "density", cex = 1.5, x = -0.0225, y = 0.11, font = 3, srt = 90) #horiz axis label
-    text(labels = "density", cex = 1.5, x = -0.0225, y = 1.11, font = 3, srt = 90) #horiz axis label
-    text(labels = latex2exp::TeX("-log_{10}(1-PP_{4})"), cex = 3, x = -0.1, y = 0.6, font = 3, srt = 90) #horiz axis label
-    text(labels = latex2exp::TeX("-log_{10}(1-PP_{4})"), cex = 3, x = -0.1, y = 1.6, font = 3, srt = 90) #horiz axis label
-    
-    #note filtration scheme
-    text(labels = latex2exp::TeX("Results filtered at MoTrPAC FDR-$\\alpha$ = "), 
-         x = 3.3775, y = 2.18, pos = 4, cex = 1.75)
-    text(labels = sign_filter_alpha, x = 3.91, y = 2.18, pos = 4, cex = 1.75, font = 2)
-    
-    #plot gtex p-value legend
-    xl <- 4.025; yb <- 0; xr <- 4.075; yt <- 2;
-    rect(
-      xl,
-      head(seq(yb,yt,(yt-yb)/100),-1),
-      xr,
-      tail(seq(yb,yt,(yt-yb)/100),-1),
-      col=p_val_cols
-    )
-    text(labels = round(seq(from = 0, to = -min_logpval, length.out = 10)), y = seq(yb, yt - 0.025, length.out = 10), x = 4.07, pos = 4, las=2, cex=1.5)
-    text(labels = latex2exp::TeX("-log_e(p-value)"), pos = 4, x = xl - 0.0175, y = yt + 0.035, cex = 2, font = 2)
-    addImg(GTEx_logo, x = xr - 0.01, y = yt + 0.125, width = 0.1) #much better
-    # text(labels = "GTEx", pos = 4, x = xl - 0.0175, y = yt + 0.125, cex = 2, font = 4)
-    
-    for(sex in 1:2){
-      # for(sex in 1){
-      
-      sex_inds <- which(deg_eqtl_list[[tissue]]$sex == c("male", "female")[sex])
-      
-      for(timepoint in 1:4){
-        # for(timepoint in 1){
-        segments(x0 = timepoint, x1 = timepoint, y0 = 2.15, y1 = 2, lwd = 3) #timepoint divisor title
-        segments(x0 = timepoint, x1 = timepoint, y0 = 2, y1 = 0, lwd = 2) #timepoint divisor title
-        shadowtext(x = timepoint - 0.5, y = 2, labels = paste0(c(1,2,4,8), "w")[timepoint], 
-                   cex = 4, col = cols$Time[timepoint], pos = 3, r = ifelse(timepoint == 4, 0.05, 0.2)) #timepoint labels
-        
-        #plot sex symbol
-        text(labels = c("\u2642", "\u2640")[sex], x = timepoint - 1.01, y = 1 + sex - ifelse(sex == 1, 1.0675, 1.0825), pos = 4, cex = 4, col = cols$Sex[sex])
-        
-        timepoint_inds <- which(deg_eqtl_list[[tissue]]$comparison_group == paste0(c(1,2,4,8), "w")[timepoint])
-        
-        if(length(deg_eqtl_list[[tissue]]$selection_fdr) > 0){
-          motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$selection_fdr < sign_filter_alpha)
-        } else {
-          motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)
-        }
-        
-        #incompatible gonads message
-        if((tissue == "t64-ovaries" & sex == 1) | (tissue == "t63-testes" & sex == 2)){
-          text(x = 0.5 + timepoint - 1, y = 0.5 + sex - 1, labels = "(not available)", cex = 2)
-          next()
-        }
-        
-        
-        delsub <- deg_eqtl_list[[tissue]][intersect(intersect(sex_inds, timepoint_inds), motrpac_signif_inds),]
-        delsub$abs_slope <- (abs(delsub$logFC) - delsub$abs_slope) #* sign(delsub$logFC)
-        delsub$logFC <- 0
-        
-        delsub_colocs <- deg_eqtl_list[[tissue]][intersect(intersect(intersect(sex_inds, timepoint_inds), motrpac_signif_inds), coloc_inds),]
-        if(length(delsub_colocs$feature_ID) != 0){
-          delsub_colocs$abs_slope <- (abs(delsub_colocs$logFC) - delsub_colocs$abs_slope) #* sign(delsub$logFC)
-          delsub_colocs$logFC <- 0
-          delsub_colocs$pp4 <- sapply(delsub_colocs$gene_id, function(cg) colocs$p4[colocs$gene_id == cg & colocs$motrpac_tissue == tissue & colocs$gwas_trait == coloc_phenotype][1]) 
-          delsub_colocs$pp4[delsub_colocs$pp4 > (1 - 1E-6)] <- (1 - 1E-6)
-        }
-        
-        # slope_rescale <- c(min((abs(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$logFC) - 
-        #                           deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope) * 
-        #                          sign(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$logFC)), 
-        #                    max((abs(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$logFC) - 
-        #                           deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope) *
-        #                          sign(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$logFC)))
-        slope_rescale <- c(min((abs(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$logFC) - 
-                                  deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope)), 
-                           max((abs(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$logFC) - 
-                                  deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope)))
-        
-        logFC_rescale <- c(-1,6) #that the maximum PP4 be 1-1E-6
-        
-        tarb <- 0.125 #total_axis_rescaling_buffer, so points don't fall on lines
-        
-        #add horizontal line to names
-        if(timepoint == 1){
-          segments(x0 = 0, x1 = 4, lwd = 1, col = "black", lty = 1,
-                   y0 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                   y1 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb)
-        }
-        
-        # print(paste0(tissue, ", ", c("male", "female")[sex], ", timepoint ", timepoint, ", min = ", round(min(delsub$logFC), 3), ", max = ", round(max(delsub$logFC), 3)))
-        
-        #plot KDE for ratios
-        kde1d <- density(x = delsub$abs_slope, bw = 0.2)
-        lines(x = (kde1d$x / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb, lwd = 3, xpd = F,
-              y = ((-kde1d$y / max(kde1d$y)) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1.05 + tarb)
-        segments(x0 = (kde1d$x / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                 x1 = (kde1d$x / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                 y0 = ((0 / max(kde1d$y)) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1.05 + tarb,
-                 y1 = ((-kde1d$y / max(kde1d$y)) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1.05 + tarb,
-                 col = "grey90", lwd = 2, xpd = F)
-        
-        #add vertical line to mark zero
-        segments(y0 = sex - 1, y1 = sex, lwd = 2, col = "lightgray", lty = 2,
-                 x0 = (0 / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                 x1 = (0 / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb)
-        
-        #point estimates
-        lessY <- 0.025
-        points(x = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-               y = -lessY + (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-               pch = 19, col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta) / min_logpval * 100)], alpha.f = 0.75), cex = 1.5)
-        
-        #timepoint axes
-        if(sex == 1 | (tissue == "t64-ovaries" & sex == 2)){
-          if(any(slope_rescale > 0) & any(slope_rescale < 0)){
-            tick_vals <- round(seq(from = 0, to = max(abs(slope_rescale)) * sign(slope_rescale[which.max(abs(slope_rescale))]), length.out = 7), 2)  
-            tick_vals <- c(rev(seq(from = 0, to = min(abs(slope_rescale)) * sign(slope_rescale[which.min(abs(slope_rescale))]), 
-                               by = -diff(tick_vals)[1])), tick_vals)
-            tick_vals[-which(diff(tick_vals) < 1E-6)]
-          } else {
-            tick_vals <- round(seq(from = slope_rescale[1], to = slope_rescale[2], length.out = 10), 2)  
-          }
-          tick_locs <- (tick_vals / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb
-          axis(1, at = tick_locs, labels = rep("", length(tick_vals)), lwd = 2, cex.axis = 2, tck = -0.015, line = -2)
-          mtext(text = tick_vals, side = 1, at = tick_locs, cex = 1, line = -0.5)
-        }
-        
-        # vertical lines for colocalizing genes
-        if(length(delsub_colocs$feature_ID) != 0){
-          segments(x0 = (delsub_colocs$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                   x1 = (delsub_colocs$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                   y0 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                   y1 = (-(log10(1-delsub_colocs$pp4)) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                   lwd = 3)
-        } else {
-          text(x = 0.5 + timepoint - 1, y = 0.5 + sex - 1, labels = paste0("(no colocalizations w/ PP4 > ", pp4_threshold,")"), cex = 2)
-        }
-        
-        # points(x = (delsub_colocs$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-        #          y = (-(log10(1-delsub_colocs$pp4)) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb)
-        
-        #sex axes
-        if(timepoint == 1 & !(tissue == "t64-ovaries" & sex == 1) & !(tissue == "t63-testes" & sex == 2)){
-          # tick_vals <- round(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5), 1)
-          tick_vals <- (seq(from = 0, to = logFC_rescale[2], length.out = 7))
-          tick_locs <- (tick_vals / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb
-          axis(2, at = tick_locs, labels = rep("", length(tick_vals)), lwd = 2, cex.axis = 2, tck = -0.015, line = -7.5)
-          mtext(text = tick_vals, side = 2, at = tick_locs, cex = 1, line = -6)
-        }
-        
-        ### label genes
-        if(length(delsub_colocs$feature_ID) != 0){
-          n_genes_to_label_by_PP4 <- 3
-          ptl <- order((delsub_colocs$pp4), decreasing = T)[1:n_genes_to_label_by_PP4] #points to label
-          text(x = (delsub_colocs$abs_slope[ptl] / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb - 0.01,
-               y = (-(log10(1-delsub_colocs$pp4[ptl])) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb + 0.0125,
-               labels = delsub$gene_name[ptl], col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta[ptl]) / min_logpval * 100)], alpha.f = 0.75),
-               cex = 1.5, pos = 4, srt = 65)
-        }
-        
-        
-      }
-      
-    }
-    # dev.off()
-  }
-  dev.off()
-  }
-}
-
-#### DE / eQTL vs. PP4 sum-figure ####
-
-pp4_threshold <- 0.1
-if(!exists("coloc_list") & !exists("colocs")){
-  load(paste0('~/data/smontgom/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
-  colocs <- coloc_list
-  rm(coloc_list)
-}
-gonocs <- colocs[colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[1] | colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[2],]
-gonocs$motrpac_tissue <- "t1000-gonads"
-colocs <- rbind(colocs, gonocs)
-coloc_phenotypes <- sort(unique(colocs$gwas_trait))
-
-# coloc_phenotypes <- sort(unique(colocs$gwas_trait))
-# deg_eqtl_list_colocs <- deg_eqtl_list
-# deg_eqtl_list_colocs <- lapply(names(deg_eqtl_list_colocs), function(tissue) cbind(as.data.frame(deg_eqtl_list_colocs[[tissue]]), 
-#                       as.data.frame(matrix(data = NA, nrow = nrow(deg_eqtl_list_colocs[[tissue]]), ncol = length(coloc_phenotypes), 
-#                         dimnames = list(rep("", nrow(deg_eqtl_list_colocs[[tissue]])), coloc_phenotypes)))))
-# names(deg_eqtl_list_colocs) <- names(deg_eqtl_list)
-# for(tissue in names(deg_eqtl_list)){
-#   matching_colocs <- lapply(sort(unique(deg_eqtl_list_colocs[[tissue]]$gene_id)), function(gene) which(colocs$gene_id == gene & colocs$motrpac_tissue == tissue))
-#   rbind(colocs$gwas_trait[matching_colocs], colocs$p4[matching_colocs])
-# }
-
-coloc_cols = viridis::viridis(50, begin = 0.5, end = 1)
-plot(1:length(coloc_cols), 1:length(coloc_cols), col = coloc_cols, pch = 19)
-
-plot_DE_EQTL_PP4_figure_sum = T
-color_by_category <- T
-trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
-traitwise_partitions <- trait_categories[,c("Tag", "Category")]
-categories <- sort(unique(traitwise_partitions$Category))
-catnames <- sapply(categories, function(x) strsplit(x, split = c("-"))[[1]][1])
-catnames <- sapply(catnames, function(x) strsplit(x, split = c(" "))[[1]][1])
-catnames["Anthropometric"] <- "Anthro"
-catnames["Cardiometabolic"] <- "Cardio"
-
-coloc_discr_cols <- c(RColorBrewer::brewer.pal(8, "Dark2"), RColorBrewer::brewer.pal(9, "Set1")[c(1,2,8,9)])
-swap_elements <- function(x,e1,e2){nx <- names(x); xn <- x; xn[e1] <- x[e2]; xn[e2] <- x[e1]; names(xn) <- nx; return(xn)}
-names(coloc_discr_cols) <- categories
-coloc_discr_cols <- swap_elements(coloc_discr_cols, "Hair morphology", "Blood")
-coloc_discr_cols["Hair morphology"] <- "black"
-coloc_discr_cols["Allergy"] <- "#CEFA05"
-n_genes_to_label_by_pp4 <- 3
-
-pheno_cols <- disco::disco("rainbow")
-pheno_cols <- rev(colorRampPalette(pheno_cols)(length(coloc_phenotypes)))
-if(plot_DE_EQTL_PP4_figure_sum){
-  
-    
-    grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/dobtoaPP4", ifelse(color_by_category, "_byCategory"),"_sum.pdf"), 
-                         width = 2000 / 72, height = 10000 / 72 *18 / 17, family="Arial Unicode MS")
-    par(mfrow = c(18, 1), mar = c(4,0,4,8), xpd = T)
-    for(tissue in names(deg_eqtl_list)[14]){
-      
-      # grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/basic_figure_", tissue,".pdf"), width = 2000 / 72, height = 10000 / 72 / length(names(deg_eqtl_list)))
-      
-      min_logpval <- floor(min(log(deg_eqtl_list[[tissue]]$pval_beta))) #gtex p-val
-      
-      # if(tissue != names(deg_eqtl_list)[1]){break}
-      
-      plot(1,1,xlim = c(0,4), ylim = c(0,2.15), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-      
-      #color legend for categories
-      if(color_by_category){
-        legend(x = 3.5375, y = 2, legend = catnames, lwd = 5, col = coloc_discr_cols[names(catnames)], cex = 1.5, box.lty = 3, box.lwd = 2, ncol = 2)
-      }
-      
-      #legend for dots and dashes
-      stponr <- c(99) #set_to_put_on_first_row
-      legend(x = 3.5155, y = 1.194 - ifelse(any(tissue == names(deg_eqtl_list)[stponr]), 0, 1.00225), col = c(1,"lightgray"), lwd = c(NA, 2), lty = c(NA, 2), pch = c(19, NA), 
-             legend = c("Point Estimate Ratio (log2-scale)", "Same Magnitude DE as LFC"), cex = 1.5, box.lty = 3, box.lwd = 2, ncol = 1)
-      
-      rect(xleft = 0, ybottom = 0, xright = 4, ytop = 2.15, lwd = 3) #whole plot
-      rect(xleft = 0, ybottom = 2, xright = 4, ytop = 2.15, col = rgb(0,0,0.1, alpha = 0.05), border = NA) #whole plot
-      segments(x0 = 0, x1 = 4, y0 = 2, y1 = 2, lwd = 3) #week title
-      segments(x0 = 0, x1 = 4, y0 = 1, y1 = 1, lwd = 2) #sex divisor
-      shadowtext(x = 2, y = 2.15, labels = stringr::str_to_title(paste0(strsplit(tissue, "-")[[1]][-1], collapse = " ")), 
-                 cex = 5, col = cols$Tissue[tissue], pos = 3, r = 0.2) #timepoint labels
-      mtext(text = latex2exp::TeX("Abs. Differential Expression ÷ Abs. Lead eVariant eQTL Effect Size (log_{2}ratio)"), cex = 2, line = 3.5, side = 1) #horiz axis label
-      text(labels = "density", cex = 1.5, x = -0.0225, y = 0.085, font = 3, srt = 90) #horiz axis label
-      text(labels = "density", cex = 1.5, x = -0.0225, y = 1.085, font = 3, srt = 90) #horiz axis label
-      text(labels = latex2exp::TeX("Pr(n_{colocs} ≥ 1)"), cex = 2.5, x = -0.1, y = 0.575, font = 3, srt = 90) #horiz axis label
-      text(labels = latex2exp::TeX("Pr(n_{colocs} ≥ 1)"), cex = 2.5, x = -0.1, y = 1.575, font = 3, srt = 90) #horiz axis label
-      # text(labels = latex2exp::TeX(paste0("-log_{10}\\prod_{}^{",length(pheno_cols),"}(1-PP4)")), cex = 2.5, x = -0.1, y = 1.6, font = 3, srt = 90) #horiz axis label
-      
-      #note filtration scheme
-      text(labels = latex2exp::TeX("Results filtered at MoTrPAC FDR-$\\alpha$ = "), 
-           x = 3.3775, y = 2.18, pos = 4, cex = 1.75)
-      text(labels = sign_filter_alpha, x = 3.91, y = 2.18, pos = 4, cex = 1.75, font = 2)
-      
-      #plot gtex p-value legend
-      xl <- 4.025; yb <- 0; xr <- 4.075; yt <- 2;
-      rect(
-        xl,
-        head(seq(yb,yt,(yt-yb)/100),-1),
-        xr,
-        tail(seq(yb,yt,(yt-yb)/100),-1),
-        col=p_val_cols
-      )
-      text(labels = round(seq(from = 0, to = -min_logpval, length.out = 10)), y = seq(yb, yt - 0.025, length.out = 10), x = 4.07, pos = 4, las=2, cex=1.5)
-      text(labels = latex2exp::TeX("-log_e(p-value)"), pos = 4, x = xl - 0.0175, y = yt + 0.035, cex = 2, font = 2)
-      addImg(GTEx_logo, x = xr - 0.01, y = yt + 0.125, width = 0.1) #much better
-      # text(labels = "GTEx", pos = 4, x = xl - 0.0175, y = yt + 0.125, cex = 2, font = 4)
-      
-      for(sex in 1:2){
-        # for(sex in 1){
-        
-        sex_inds <- which(deg_eqtl_list[[tissue]]$sex == c("male", "female")[sex])
-        
-        for(timepoint in 1:4){
-          
-          
-          # for(timepoint in 1){
-          segments(x0 = timepoint, x1 = timepoint, y0 = 2.15, y1 = 2, lwd = 3) #timepoint divisor title
-          segments(x0 = timepoint, x1 = timepoint, y0 = 2, y1 = 0, lwd = 2) #timepoint divisor title
-          shadowtext(x = timepoint - 0.5, y = 2, labels = paste0(c(1,2,4,8), "w")[timepoint], 
-                     cex = 4, col = cols$Time[timepoint], pos = 3, r = ifelse(timepoint == 4, 0.05, 0.2)) #timepoint labels
-          
-          #plot sex symbol
-          text(labels = c("\u2642", "\u2640")[sex], x = timepoint - 1.01, y = 1 + sex - ifelse(sex == 1, 1.0675, 1.0825), pos = 4, cex = 4, col = cols$Sex[sex])
-          
-          timepoint_inds <- which(deg_eqtl_list[[tissue]]$comparison_group == paste0(c(1,2,4,8), "w")[timepoint])
-          
-          if(length(deg_eqtl_list[[tissue]]$selection_fdr) > 0){
-            motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$selection_fdr < sign_filter_alpha)
-          } else {
-            motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)
-          }
-          
-          #incompatible gonads message
-          if((tissue == "t64-ovaries" & sex == 1) | (tissue == "t63-testes" & sex == 2)){
-            text(x = 0.5 + timepoint - 1, y = 0.5 + sex - 1, labels = "(not available)", cex = 2)
-            next()
-          }
-          
-          
-          delsub <- deg_eqtl_list[[tissue]][intersect(intersect(sex_inds, timepoint_inds), motrpac_signif_inds),]
-          delsub$abs_slope <- (abs(delsub$logFC) - delsub$abs_slope) #* sign(delsub$logFC)
-          delsub$logFC <- 0
-          
-          # slope_rescale <- c(min((abs(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$logFC) - 
-          #                           deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope) * 
-          #                          sign(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$logFC)), 
-          #                    max((abs(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$logFC) - 
-          #                           deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope) *
-          #                          sign(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$logFC)))
-          slope_rescale <- c(min((abs(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$logFC) - 
-                                    deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope)), 
-                             max((abs(deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$logFC) - 
-                                    deg_eqtl_list[[tissue]][intersect(timepoint_inds, motrpac_signif_inds),]$abs_slope)))
-          
-          kdey_rescale <- c(3,12,2,4,12,4,10,4,12,12,2,2,1,10,9,2,12,10) 
-          logFC_rescale <- c(-kdey_rescale[which(tissue == names(deg_eqtl_list))] / 6, 
-                             kdey_rescale[which(tissue == names(deg_eqtl_list))]) 
-          
-          
-          tarb <- 0.05 #total_axis_rescaling_buffer, so points don't fall on lines
-          
-          #add horizontal line to names
-          if(timepoint == 1){
-            segments(x0 = 0, x1 = 4, lwd = 1, col = "black", lty = 1,
-                     y0 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                     y1 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb)
-          }
-          
-          # print(paste0(tissue, ", ", c("male", "female")[sex], ", timepoint ", timepoint, ", min = ", round(min(delsub$logFC), 3), ", max = ", round(max(delsub$logFC), 3)))
-          
-          #plot KDE for ratios
-          kde1d <- density(x = delsub$abs_slope, bw = 0.2)
-          kde1d$y <- kde1d$y[kde1d$x > min(delsub$abs_slope) & kde1d$x < max(delsub$abs_slope)]
-          kde1d$x <- kde1d$x[kde1d$x > min(delsub$abs_slope) & kde1d$x < max(delsub$abs_slope)]
-          
-          lines(x = (kde1d$x / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb, lwd = 3, xpd = F,
-                y = ((-kde1d$y / max(kde1d$y) * 0.8*kdey_rescale[which(tissue == names(deg_eqtl_list))] / 6) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1.05 + tarb)
-          segments(x0 = (kde1d$x / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                   x1 = (kde1d$x / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                   y0 = ((0 / max(kde1d$y) * -logFC_rescale[1]) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1.05 + tarb,
-                   y1 = ((-kde1d$y / max(kde1d$y)  * -0.8*logFC_rescale[1]) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1.05 + tarb,
-                   col = "grey90", lwd = 2, xpd = F)
-          
-          #add vertical line to mark zero
-          segments(y0 = sex - 1, y1 = sex, lwd = 2, col = "lightgray", lty = 2,
-                   x0 = (0 / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                   x1 = (0 / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb)
-          
-          #prop genes on either side of line
-          prop_right <- round(sum(delsub$abs_slope > 0) / length(delsub$abs_slope) * 100)
-          prop_left <- 100 - prop_right
-          text(x = (0 / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb, 
-               y = ((-max(kde1d$y) / 15 * kdey_rescale[which(tissue == names(deg_eqtl_list))] / 6) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1.05 + tarb, 
-               labels = prop_right, col = "grey35", srt = 270, pos = 4)
-          text(x = (0 / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb, 
-               y = ((-max(kde1d$y) / 15 * kdey_rescale[which(tissue == names(deg_eqtl_list))] / 6) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1.05 + tarb, 
-               labels = prop_left, col = "grey35", srt = 90, pos = 2)
-          
-          #timepoint axes
-          if(sex == 1 | (tissue == "t64-ovaries" & sex == 2)){
-            if(any(slope_rescale > 0) & any(slope_rescale < 0)){
-              tick_vals <- round(seq(from = 0, to = max(abs(slope_rescale)) * sign(slope_rescale[which.max(abs(slope_rescale))]), length.out = 7), 2)  
-              tick_vals <- c(rev(seq(from = 0, to = min(abs(slope_rescale)) * sign(slope_rescale[which.min(abs(slope_rescale))]), 
-                                     by = -diff(tick_vals)[1])), tick_vals)
-              tick_vals[-which(diff(tick_vals) < 1E-6)]
-            } else {
-              tick_vals <- round(seq(from = slope_rescale[1], to = slope_rescale[2], length.out = 10), 2)  
-            }
-            tick_locs <- (tick_vals / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb
-            axis(1, at = tick_locs, labels = rep("", length(tick_vals)), lwd = 2, cex.axis = 2, tck = -0.015, line = -2)
-            mtext(text = tick_vals, side = 1, at = tick_locs, cex = 1, line = -0.5)
-          }
-          
-          # vertical lines for colocalizing genes
-          curr_heights <-  rep(0, nrow(delsub))
-          print(tissue)
-          
-          if(color_by_category){
-            coloc_phenotypes_to_color <- coloc_phenotypes[order(traitwise_partitions[match(coloc_phenotypes,traitwise_partitions[,1]),2])]
-          } else {
-            coloc_phenotypes_to_color <- coloc_phenotypes
-          }
-          
-          for(coloc_phenotype in coloc_phenotypes_to_color){
-            cat(paste0(timepoint, " "))
-            coloc_genes <- intersect(deg_eqtl_list[[tissue]]$gene_id, colocs$gene_id[colocs$motrpac_tissue == tissue & colocs$gwas_trait == coloc_phenotype])
-            coloc_inds <- as.vector(unname(unlist(sapply(coloc_genes, function(cg) which(deg_eqtl_list[[tissue]]$gene_id == cg)))))
-            delsub_colocs <- deg_eqtl_list[[tissue]][intersect(intersect(intersect(sex_inds, timepoint_inds), motrpac_signif_inds), coloc_inds),]
-            if(length(delsub_colocs$feature_ID) != 0){
-              delsub_colocs$abs_slope <- (abs(delsub_colocs$logFC) - delsub_colocs$abs_slope) #* sign(delsub$logFC)
-              delsub_colocs$logFC <- 0
-              delsub_colocs$pp4 <- sapply(delsub_colocs$gene_id, function(cg) colocs$p4[colocs$gene_id == cg & colocs$motrpac_tissue == tissue & colocs$gwas_trait == coloc_phenotype][1]) 
-              delsub_colocs$pp4[delsub_colocs$pp4 > (1 - 1E-6)] <- (1 - 1E-6)
-              colocalizing_genes <- sapply(delsub_colocs$gene_id, function(gid) which(delsub$gene_id == gid)[1])
-              
-              if(color_by_category){
-                color_to_use <- coloc_discr_cols[traitwise_partitions[match(coloc_phenotype,traitwise_partitions[,1]),2]]
-              } else {
-                color_to_use <- pheno_cols[which(coloc_phenotype == coloc_phenotypes)]
-              }
-              
-              segments(x0 = (delsub_colocs$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                       x1 = (delsub_colocs$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                       y0 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb + curr_heights[colocalizing_genes],
-                       y1 = (-(log10(1-delsub_colocs$pp4)) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb + curr_heights[colocalizing_genes],
-                       lwd = 1, col = color_to_use)
-              curr_heights[colocalizing_genes] <- curr_heights[colocalizing_genes] + (-(log10(1-delsub_colocs$pp4)) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) - 
-                (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) 
-            }
-          }
-          
-          #point estimates
-          lessY <- 0.025
-          points(x = (delsub$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-                 y = -lessY + (delsub$logFC / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                 pch = 19, col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta) / min_logpval * 100)], alpha.f = 0.75), cex = 1.5)
-          
-          
-          # points(x = (delsub_colocs$abs_slope / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-          #          y = (-(log10(1-delsub_colocs$pp4)) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb)
-          
-          #sex axes
-          if(timepoint == 1 & !(tissue == "t64-ovaries" & sex == 1) & !(tissue == "t63-testes" & sex == 2)){
-            # tick_vals <- round(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5), 1)
-            tick_vals <- round(seq(from = 0, to = logFC_rescale[2], by = 10^-floor(log10(logFC_rescale[2])-1)))
-            if(length(tick_vals) > 4){tick_vals <- round(seq(from = 0, to = logFC_rescale[2], by = 10^-floor(log10(logFC_rescale[2])-1)*3))}
-            tick_locs <- (tick_vals / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb
-            axis(2, at = tick_locs, labels = rep("", length(tick_vals)), lwd = 2, cex.axis = 2, tck = -0.02, line = -7.5)
-            mtext(text = c(0, sapply(tick_vals[-1], function(num) as.expression(bquote(1-10^-.(num))))), side = 2, at = tick_locs, cex = 1, line = -6)
-            
-            
-          }
-          
-          ### label genes
-          if(any(curr_heights > 0)){
-            ptl <- order(curr_heights, decreasing = T)[1:n_genes_to_label_by_pp4] #points to label
-            
-            text(x = (delsub$abs_slope[ptl] / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb + 0.02,
-                 y = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb + curr_heights[ptl] + 0.025, 
-                 labels = delsub$gene_name[ptl], col = 1, cex = 1, pos = 3, srt = 45)
-          }
-          
-          
-        }
-        
-      }
-      # dev.off()
-    }
-    dev.off()
-  }
-
-
-
-#### summarizing by trait figure ####
-
-pp4_threshold <- 0.1
-# if(!exists("coloc_list") & !exists("colocs")){
-  load(paste0('~/data/smontgom/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
-  colocs <- coloc_list
-  rm(coloc_list)
-# }
-gonocs <- colocs[colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[1] | colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[2],]
-gonocs$motrpac_tissue <- "t1000-gonads"
-colocs <- rbind(colocs, gonocs)
-coloc_phenotypes <- sort(unique(colocs$gwas_trait))
-
-
-if(!file.exists(paste0("~/Documents/DExEQTL/probs_noColocs_byTrait_", pp4_threshold, "_threshold"))){
-  probs_noColocs <- list()
-  for(tissue in names(deg_eqtl_list)){
-    
-    for(sex in 1:2){
-      
-      sex_inds <- which(deg_eqtl_list[[tissue]]$sex == c("male", "female")[sex])
-      
-      for(timepoint in 1:4){
-        
-        timepoint_inds <- which(deg_eqtl_list[[tissue]]$comparison_group == paste0(c(1,2,4,8), "w")[timepoint])
-        
-        if(length(deg_eqtl_list[[tissue]]$selection_fdr) > 0){
-          motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$selection_fdr < sign_filter_alpha & deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)
-        } else {
-          motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)
-        }
-        
-        delsub <- deg_eqtl_list[[tissue]][intersect(intersect(sex_inds, timepoint_inds), motrpac_signif_inds),]
-        delsub$abs_slope <- (abs(delsub$logFC) - delsub$abs_slope) #* sign(delsub$logFC)
-        delsub$logFC <- 0
-        
-        # vertical lines for colocalizing genes
-        prob_noColocs <-  rep(0, length(coloc_phenotypes))
-        names(prob_noColocs) <- coloc_phenotypes
-        print(tissue)
-        for(coloc_phenotype in coloc_phenotypes){
-          cat(paste0(timepoint, " "))
-          coloc_genes <- intersect(deg_eqtl_list[[tissue]]$gene_id, colocs$gene_id[colocs$motrpac_tissue == tissue & colocs$gwas_trait == coloc_phenotype])
-          coloc_inds <- as.vector(unname(unlist(sapply(coloc_genes, function(cg) which(deg_eqtl_list[[tissue]]$gene_id == cg)))))
-          delsub_colocs <- deg_eqtl_list[[tissue]][intersect(intersect(intersect(sex_inds, timepoint_inds), motrpac_signif_inds), coloc_inds),]
-          if(length(delsub_colocs$feature_ID) != 0){
-            delsub_colocs$abs_slope <- (abs(delsub_colocs$logFC) - delsub_colocs$abs_slope) #* sign(delsub$logFC)
-            delsub_colocs$pp4 <- sapply(delsub_colocs$gene_id, function(cg) colocs$p4[colocs$gene_id == cg & colocs$motrpac_tissue == tissue & colocs$gwas_trait == coloc_phenotype][1]) 
-            delsub_colocs$pp4[delsub_colocs$pp4 > (1 - 1E-6)] <- (1 - 1E-6)
-            prob_noColocs[coloc_phenotype] <- -sum(log10(1-delsub_colocs$pp4))
-            
-          }
-        }
-        probs_noColocs[[tissue]][[c("male", "female")[sex]]][[paste0(c(1,2,4,8), "w")[timepoint]]] <- prob_noColocs 
-        
-      }
-      
-    }
-    # dev.off()
-  }
-  save(probs_noColocs, file = paste0("~/Documents/DExEQTL/probs_noColocs_byTrait_", pp4_threshold, "_threshold"))
-}
-
-load(file = paste0("~/Documents/DExEQTL/probs_noColocs_byTrait_", pp4_threshold, "_threshold"))
-# coloc_phenotypes <- sort(unique(colocs$gwas_trait))
-# deg_eqtl_list_colocs <- deg_eqtl_list
-# deg_eqtl_list_colocs <- lapply(names(deg_eqtl_list_colocs), function(tissue) cbind(as.data.frame(deg_eqtl_list_colocs[[tissue]]), 
-#                       as.data.frame(matrix(data = NA, nrow = nrow(deg_eqtl_list_colocs[[tissue]]), ncol = length(coloc_phenotypes), 
-#                         dimnames = list(rep("", nrow(deg_eqtl_list_colocs[[tissue]])), coloc_phenotypes)))))
-# names(deg_eqtl_list_colocs) <- names(deg_eqtl_list)
-# for(tissue in names(deg_eqtl_list)){
-#   matching_colocs <- lapply(sort(unique(deg_eqtl_list_colocs[[tissue]]$gene_id)), function(gene) which(colocs$gene_id == gene & colocs$motrpac_tissue == tissue))
-#   rbind(colocs$gwas_trait[matching_colocs], colocs$p4[matching_colocs])
-# }
-
-coloc_cols = viridis::viridis(50, begin = 0.5, end = 1)
-plot(1:length(coloc_cols), 1:length(coloc_cols), col = coloc_cols, pch = 19)
-padded_nums <- as.character(1:length(coloc_phenotypes))
-padded_nums <- sapply(padded_nums, function(pn) paste0(rep("0", max(nchar(padded_nums)) - nchar(pn)), pn))
-
-plot_phenotype_summary_figure = F
-pheno_cols <- disco::disco("rainbow")
-pheno_cols <- rev(colorRampPalette(pheno_cols)(length(coloc_phenotypes)))
-if(plot_phenotype_summary_figure){
-  
-  
-  grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/byPhenotype_colocalization_summary_", length(coloc_phenotypes), "traits.pdf"), 
-                       width = 2000 / 72, height = 10000 / 72 *18 / 17, family="Arial Unicode MS")
-  par(mfrow = c(18, 1), mar = c(4,0,4,0), xpd = T)
-  for(tissue in names(deg_eqtl_list)){
-    
-    # grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/basic_figure_", tissue,".pdf"), width = 2000 / 72, height = 10000 / 72 / length(names(deg_eqtl_list)))
-    
-    min_logpval <- floor(min(log(deg_eqtl_list[[tissue]]$pval_beta))) #gtex p-val
-    
-    # if(tissue != names(deg_eqtl_list)[1]){break}
-    
-    plot(1,1,xlim = c(0,4), ylim = c(0,2.15), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-    
-    #legend for dots and dashes
-    stponr <- c(99) #set_to_put_on_first_row
-    legend(x = 3.5155, y = 1.194 - ifelse(any(tissue == names(deg_eqtl_list)[stponr]), 0, 1.00225), col = c(1,"lightgray"), lwd = c(NA, 2), lty = c(NA, 2), pch = c(19, NA), 
-           legend = c("Point Estimate Ratio (log2-scale)", "Same Magnitude DE as LFC"), cex = 1.5, box.lty = 3, box.lwd = 2, ncol = 1)
-    
-    rect(xleft = 0, ybottom = 0, xright = 4, ytop = 2.15, lwd = 3) #whole plot
-    rect(xleft = 0, ybottom = 2, xright = 4, ytop = 2.15, col = rgb(0,0,0.1, alpha = 0.05), border = NA) #whole plot
-    segments(x0 = 0, x1 = 4, y0 = 2, y1 = 2, lwd = 3) #week title
-    segments(x0 = 0, x1 = 4, y0 = 1, y1 = 1, lwd = 2) #sex divisor
-    shadowtext(x = 2, y = 2.15, labels = stringr::str_to_title(paste0(strsplit(tissue, "-")[[1]][-1], collapse = " ")), 
-               cex = 5, col = cols$Tissue[tissue], pos = 3, r = 0.2) #timepoint labels
-    mtext(text = paste0("Phenotype Indices for the ", length(coloc_phenotypes), " GWAS Phenotypes w/ Colocalization Probabilities > ", pp4_threshold), cex = 2, line = 0, side = 1) #horiz axis label
-    text(labels = "trait", cex = 1.5, x = -0.015, y = 0.05, font = 3, srt = 90) #horiz axis label
-    text(labels = "trait", cex = 1.5, x = -0.015, y = 1.05, font = 3, srt = 90) #horiz axis label
-    text(labels = latex2exp::TeX("-log_{10}Pr(No Colocs)"), cex = 2.5, x = -0.075, y = 0.565, font = 3, srt = 90) #horiz axis label
-    text(labels = latex2exp::TeX("-log_{10}Pr(No Colocs)"), cex = 2.5, x = -0.075, y = 1.565, font = 3, srt = 90) #horiz axis label
-    # text(labels = latex2exp::TeX(paste0("-log_{10}\\prod_{}^{",length(pheno_cols),"}(1-PP4)")), cex = 2.5, x = -0.1, y = 1.6, font = 3, srt = 90) #horiz axis label
-    
-    #note filtration scheme
-    text(labels = latex2exp::TeX("Results filtered at MoTrPAC FDR-$\\alpha$ = "), 
-         x = 3.3775, y = 2.18, pos = 4, cex = 1.75)
-    text(labels = sign_filter_alpha, x = 3.91, y = 2.18, pos = 4, cex = 1.75, font = 2)
-    
-    for(sex in 1:2){
-      # for(sex in 1){
-      
-      sex_inds <- which(deg_eqtl_list[[tissue]]$sex == c("male", "female")[sex])
-      
-      for(timepoint in 1:4){
-        # for(timepoint in 1){
-        segments(x0 = timepoint, x1 = timepoint, y0 = 2.15, y1 = 2, lwd = 3) #timepoint divisor title
-        segments(x0 = timepoint, x1 = timepoint, y0 = 2, y1 = 0, lwd = 2) #timepoint divisor title
-        shadowtext(x = timepoint - 0.5, y = 2, labels = paste0(c(1,2,4,8), "w")[timepoint], 
-                   cex = 4, col = cols$Time[timepoint], pos = 3, r = ifelse(timepoint == 4, 0.05, 0.2)) #timepoint labels
-        
-        #plot sex symbol
-        text(labels = c("\u2642", "\u2640")[sex], x = timepoint - 1.01, y = 1 + sex - ifelse(sex == 1, 1.0675, 1.0825), pos = 4, cex = 4, col = cols$Sex[sex])
-        
-        
-        #incompatible gonads message
-        if((tissue == "t64-ovaries" & sex == 1) | (tissue == "t63-testes" & sex == 2)){
-          text(x = 0.5 + timepoint - 1, y = 0.5 + sex - 1, labels = "(not available)", cex = 2)
-          next()
-        }
-        
-       
-        
-        
-        #plot KDE for ratios
-        
-        #add vertical line to mark zero
-        # segments(y0 = sex - 1, y1 = sex, lwd = 2, col = "lightgray", lty = 2,
-        #          x0 = (0 / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-        #          x1 = (0 / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb)
-         
-        # #timepoint axes
-        # if(sex == 1 | (tissue == "t64-ovaries" & sex == 2)){
-        #   if(any(slope_rescale > 0) & any(slope_rescale < 0)){
-        #     tick_vals <- round(seq(from = 0, to = max(abs(slope_rescale)) * sign(slope_rescale[which.max(abs(slope_rescale))]), length.out = 7), 2)  
-        #     tick_vals <- c(rev(seq(from = 0, to = min(abs(slope_rescale)) * sign(slope_rescale[which.min(abs(slope_rescale))]), 
-        #                            by = -diff(tick_vals)[1])), tick_vals)
-        #     tick_vals[-which(diff(tick_vals) < 1E-6)]
-        #   } else {
-        #     tick_vals <- round(seq(from = slope_rescale[1], to = slope_rescale[2], length.out = 10), 2)  
-        #   }
-        #   tick_locs <- (tick_vals / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb
-        #   axis(1, at = tick_locs, labels = rep("", length(tick_vals)), lwd = 2, cex.axis = 2, tck = -0.015, line = -2)
-        #   mtext(text = tick_vals, side = 1, at = tick_locs, cex = 1, line = -0.5)
-        # }
-        
-        # vertical lines for colocalizing traits
-        trait_locs <- (1:length(coloc_phenotypes) / length(coloc_phenotypes) / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb
-        trait_probs <- probs_noColocs[[tissue]][[c("male", "female")[sex]]][[paste0(c(1,2,4,8), "w")[timepoint]]]
-        trait_inds <- padded_nums[order(trait_probs, decreasing = F)]
-        trait_probs <- sort(trait_probs, decreasing = F)
-        # if(tissue == names(deg_eqtl_list)[5] & sex == 1 & timepoint == 4){print(max(trait_probs)); stop("enough of that");}
-        
-        max_all_trait_probs_for_row <- max(unlist(lapply(1:4, function(tps) probs_noColocs[[tissue]][[c("male", "female")[sex]]][[paste0(c(1,2,4,8), "w")[tps]]])))
-        logFC_rescale <- c(-0.075 * max(max_all_trait_probs_for_row), 1 * max(max_all_trait_probs_for_row))
-        if(all(abs(logFC_rescale) < 1E-6)){
-          logFC_rescale <- c(-0.075,1)
-        }
-        slope_rescale <- c(0,1)
-        tarb <- 0.05 #total_axis_rescaling_buffer, so points don't fall on lines
-      
-        segments(x0 = trait_locs, x1 = trait_locs, 
-                 y0 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb, 
-                 y1 = (trait_probs / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb)
-        
-        #label indices of traits
-        text(x = trait_locs, labels = trait_inds, pos = 3, col = rep(c("black", "black", "darkred", "darkred"), length(coloc_phenotypes) / 4),
-             y = (logFC_rescale[1] / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb + 
-               rep(c(-0.005,-0.0475), length(coloc_phenotypes) / 2))
-        
-        #add horizontal line to names
-        if(timepoint == 1){
-          segments(x0 = 0, x1 = 4, lwd = 1, col = "black", lty = 1,
-                   y0 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb,
-                   y1 = (0 / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb)
-        }
-        
-        #sex axes
-        if(timepoint == 1 & !(tissue == "t64-ovaries" & sex == 1) & !(tissue == "t63-testes" & sex == 2)){
-          # tick_vals <- round(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5), 1)
-          tick_vals <- round(seq(from = 0, to = logFC_rescale[2], length.out = 4), max(-floor(log10(logFC_rescale[2])), 1))
-          tick_locs <- (tick_vals / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb
-          axis(2, at = tick_locs, labels = rep("", length(tick_vals)), lwd = 2, cex.axis = 2, tck = -0.015, line = -7.75)
-          mtext(text = tick_vals, side = 2, at = tick_locs, cex = 1, line = -6.75)
-        }
-        
-        ### label genes
-        # if(length(delsub_colocs$feature_ID) != 0){
-        #   n_genes_to_label_by_PP4 <- 3
-        #   ptl <- order((delsub_colocs$pp4), decreasing = T)[1:n_genes_to_label_by_PP4] #points to label
-        #   text(x = (delsub_colocs$abs_slope[ptl] / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb - 0.01,
-        #        y = (-(log10(1-delsub_colocs$pp4[ptl])) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb + 0.0125,
-        #        labels = delsub$gene_name[ptl], col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta[ptl]) / min_logpval * 100)], alpha.f = 0.75),
-        #        cex = 1.5, pos = 4, srt = 65)
-        # }
-        
-        
-      }
-      
-    }
-    # dev.off()
-  }
-  dev.off()
-  
-  grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/coloc_percentiles_eQTLxDE_colorLegend_", length(coloc_phenotypes), "traits.pdf"), width = 1000 / 72, height = 2000 / 72 *18 / 17, family="Arial Unicode MS")
-  plot(1,1,xlim = c(0,1), ylim = c(0,10), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-  text(paste0(1:length(coloc_phenotypes), ": ", coloc_phenotypes), col = pheno_cols, x = 0.5, y = seq(10, 0, length.out = length(pheno_cols)), pos = 3, cex = 2)
-  text(labels = "Phenotype Color Legend", x = 0.5, y = 10.25, pos = 3, cex = 4, xpd = NA)
-  dev.off()
-}
-
-#### summarizing by trait figure -- nicole edition ####
-
-change_names <- F
-change_names_in_plot = T
-pp4_threshold <- 0.01
-if(!exists("coloc_list") & !exists("colocs") | last_import_pp4t != pp4_threshold | change_names != names_changed){
-  load(paste0('~/data/smontgom/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
-  colocs <- coloc_list
-  rm(coloc_list)
-  gonocs <- colocs[colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[1] | colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[2],]
-  gonocs$motrpac_tissue <- "t1000-gonads"
-  colocs <- rbind(colocs, gonocs)
-  coloc_phenotypes <- sort(unique(colocs$gwas_trait))
-  last_import_pp4t <- pp4_threshold
-  trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
-  if(change_names){
-    traitname_map <- trait_categories[,c("Tag", "new_Phenotype")]
-    colocs$gwas_trait <- traitname_map[match(colocs$gwas_trait, traitname_map[,1]),2]
-    coloc_phenotypes <- sort(unique(colocs$gwas_trait))
-    names_changed = T
-  } else {
-    names_changed = F
-  }
-}
-
-load(file = paste0("~/Documents/DExEQTL/probs_noColocs_byTrait_", pp4_threshold, "_threshold"))
-# coloc_phenotypes <- sort(unique(colocs$gwas_trait))
-# deg_eqtl_list_colocs <- deg_eqtl_list
-# deg_eqtl_list_colocs <- lapply(names(deg_eqtl_list_colocs), function(tissue) cbind(as.data.frame(deg_eqtl_list_colocs[[tissue]]), 
-#                       as.data.frame(matrix(data = NA, nrow = nrow(deg_eqtl_list_colocs[[tissue]]), ncol = length(coloc_phenotypes), 
-#                         dimnames = list(rep("", nrow(deg_eqtl_list_colocs[[tissue]])), coloc_phenotypes)))))
-# names(deg_eqtl_list_colocs) <- names(deg_eqtl_list)
-# for(tissue in names(deg_eqtl_list)){
-#   matching_colocs <- lapply(sort(unique(deg_eqtl_list_colocs[[tissue]]$gene_id)), function(gene) which(colocs$gene_id == gene & colocs$motrpac_tissue == tissue))
-#   rbind(colocs$gwas_trait[matching_colocs], colocs$p4[matching_colocs])
-# }
-
-coloc_cols = viridis::viridis(50, begin = 0.5, end = 1)
-plot(1:length(coloc_cols), 1:length(coloc_cols), col = coloc_cols, pch = 19)
-padded_nums <- as.character(1:length(coloc_phenotypes))
-padded_nums <- (sapply(padded_nums, function(pn) paste0(paste0(rep("0", max(nchar(padded_nums)) - nchar(pn)), collapse = ""), pn)))
-
-plot_phenotype_summary_figure_nicole = T
-nicole_mods <- T
-arnold_mods <- F
-partition_by_category <- T
-traitwise_partitions <- trait_categories[,c("Tag", "Category")]
-categories <- sort(unique(traitwise_partitions$Category))
-arnold_bayes <- png::readPNG(source = "~/Pictures/ArnoldBayes.png")
-pheno_cols <- disco::disco("rainbow")
-pheno_cols <- rev(colorRampPalette(pheno_cols)(length(coloc_phenotypes)))
-reorder_vertical <- T
-
-if(change_names){
-  for(i1 in seq_along(probs_noColocs)){
-    for(i2 in seq_along(probs_noColocs[[1]])){
-      for(i3 in seq_along(probs_noColocs[[1]][[1]])){
-        names(probs_noColocs[[i1]][[i2]][[i3]]) <- traitname_map[match(names(probs_noColocs[[i1]][[i2]][[i3]]), traitname_map[,1]),2]
-      }
-    }
-  }
-}
-
-
-if(plot_phenotype_summary_figure_nicole){
-  
-  for(timepoint in 1:4){
-  
-  if(reorder_vertical){
-    order_traits <- order(apply(sapply(coloc_phenotypes, (function(coloc_phenotype) sapply(1:2, function(sex) sapply(1:4, function(timepoint) sapply(names(deg_eqtl_list), function(tissue) 
-        probs_noColocs[[tissue]][[c("male", "female")[sex]]][[paste0(c(1,2,4,8), "w")[timepoint]]][[coloc_phenotype]]
-      ))))), 2, sum), decreasing = T)
-  } else {
-    order_traits <- 1:length(coloc_phenotypes)
-  }
-    
-  if(partition_by_category){
-    order_traits <- order_traits[order(traitwise_partitions[,2][match(coloc_phenotypes[order_traits], traitwise_partitions[,1])], sort(order_traits))]
-    trait_category_counts <- as.data.table(table(traitwise_partitions[,2][match(coloc_phenotypes[order_traits], traitwise_partitions[,1])] ))
-    trait_category_counts$cN <- cumsum(trait_category_counts$N)
-  }
-    
-  max_prob <- max(unlist(lapply(names(deg_eqtl_list), function(tissue) lapply(1:2, function(sex) probs_noColocs[[tissue]][[c("male", "female")[sex]]][[paste0(c(1,2,4,8), "w")[timepoint]]])))) + 1
-    
-  nameloc <- 0.3 + ifelse(change_names | change_names_in_plot, 0, 0.3)
-  grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/byPhenotype_colocalization_summary_", 
-                                         length(coloc_phenotypes), "traits_", paste0(c(1,2,4,8), "w")[timepoint],"_nicole", ifelse(arnold_mods, "_AB", ""),".pdf"), 
-                       width = 1500 / 72, height = 2000 / 72 *18 / 17, family="Arial Unicode MS")
-  par(mfrow = c(1, 1), mar = c(4,3,2,3), xpd = NA)
-  
-  plot(1,1,xlim = c(0,2.1), ylim = c(0,10), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-  ylocs <- seq(10, 0, length.out = length(coloc_phenotypes))
-
-  #put boxes around categories, if we're doing that  
-  if(partition_by_category){
-    segments(x0 = -0.1, x1 = -0.1, y0 = 0+diff(ylocs)[1]/2, y1 = 10-diff(ylocs)[1]/2, col = "grey35")
-    for(traitcat in 1:(nrow(trait_category_counts)-1)){
-      segments(y0 = ylocs[trait_category_counts$cN[traitcat]] + diff(ylocs)[1]/2, y1 = ylocs[trait_category_counts$cN[traitcat]] + diff(ylocs)[1]/2, x0 = -0.1, x1 = nameloc, col = "grey35")
-    }
-    catylocs <- (ylocs[trait_category_counts$cN] + c(ylocs[1], ylocs[trait_category_counts$cN][-length(trait_category_counts$cN)])) / 2 - diff(ylocs)[1]/1.5
-    catnames <- as.vector(trait_category_counts$V1)
-    catnames <- sapply(catnames, function(x) strsplit(x, split = c("-"))[[1]][1])
-    catnames <- sapply(catnames, function(x) strsplit(x, split = c(" "))[[1]][1])
-    catylocs[catnames == "Hair"] <- catylocs[catnames == "Hair"] + diff(ylocs)[1]/1.5
-    catylocs[catnames == "Aging"] <- catylocs[catnames == "Aging"] - diff(ylocs)[1]/3
-    catylocs[catnames == "Endocrine"] <- catylocs[catnames == "Endocrine"] - diff(ylocs)[1]/3
-    text(x = -0.1, y = catylocs, labels = catnames, pos = 2, srt = 90, col = "grey35")
-  }
-  
-  #plot names of traits
-  if(change_names_in_plot){
-    coloc_phenotypes_newnames <- traitname_map[match(coloc_phenotypes, traitname_map[,1]),2]
-  } else {
-    coloc_phenotypes_newnames <- coloc_phenotypes
-  }
-  
-  if(nicole_mods){
-    text(paste0(1:length(coloc_phenotypes_newnames), ": ", coloc_phenotypes_newnames)[order_traits], col = 1, x = nameloc, y = ylocs, pos = 2, cex = 1, xpd = NA)
-  } else {
-    text(paste0(1:length(coloc_phenotypes_newnames), ": ", coloc_phenotypes_newnames)[order_traits], col = pheno_cols, x = nameloc, y = ylocs, pos = 2, cex = 1, xpd = NA)
-  }
-  
-  text(labels = "Phenotypes", x = nameloc, y = 10.15, pos = 2, cex = 2.5, xpd = NA, family="Courier", col = "grey25")
-  text(labels = "Posterior Probability of Colocalization in at Least One Gene", x = 1.325, y = -0.35, cex = 2.25, pos = 1, xpd = NA)
-  
-  #guiding lines for traits
-  if(nicole_mods){
-   segments(x0 = nameloc, x1 = max_horiz_axis, y0 = ylocs, y1 = ylocs, col = "grey80", lty = 3, lwd = 0.5) 
-  }
-  
-  #axes
-  max_horiz_axis <- 2.05
-  segments(x0 = nameloc, x1 = nameloc, y0 = 10.2, y1 = -0.1, lwd = 2)
-  segments(x0 = nameloc, x1 = max_horiz_axis, y0 = -0.1, y1 = -0.1, lwd = 2)
-  
-  #horiz axis ticks and nums
-  segments(x0 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-           x1 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-           y0 = -0.1, y1 = -0.15, lwd = 2)
-  text(x = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-       y = -0.135, pos = 1, cex = 1.25,
-       labels =  c(0, sapply(seq(1, max_prob, by = 1), function(num) as.expression(bquote(1-10^-.(num))))))
-  
-  #let's get minor tick marks in there too
-  minticks <- log10(as.vector(t(t(1:9)) %*% t(10^seq(0, max_prob, by = 1))))
-  minticks <- minticks / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025
-  minticks <- minticks[minticks < max_horiz_axis]
-  segments(x0 = minticks, x1 =  minticks, y0 = -0.1, y1 = -0.125, lwd = 1)
-  
-  #dashed lines for ticks
-  if(nicole_mods){
-    segments(x0 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-           x1 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y0 = 10, y1 = -0.075, lwd = 2, lty = 2, col = "grey75")
-  } else {
-    segments(x0 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-             x1 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y0 = 10, y1 = -0.1, lwd = 1, lty = 2, col = "grey75")
-  }
-  #plot legend for colors etc.
-  if(nicole_mods){rect(xleft = 1.97, ybottom = 8.35, ytop = 10.1, xright = 2.2, border = NA, col = "white")}
-  text(labels = sapply(names(deg_eqtl_list), function(ts) stringr::str_to_title(paste0(strsplit(ts, "-")[[1]][-1], collapse = " "))),
-       y = seq(9.95,8.75,length.out = length(names(deg_eqtl_list))), x = 2, pos = 4)
-  points(x = rep(1.9925, length(names(deg_eqtl_list))), y = seq(9.955,8.755,length.out = length(names(deg_eqtl_list))), col = cols$Tissue, pch = 15, cex = 1.75)
-  
-  text(labels = c("Male", "Female"),
-       y = seq(8.5, 8.425, length.out = 2), x = 2, pos = 4)
-  points(x = rep(1.9925, 2), y = seq(8.505, 8.43, length.out = 2), col = cols$Sex, pch = c(18, 16), cex = 2)
-  
-  for(tissue in names(deg_eqtl_list)){
-    
-    # grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/basic_figure_", tissue,".pdf"), width = 2000 / 72, height = 10000 / 72 / length(names(deg_eqtl_list)))
-    
-    
-    
-    # if(tissue != names(deg_eqtl_list)[1]){break}
-    
-    # #legend for dots and dashes
-    # stponr <- c(99) #set_to_put_on_first_row
-    # legend(x = 3.5155, y = 1.194 - ifelse(any(tissue == names(deg_eqtl_list)[stponr]), 0, 1.00225), col = c(1,"lightgray"), lwd = c(NA, 2), lty = c(NA, 2), pch = c(19, NA), 
-    #        legend = c("Point Estimate Ratio (log2-scale)", "Same Magnitude DE as LFC"), cex = 1.5, box.lty = 3, box.lwd = 2, ncol = 1)
-    # 
-    # rect(xleft = 0, ybottom = 0, xright = 4, ytop = 2.15, lwd = 3) #whole plot
-    # rect(xleft = 0, ybottom = 2, xright = 4, ytop = 2.15, col = rgb(0,0,0.1, alpha = 0.05), border = NA) #whole plot
-    # segments(x0 = 0, x1 = 4, y0 = 2, y1 = 2, lwd = 3) #week title
-    # segments(x0 = 0, x1 = 4, y0 = 1, y1 = 1, lwd = 2) #sex divisor
-    # shadowtext(x = 2, y = 2.15, labels = stringr::str_to_title(paste0(strsplit(tissue, "-")[[1]][-1], collapse = " ")), 
-    #            cex = 5, col = cols$Tissue[tissue], pos = 3, r = 0.2) #timepoint labels
-    # mtext(text = paste0("Phenotype Indices for the ", length(coloc_phenotypes), " GWAS Phenotypes w/ Colocalization Probabilities > ", pp4_threshold), cex = 2, line = 0, side = 1) #horiz axis label
-    # text(labels = "trait", cex = 1.5, x = -0.015, y = 0.05, font = 3, srt = 90) #horiz axis label
-    # text(labels = "trait", cex = 1.5, x = -0.015, y = 1.05, font = 3, srt = 90) #horiz axis label
-    # text(labels = latex2exp::TeX("-log_{10}Pr(No Colocs)"), cex = 2.5, x = -0.075, y = 0.565, font = 3, srt = 90) #horiz axis label
-    # text(labels = latex2exp::TeX("-log_{10}Pr(No Colocs)"), cex = 2.5, x = -0.075, y = 1.565, font = 3, srt = 90) #horiz axis label
-    # # text(labels = latex2exp::TeX(paste0("-log_{10}\\prod_{}^{",length(pheno_cols),"}(1-PP4)")), cex = 2.5, x = -0.1, y = 1.6, font = 3, srt = 90) #horiz axis label
-    
-    #note filtration scheme
-    # text(labels = latex2exp::TeX("Results filtered at MoTrPAC FDR-$\\alpha$ = "), 
-    #      x = 3.3775, y = 2.18, pos = 4, cex = 1.75)
-    # text(labels = sign_filter_alpha, x = 3.91, y = 2.18, pos = 4, cex = 1.75, font = 2)
-    
-    for(sex in 1:2){
-      # for(sex in 1){
-      
-      sex_inds <- which(deg_eqtl_list[[tissue]]$sex == c("male", "female")[sex])
-      
-        # for(timepoint in 1){
-        
-        # #plot sex symbol
-        # text(labels = c("\u2642", "\u2640")[sex], x = timepoint - 1.01, y = 1 + sex - ifelse(sex == 1, 1.0675, 1.0825), pos = 4, cex = 4, col = cols$Sex[sex])
-        
-        
-        #incompatible gonads message
-        if((tissue == "t64-ovaries" & sex == 1) | (tissue == "t63-testes" & sex == 2)){
-          next()
-        }
-        
-        #plot KDE for ratios
-        
-        #add vertical line to mark zero
-        # segments(y0 = sex - 1, y1 = sex, lwd = 2, col = "lightgray", lty = 2,
-        #          x0 = (0 / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb,
-        #          x1 = (0 / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb)
-        
-        # #timepoint axes
-        # if(sex == 1 | (tissue == "t64-ovaries" & sex == 2)){
-        #   if(any(slope_rescale > 0) & any(slope_rescale < 0)){
-        #     tick_vals <- round(seq(from = 0, to = max(abs(slope_rescale)) * sign(slope_rescale[which.max(abs(slope_rescale))]), length.out = 7), 2)  
-        #     tick_vals <- c(rev(seq(from = 0, to = min(abs(slope_rescale)) * sign(slope_rescale[which.min(abs(slope_rescale))]), 
-        #                            by = -diff(tick_vals)[1])), tick_vals)
-        #     tick_vals[-which(diff(tick_vals) < 1E-6)]
-        #   } else {
-        #     tick_vals <- round(seq(from = slope_rescale[1], to = slope_rescale[2], length.out = 10), 2)  
-        #   }
-        #   tick_locs <- (tick_vals / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb
-        #   axis(1, at = tick_locs, labels = rep("", length(tick_vals)), lwd = 2, cex.axis = 2, tck = -0.015, line = -2)
-        #   mtext(text = tick_vals, side = 1, at = tick_locs, cex = 1, line = -0.5)
-        # }
-        
-        # horizontal lines for colocalizing traits
-        trait_locs <- ylocs
-        trait_probs <- probs_noColocs[[tissue]][[c("male", "female")[sex]]][[paste0(c(1,2,4,8), "w")[timepoint]]]
-        trait_probs <- trait_probs[order_traits]
-        
-        points(x = trait_probs / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y = trait_locs, pch = c(18, 16)[sex], col = grDevices::adjustcolor(cols$Tissue[tissue], alpha.f = 0.75), cex = 2)
-                 
-        
-        
-        # #sex axes
-        # if(timepoint == 1 & !(tissue == "t64-ovaries" & sex == 1) & !(tissue == "t63-testes" & sex == 2)){
-        #   # tick_vals <- round(seq(from = logFC_rescale[1], to = logFC_rescale[2], length.out = 5), 1)
-        #   tick_vals <- round(seq(from = 0, to = logFC_rescale[2], length.out = 4), 1)
-        #   tick_locs <- (tick_vals / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb
-        #   axis(2, at = tick_locs, labels = rep("", length(tick_vals)), lwd = 2, cex.axis = 2, tck = -0.015, line = -7.75)
-        #   mtext(text = tick_vals, side = 2, at = tick_locs, cex = 1, line = -6.75)
-        # }
-        
-        ### label genes
-        # if(length(delsub_colocs$feature_ID) != 0){
-        #   n_genes_to_label_by_PP4 <- 3
-        #   ptl <- order((delsub_colocs$pp4), decreasing = T)[1:n_genes_to_label_by_PP4] #points to label
-        #   text(x = (delsub_colocs$abs_slope[ptl] / diff(slope_rescale) - slope_rescale[1] / diff(slope_rescale)) * (1-2*tarb) + timepoint - 1 + tarb - 0.01,
-        #        y = (-(log10(1-delsub_colocs$pp4[ptl])) / diff(logFC_rescale) - logFC_rescale[1] / diff(logFC_rescale)) * (1-2*tarb) + sex - 1 + tarb + 0.0125,
-        #        labels = delsub$gene_name[ptl], col = grDevices::adjustcolor(p_val_cols[ceiling(log(delsub$pval_beta[ptl]) / min_logpval * 100)], alpha.f = 0.75),
-        #        cex = 1.5, pos = 4, srt = 65)
-        # }
-        
-        
-      }
-      
-  }
-  
-  if(arnold_mods){
-    addImg(obj = arnold_bayes, x = 1.9, y = 1.6775, width = 0.5)
-  }
-  
-  dev.off()
-  }
-  
-  
-
-}
-
-
-#### Stephen's Figure -- the ratio of colocs on either side of the line ####
-plot_ratio_colocs_DE_inequality <- T
-change_names_in_plot = T
-
-tissues <- names(deg_eqtl_list)
-pp4_threshold <- 1e-4
-if(!exists("coloc_list") & !exists("colocs")){
-  load(paste0('~/data/smontgom/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
-  colocs <- coloc_list
-  rm(coloc_list)
-  gonocs <- colocs[colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[1] | colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[2],]
-  gonocs$motrpac_tissue <- "t1000-gonads"
-  colocs <- rbind(colocs, gonocs)
-  coloc_phenotypes <- sort(unique(colocs$gwas_trait))
-  colocs <- lapply(coloc_phenotypes, function(coloc_phenotype) colocs[colocs$gwas_trait == coloc_phenotype,])
-  names(colocs) <- coloc_phenotypes
-  for(coloc_phenotype in coloc_phenotypes){
-    print(coloc_phenotype)
-    colocs[[coloc_phenotype]] <-  lapply(tissues, function(tissue) colocs[[coloc_phenotype]][colocs[[coloc_phenotype]]$motrpac_tissue == tissue,])
-    names(colocs[[coloc_phenotype]]) <- tissues
-  }
-}
-
-#get names and categories
-trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
-traitname_map <- trait_categories[,c("Tag", "new_Phenotype")]
-
-
-if(!exists(left_or_right_of_line) & !file.exists(paste0("~/Documents/DExEQTL/LoRoL_probs_", pp4_threshold, "pp4_", discr_coloc_PA_filter, "discrColocPAfilter"))){
-left_or_right_of_line <- array(data = 0, dim = c(2,4,length(names(deg_eqtl_list)),length(coloc_phenotypes),4), 
-                               dimnames = list(sex = c("male", "female"), 
-                                               timepoint = paste0(c(1,2,4,8), "w"),
-                                               tissue = names(deg_eqtl_list),
-                                               coloc_phenotype = coloc_phenotypes,
-                                               side = c("n_left", "n_right", "sum_log_1-pp4_left", "sum_log_1-pp4_right")))
-sign_filter_alpha <- 0.1
-discr_coloc_PA_filter <- 0.1
-for(tissue in names(deg_eqtl_list)){
-
-  for(sex in 1:2){
-
-    sex_inds <- which(deg_eqtl_list[[tissue]]$sex == c("male", "female")[sex])
-    
-    for(timepoint in 1:4){
-
-      timepoint_inds <- which(deg_eqtl_list[[tissue]]$comparison_group == paste0(c(1,2,4,8), "w")[timepoint])
-      
-      if(length(deg_eqtl_list[[tissue]]$selection_fdr) > 0){
-        motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$selection_fdr < sign_filter_alpha & deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)
-      } else {
-        motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)
-      }
-      
-      delsub <- deg_eqtl_list[[tissue]][intersect(intersect(sex_inds, timepoint_inds), motrpac_signif_inds),]
-      delsub$abs_logFC_minus_abs_slope <- (abs(delsub$logFC) - delsub$abs_slope) #* sign(delsub$logFC)
-      
-      if((sex == 1 & tissue == "t64-ovaries") | (sex == 2 & tissue == "t63-testes" | nrow(delsub) == 0)){
-        next()
-      }
-      
-      #snag colocalizing genes
-      print(tissue)
-      for(coloc_phenotype in coloc_phenotypes){
-        cat(paste0(timepoint, " "))
-        delsub$pp4 <- sapply(delsub$gene_id, function(cg) colocs[[coloc_phenotype]][[tissue]]$p4[colocs[[coloc_phenotype]][[tissue]]$gene_id == cg][1]) 
-        delsub$pp4[delsub$pp4 > (1 - 1E-6)] <- (1 - 1E-6)
-        delsub_colocs <- delsub[!is.na(delsub$pp4),]
-        left_or_right_of_line[sex, timepoint, tissue, coloc_phenotype, "n_left"] <- sum(delsub_colocs$abs_logFC_minus_abs_slope < 0 & delsub_colocs$pp4 > discr_coloc_PA_filter)
-        left_or_right_of_line[sex, timepoint, tissue, coloc_phenotype, "n_right"] <- sum(delsub_colocs$abs_logFC_minus_abs_slope > 0 & delsub_colocs$pp4 > discr_coloc_PA_filter)
-        left_or_right_of_line[sex, timepoint, tissue, coloc_phenotype, "sum_log_1-pp4_left"] <- sum(-log10(1-delsub_colocs$pp4[(delsub_colocs$abs_logFC_minus_abs_slope < 0)]))
-        left_or_right_of_line[sex, timepoint, tissue, coloc_phenotype, "sum_log_1-pp4_right"] <- sum(-log10(1-delsub_colocs$pp4[(delsub_colocs$abs_logFC_minus_abs_slope > 0)]))
-        # print(left_or_right_of_line[sex, timepoint, tissue, coloc_phenotype, "sum_log_1-pp4_right"] - 
-        #       left_or_right_of_line[sex, timepoint, tissue, coloc_phenotype, "sum_log_1-pp4_left"])
-      
-      }
-      
-      
-    }
-    
-  }
-  # dev.off()
-}
-save(left_or_right_of_line, file = paste0("~/Documents/DExEQTL/LoRoL_probs_", pp4_threshold, "pp4_", discr_coloc_PA_filter, "discrColocPAfilter"))
-}
-
-if(!exists("left_or_right_of_line")){
-  load(paste0("~/Documents/DExEQTL/LoRoL_probs_", pp4_threshold, "pp4_", discr_coloc_PA_filter, "discrColocPAfilter"))
-}
-#compute difference in log-odds of at least one gene on left side vs right side
-#or just diff in log prob
-#can also do chi2 test for difference in incidence
-
-sign_filter_alpha <- 0.1
-if(!exists("n_deGenes_lorol") | sign_filter_alpha != sigfilt_used){
-  n_deGenes_lorol <- array(data = 0, dim = c(2,4,length(names(deg_eqtl_list)),2), 
-                     dimnames = list(sex = c("male", "female"), 
-                                     timepoint = paste0(c(1,2,4,8), "w"),
-                                     tissue = names(deg_eqtl_list),
-                                     lorol = c("left", "right")
-                     ))
-  
-  for(sex in c("male", "female")){
-    for(timepoint in paste0(c(1,2,4,8), "w")){
-      for(tissue in names(deg_eqtl_list)){
-        # motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)
-        motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$selection_fdr < sign_filter_alpha & deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)
-        sex_inds <- which(deg_eqtl_list[[tissue]]$sex == sex)
-        timepoint_inds <- which(deg_eqtl_list[[tissue]]$comparison_group == timepoint)
-        left_inds <- which( (abs(deg_eqtl_list[[tissue]]$logFC) - abs(deg_eqtl_list[[tissue]]$abs_slope)) < 0 )
-        right_inds <- which( (abs(deg_eqtl_list[[tissue]]$logFC) - abs(deg_eqtl_list[[tissue]]$abs_slope)) > 0 )
-        n_deGenes_lorol[sex, timepoint, tissue, "left"] <- (length(intersect(intersect(intersect(motrpac_signif_inds, sex_inds), timepoint_inds), left_inds)))
-        n_deGenes_lorol[sex, timepoint, tissue, "right"] <- (length(intersect(intersect(intersect(motrpac_signif_inds, sex_inds), timepoint_inds), right_inds)))
-        
-        if(!(n_deGenes_lorol[sex, timepoint, tissue, "right"] + n_deGenes_lorol[sex, timepoint, tissue, "left"] == (length((intersect(intersect(motrpac_signif_inds, sex_inds), timepoint_inds)))))){
-          print("whoops")
-        }
-      }
-    }
-  }
-  sigfilt_used <- sign_filter_alpha
-  n_deGenes_lorol[n_deGenes_lorol == 0] <- 1 #make division play nice later
-}
-
-#specify colors
-coloc_cols = viridis::viridis(50, begin = 0.5, end = 1)
-plot(1:length(coloc_cols), 1:length(coloc_cols), col = coloc_cols, pch = 19)
-padded_nums <- as.character(1:length(coloc_phenotypes))
-padded_nums <- (sapply(padded_nums, function(pn) paste0(paste0(rep("0", max(nchar(padded_nums)) - nchar(pn)), collapse = ""), pn)))
-cols = list(Tissue=tissue_cols[names(deg_eqtl_list)], 
-            Time=group_cols[paste0(c(1,2,4,8), "w")],
-            Sex=sex_cols[c('male','female')])
-cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
-names(cols$Tissue)[which(is.na(names(cols$Tissue)))] <- "t1000-gonads"
-
-
-
-plot_phenotype_summary_figure_nicole = T
-nicole_mods <- T
-arnold_mods <- F
-arnold_bayes <- png::readPNG(source = "~/Pictures/ArnoldBayes.png")
-pheno_cols <- disco::disco("rainbow")
-pheno_cols <- rev(colorRampPalette(pheno_cols)(length(coloc_phenotypes)))
-
-reorder_vertical <- T
-partition_by_category <- T
-traitwise_partitions <- trait_categories[,c("Tag", "Category")]
-categories <- sort(unique(traitwise_partitions$Category))
-
-use_geometric_mean <- T
-
-if(plot_ratio_colocs_DE_inequality){
-  
-  max_horiz_axis <- 2.05
-  
-  for(timepoint in 1:4){
-    
-    if(reorder_vertical){
-      order_traits <- order(sapply(coloc_phenotypes, function(coloc_phenotype) sum(left_or_right_of_line[,,,coloc_phenotype,4]) - sum(left_or_right_of_line[,,,coloc_phenotype,3])), decreasing = T)
-      
-    } else {
-      order_traits <- 1:length(coloc_phenotypes)
-    }
-    
-    if(partition_by_category){
-      order_traits <- order_traits[order(traitwise_partitions[,2][match(coloc_phenotypes[order_traits], traitwise_partitions[,1])], sort(order_traits))]
-      trait_category_counts <- as.data.table(table(traitwise_partitions[,2][match(coloc_phenotypes[order_traits], traitwise_partitions[,1])] ))
-      trait_category_counts$cN <- cumsum(trait_category_counts$N)
-    }
-    
-    if(use_geometric_mean){
-      logprob_range <- range(as.vector(sapply(coloc_phenotypes, function(coloc_phenotype) sapply(1:2, function(sex) sapply(names(deg_eqtl_list), function(tissue) 
-        left_or_right_of_line[sex, timepoint, tissue, coloc_phenotype, "sum_log_1-pp4_right"]  / n_deGenes_lorol[sex, timepoint, tissue, "right"] - 
-          left_or_right_of_line[sex, timepoint, tissue, coloc_phenotype, "sum_log_1-pp4_left"]  / n_deGenes_lorol[sex, timepoint, tissue, "left"])))))
-    } else {
-      logprob_range <- range(as.vector(sapply(coloc_phenotypes, function(coloc_phenotype) sapply(1:2, function(sex) sapply(names(deg_eqtl_list), function(tissue) 
-        left_or_right_of_line[sex, timepoint, tissue, coloc_phenotype, "sum_log_1-pp4_right"] - left_or_right_of_line[sex, timepoint, tissue, coloc_phenotype, "sum_log_1-pp4_left"])))))
-    }
-    max_prob <- diff(logprob_range) + ifelse(use_geometric_mean, 0.01, 1)
-    
-
-    nameloc <- 0.3 + ifelse(change_names | change_names_in_plot, 0, 0.3)
-    
-    grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/LoRoL_", ifelse(use_geometric_mean, "geommean_", ""),
-                                           length(coloc_phenotypes), "traits_", paste0(c(1,2,4,8), "w")[timepoint], ifelse(arnold_mods, "_AB", ""),".pdf"), 
-                         width = 1500 / 72, height = 2000 / 72 *18 / 17, family="Arial Unicode MS")
-    par(mfrow = c(1, 1), mar = c(4,3,3,3), xpd = NA)
-    
-    
-    plot(1,1,xlim = c(0,2.1), ylim = c(0,10), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-    
-    ylocs <- seq(10, 0, length.out = length(coloc_phenotypes))
-    
-    #put boxes around categories, if we're doing that  
-    if(partition_by_category){
-      segments(x0 = -0.1, x1 = -0.1, y0 = 0+diff(ylocs)[1]/2, y1 = 10-diff(ylocs)[1]/2, col = "grey35")
-      for(traitcat in 1:(nrow(trait_category_counts)-1)){
-        segments(y0 = ylocs[trait_category_counts$cN[traitcat]] + diff(ylocs)[1]/2, y1 = ylocs[trait_category_counts$cN[traitcat]] + diff(ylocs)[1]/2, x0 = -0.1, x1 = nameloc, col = "grey35")
-      }
-      catylocs <- (ylocs[trait_category_counts$cN] + c(ylocs[1], ylocs[trait_category_counts$cN][-length(trait_category_counts$cN)])) / 2 - diff(ylocs)[1]/1.5
-      catnames <- as.vector(trait_category_counts$V1)
-      catnames <- sapply(catnames, function(x) strsplit(x, split = c("-"))[[1]][1])
-      catnames <- sapply(catnames, function(x) strsplit(x, split = c(" "))[[1]][1])
-      catylocs[catnames == "Hair"] <- catylocs[catnames == "Hair"] + diff(ylocs)[1]/1.5
-      catylocs[catnames == "Aging"] <- catylocs[catnames == "Aging"] - diff(ylocs)[1]/3
-      catylocs[catnames == "Endocrine"] <- catylocs[catnames == "Endocrine"] - diff(ylocs)[1]/3
-      text(x = -0.1, y = catylocs, labels = catnames, pos = 2, srt = 90, col = "grey35")
-    }
-    
-    #plot names of traits
-    if(change_names_in_plot){
-      coloc_phenotypes_newnames <- traitname_map[match(coloc_phenotypes, traitname_map[,1]),2]
-    } else {
-      coloc_phenotypes_newnames <- coloc_phenotypes
-    }
-    
-    if(nicole_mods){
-      text(paste0(1:length(coloc_phenotypes_newnames), ": ", coloc_phenotypes_newnames)[order_traits], col = 1, x = nameloc, y = ylocs, pos = 2, cex = 1, xpd = NA)
-    } else {
-      text(paste0(1:length(coloc_phenotypes_newnames), ": ", coloc_phenotypes_newnames)[order_traits], col = pheno_cols, x = nameloc, y = ylocs, pos = 2, cex = 1, xpd = NA)
-    }
-    
-    
-    text(labels = "Phenotypes", x = nameloc, y = 10.15, pos = 2, cex = 2.5, xpd = NA, family="Courier", col = "grey25")
-    if(use_geometric_mean){
-      text(labels = "Ratio in Geometric Mean Posterior Probability of Colocalization", x = 1.2, y = -0.35, cex = 2.25, pos = 1, xpd = NA)
-    } else {
-      text(labels = "Ratio in Posterior Probability of Colocalization in at Least One Gene", x = 1.2, y = -0.35, cex = 2.25, pos = 1, xpd = NA)  
-    }
-    
-    
-    #guiding lines for traits
-    if(nicole_mods){
-      segments(x0 = nameloc, x1 = max_horiz_axis, y0 = ylocs, y1 = ylocs, col = "grey80", lty = 3, lwd = 0.5) 
-    }
-    
-    #axes
-    segments(x0 = nameloc, x1 = nameloc, y0 = 10.2, y1 = -0.1, lwd = 2)
-    segments(x0 = nameloc, x1 = max_horiz_axis, y0 = -0.1, y1 = -0.1, lwd = 2)
-    
-    #horiz axis ticks and nums
-    if(use_geometric_mean){
-      
-      probs <- c(-0.2, -0.1, 0, 0.1)
-      segments(x0 = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-               x1 = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-               y0 = -0.1, y1 = -0.15, lwd = 2)
-      text(x = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-           y = -0.135, pos = 1, cex = 1.25,
-           labels =  c(sapply(probs, function(num) as.expression(bquote(10^.(num))))))
-      
-    } else {
-      
-      segments(x0 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-               x1 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-               y0 = -0.1, y1 = -0.15, lwd = 2)
-      text(x = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-           y = -0.135, pos = 1, cex = 1.25,
-           labels =  c(sapply(seq(ceiling(logprob_range[1]), ceiling(logprob_range[2]), by = 1), function(num) as.expression(bquote(10^.(num))))))
-    }
-    
-    
-    #let's get minor tick marks in there too
-    if(use_geometric_mean){
-      minticks <- log10(as.vector(sapply(1:(length(probs)-1), function(p) seq(10^probs[p], 10^probs[p+1], length.out = 10))))
-      minticks <- (minticks - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc
-      minticks <- minticks[minticks < max_horiz_axis]
-      #hmm being weird
-    } else {
-      minticks <- log10(as.vector(t(t(1:9)) %*% t(10^seq(0, max_prob, by = 10^round(log(max_prob))))))
-      minticks <- minticks / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025
-      minticks <- minticks[minticks < max_horiz_axis]
-      segments(x0 = minticks, x1 =  minticks, y0 = -0.1, y1 = -0.125, lwd = 1)
-    }
-    
-    
-    #dashed lines for ticks
-    if(use_geometric_mean){
-      if(nicole_mods){
-        segments(x0 = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-                 x1 = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y0 = 10, y1 = -0.075, lwd = 2, lty = 2, col = "grey75")
-      } else {
-        segments(x0 = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-                 x1 = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y0 = 10, y1 = -0.1, lwd = 1, lty = 2, col = "grey75")
-      }
-    } else {
-      if(nicole_mods){
-        segments(x0 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-                 x1 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y0 = 10, y1 = -0.075, lwd = 2, lty = 2, col = "grey75")
-      } else {
-        segments(x0 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-                 x1 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y0 = 10, y1 = -0.1, lwd = 1, lty = 2, col = "grey75")
-      }  
-    }
-    
-    
-    #helpful hint line about direction
-    
-    if(use_geometric_mean){
-      segments(x0 = (0 - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-               x1 = (0 - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y0 = 10, y1 = 10.4, lwd = 2, lty = 2, col = "grey75")
-      text(labels = "eQTL > DEG", srt = 90, x = (0 - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y = 10.4, pos = 2, col = "grey75", cex = 0.75)
-      text(labels = "DEG > eQTL", srt = 270, x = (0 - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y = 10.4, pos = 4, col = "grey75", cex = 0.75)
-      text(labels = "Stronger Coloc\nSignal When", srt = 0, x = (0 - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y = 10.3875, pos = 3, col = "grey75", cex = 0.75)
-    } else {
-      segments(x0 = floor(-logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-               x1 = floor(-logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y0 = 10, y1 = 10.4, lwd = 2, lty = 2, col = "grey75")
-      text(labels = "eQTL > DEG", srt = 90, x = floor(-logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y = 10.4, pos = 2, col = "grey75", cex = 0.75)
-      text(labels = "DEG > eQTL", srt = 270, x = floor(-logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y = 10.4, pos = 4, col = "grey75", cex = 0.75)
-      text(labels = "Stronger Coloc\nSignal When", srt = 0, x = floor(-logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y = 10.3875, pos = 3, col = "grey75", cex = 0.75)
-    }
-    
-    #plot legend for colors etc.
-    if(nicole_mods){rect(xleft = 1.97, ybottom = 8.35, ytop = 10.1, xright = 2.2, border = NA, col = "white")}
-    text(labels = sapply(names(deg_eqtl_list), function(ts) stringr::str_to_title(paste0(strsplit(ts, "-")[[1]][-1], collapse = " "))),
-         y = seq(9.95,8.75,length.out = length(names(deg_eqtl_list))), x = 2, pos = 4)
-    points(x = rep(1.9925, length(names(deg_eqtl_list))), y = seq(9.955,8.755,length.out = length(names(deg_eqtl_list))), col = cols$Tissue, pch = 15, cex = 1.75)
-    
-    text(labels = c("Male", "Female"),
-         y = seq(8.5, 8.425, length.out = 2), x = 2, pos = 4)
-    points(x = rep(1.9925, 2), y = seq(8.505, 8.43, length.out = 2), col = cols$Sex, pch = c(18, 16), cex = 2)
-    
-    for(tissue in names(deg_eqtl_list)){
-      
-      for(sex in 1:2){
-
-        sex_inds <- which(deg_eqtl_list[[tissue]]$sex == c("male", "female")[sex])
-        
-        if((tissue == "t64-ovaries" & sex == 1) | (tissue == "t63-testes" & sex == 2)){
-          next()
-        }
-        
-        # horizontal lines for colocalizing traits
-        trait_locs <- ylocs
-        
-        if(use_geometric_mean){
-          trait_probs <- left_or_right_of_line[sex, timepoint, tissue,,"sum_log_1-pp4_right"] / n_deGenes_lorol[sex, timepoint, tissue, "right"] - 
-            left_or_right_of_line[sex, timepoint, tissue,,"sum_log_1-pp4_left"] / n_deGenes_lorol[sex, timepoint, tissue, "left"]
-        } else {
-          trait_probs <- left_or_right_of_line[sex, timepoint, tissue,,"sum_log_1-pp4_right"]- left_or_right_of_line[sex, timepoint, tissue,,"sum_log_1-pp4_left"]
-        }
-        trait_probs <- trait_probs[order_traits]
-        
-        points(x = (trait_probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y = trait_locs, pch = c(18, 16)[sex], col = grDevices::adjustcolor(cols$Tissue[tissue], alpha.f = 0.75), cex = 2)
-        
-        
-        
-      }
-      
-    }
-    
-    if(arnold_mods){
-      addImg(obj = arnold_bayes, x = 1.9, y = 1.6775, width = 0.5)
-    }
-    
-    dev.off()
-  }
-  
-  
-  
-}
-
-
-#### find number of DE genes per tissue ####
-
-# system("gsutil cp gs://mawg-data/pass1b-06/transcript-rna-seq/dea/transcript_rna_seq_20210126.RData /tmp/")
-# load("/tmp/transcript_rna_seq_20210126.RData")
-# timewise_dea = data.table(transcript_rna_seq$timewise_dea)
-# degs = timewise_dea[selection_fdr < 0.1]
-# degs_8w = degs[comparison_group == '8w' & adj_p_value < 0.1]
-# table(degs_8w[,tissue_abbreviation], degs_8w[,sex])
-
-sign_filter_alpha <- 0.1
-use_selection_fdr_too <- F
-if(!exists("n_deGenes") | sign_filter_alpha != sigfilt_used | use_selection_fdr_too != selection_FDR_used){
-n_deGenes <- array(data = 0, dim = c(2,4,length(names(deg_eqtl_list))), 
-                               dimnames = list(sex = c("male", "female"), 
-                                               timepoint = paste0(c(1,2,4,8), "w"),
-                                               tissue = names(deg_eqtl_list)
-                                               ))
-for(sex in c("male", "female")){
-  for(timepoint in paste0(c(1,2,4,8), "w")){
-    for(tissue in names(deg_eqtl_list)){
-      if(use_selection_fdr_too){
-        motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$selection_fdr < sign_filter_alpha & deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)  
-      } else {
-        motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)  
-      }
-      sex_inds <- which(deg_eqtl_list[[tissue]]$sex == sex)
-      timepoint_inds <- which(deg_eqtl_list[[tissue]]$comparison_group == timepoint)
-      n_deGenes[sex, timepoint, tissue] <- (length(intersect(intersect(motrpac_signif_inds, sex_inds), timepoint_inds)))
-    }
-  }
-}
-sigfilt_used <- sign_filter_alpha
-selection_FDR_used <- use_selection_fdr_too
-}
-
-t(n_deGenes[,"8w",])
-
-grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/num_DE_genes_across_timepoints_",ifelse(use_selection_fdr_too, "selectionFDR+adjPVAL_used_", "just_adjPVAL_used_"),"atAlpha",sign_filter_alpha,".pdf"), 
-                     width = 10, height = 4.5, family="Arial Unicode MS")
-
-par(mar = c(5,6,3,8))
-plot(1,1,xlim = range(n_deGenes), ylim = c(0.5,4.5), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-
-#axis labels and title
-text(labels = "Timepoint", x = -0.144  * max(n_deGenes), y = 4.25, pos = 2, cex = 2.5, xpd = NA, family="Courier", col = "grey25", srt = 90)
-text(labels = "# Genes", x = max(n_deGenes)/2, y = -0.45, pos = 1, cex = 2.5,  xpd = NA, family="Courier", col = "grey25")
-text(labels = "# Genes DE at each Timepoint", x = max(n_deGenes)/2, y = 4.75, pos = 3, cex = 2.5,  xpd = NA)
-
-#axes
-box("plot", lwd = 2)
-shadowtext(x = rep(-0.04 * max(n_deGenes),4), y = 1:4, labels = paste0(c(1,2,4,8), "w"), 
-           pos = 2, xpd = NA, cex = 1.5, font = 2, col = cols$Time, r = 0.05)
-segments(y0 = 1:4, y1 = 1:4, x0 = -1E6, x1 = 1E6, lwd = 0.5, lty = 3)
-xlocs <- round(seq(range(n_deGenes)[1], range(n_deGenes)[2], by = 50))
-segments(x0 = xlocs, x1 = xlocs, y0 = 0.325, y1 = 0.2, lwd = 2, xpd = NA)
-text(x = xlocs, y = 0.2, pos = 1, cex = 1, labels = xlocs, xpd = NA)
-#horiz axis ticks and nums
-
-#plot points themselves
-for(sex in 1:2){
-  for(timepoint in 1:4){
-    for(tissue in names(deg_eqtl_list)){
-      points(x = n_deGenes[sex, timepoint, tissue], y = timepoint, cex =2,
-             pch = c(18, 16)[sex], col = grDevices::adjustcolor(cols$Tissue[tissue], alpha.f = 0.95))
-    }
-  }
-}
-
-text(labels = sapply(names(deg_eqtl_list), function(ts) stringr::str_to_title(paste0(strsplit(ts, "-")[[1]][-1], collapse = " "))),
-     y = seq(4.5,1.175,length.out = length(names(deg_eqtl_list))), x = 1.075 * max(n_deGenes), pos = 4, xpd = NA, cex = 0.9)
-points(x = rep(1.0674 * max(n_deGenes), length(names(deg_eqtl_list))), y = seq(4.55, 1.1755,length.out = length(names(deg_eqtl_list))), 
-       col = cols$Tissue, pch = 15, cex = 1.85, xpd = NA)
-
-text(labels = c("Male", "Female"),
-     y = seq(0.75,0.5,length.out = 2), x = 1.075 * max(n_deGenes), pos = 4, xpd = NA, cex = 0.9)
-points(x = rep(1.0674 * max(n_deGenes), 2), y = seq(0.75,0.5,length.out = 2), 
-       col = cols$Sex, pch = c(18, 16), cex = 2, xpd = NA)
-
-dev.off()
-
-#make barplot of just the 8w
-grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/num_DE_genes_across_timepoints_8w_",ifelse(use_selection_fdr_too, "selectionFDR+adjPVAL_used_", "just_adjPVAL_used_"),"atAlpha_",sign_filter_alpha,".pdf"), 
-                     width = 15, height = 10, family="Arial Unicode MS")
-
-par(mar = c(8,6,3,2))
-plot(1,1,xlim = c(0,length(names(deg_eqtl_list))+1), ylim = range(n_deGenes), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-
-#axis labels and title
-text(labels = "# Genes", x = max(n_deGenes)/2, y = -0.45, pos = 1, cex = 2.5,  xpd = NA, family="Courier", col = "grey25")
-text(labels = "# Genes DE in each Tissue", x = max(n_deGenes)/2, y = 4.75, pos = 3, cex = 2.5,  xpd = NA)
-
-#axes
-ylocs <- round(seq(range(n_deGenes)[1], range(n_deGenes)[2], by = 50))
-xlocs <- 1:length(names(deg_eqtl_list)); names(xlocs) = names(deg_eqtl_list)[order(apply(n_deGenes[,"8w",],2,sum), decreasing = T)]
-
-segments(x0 = xlocs, x1 = xlocs, y0 = 0.325, y1 = 0.2, lwd = 2, xpd = NA)
-text(x = xlocs + 0.25, y = -12.5 / 500 * max(n_deGenes), pos = 2, cex = 1.25, labels = sapply(names(xlocs), function(ts) stringr::str_to_title(paste0(strsplit(ts, "-")[[1]][-1], collapse = " "))), 
-     xpd = NA, srt = 45, col = cols$Tissue[names(xlocs)])
-text(labels = c("\u2642", "\u2640")[1], x = xlocs - 0.25, y = 4, pos = 1, cex = 1, col = cols$Sex[1], font = 2)
-text(labels = c("\u2642", "\u2640")[2], x = xlocs + 0.25, y = 4, pos = 1, cex = 1, col = cols$Sex[2], font = 2)
-text(x = 10, y = max(n_deGenes), cex = 3, labels = "8w Timepoint", col = cols$Time["8w"])
-
-#vertical axis
-segments(x0 = 0, x1 = 0, y0 = 0, y1 = max(n_deGenes), lwd = 3, xpd = NA)
-segments(x0 = 0, x1 = -0.25, y0 = ylocs, y1 = ylocs, lwd = 2, xpd = NA)
-text(x = -0.125, y = ylocs, labels = ylocs, pos = 2, xpd = NA)
-text(x = -1.5, y = max(n_deGenes) * 0.95, labels = paste0("# genes differentially expressed at FDR = ", sign_filter_alpha), pos = 2, xpd = NA, srt = 90, cex = 2)
-#horiz axis ticks and nums
-
-#plot rects themselves
-width_room <- 0.035
-for(sex in 1:2){
-  for(timepoint in 4){
-    for(tissue in names(deg_eqtl_list)){
-      rect(xleft = xlocs[tissue] - ifelse(sex == 1, 0.5 - width_room/2, - width_room/2), xright  = xlocs[tissue] + ifelse(sex == 1, - width_room/2, 0.5 - width_room/2), border = grDevices::adjustcolor(cols$Sex[sex], alpha.f = 1), lwd = 2,
-           ytop = n_deGenes[sex, timepoint, tissue], ybottom = 0, col = grDevices::adjustcolor(cols$Tissue[tissue], alpha.f = 1))
-      text(x = xlocs[tissue] - ifelse(sex == 1, (0.5-width_room)/2, -(0.5-width_room)/2), y = n_deGenes[sex, timepoint, tissue] - max(n_deGenes) / 125, labels = n_deGenes[sex, timepoint, tissue], cex = 0.75, pos = 3)
-    }
-  }
-}
-
-text(labels = sapply(names(deg_eqtl_list), function(ts) stringr::str_to_title(paste0(strsplit(ts, "-")[[1]][-1], collapse = " "))),
-     y = seq(4.5,1.175,length.out = length(names(deg_eqtl_list))), x = 1.075 * max(n_deGenes), pos = 4, xpd = NA, cex = 0.9)
-points(x = rep(1.0674 * max(n_deGenes), length(names(deg_eqtl_list))), y = seq(4.55, 1.1755,length.out = length(names(deg_eqtl_list))), 
-       col = cols$Tissue, pch = 15, cex = 1.85, xpd = NA)
-
-text(labels = c("Male", "Female"),
-     y = seq(0.75,0.5,length.out = 2), x = 1.075 * max(n_deGenes), pos = 4, xpd = NA, cex = 0.9)
-points(x = rep(1.0674 * max(n_deGenes), 2), y = seq(0.75,0.5,length.out = 2), 
-       col = cols$Sex, pch = c(18, 16), cex = 2, xpd = NA)
-
-dev.off()
-
-
-
-
-#### summarizing by trait figure -- geometric mean edition ####
-
-sign_filter_alpha <- 0.1
-if(!exists("n_deGenes") | sign_filter_alpha != sigfilt_used){
-  n_deGenes <- array(data = 0, dim = c(2,4,length(names(deg_eqtl_list))), 
-                     dimnames = list(sex = c("male", "female"), 
-                                     timepoint = paste0(c(1,2,4,8), "w"),
-                                     tissue = names(deg_eqtl_list)
-                     ))
-  
-  for(sex in c("male", "female")){
-    for(timepoint in paste0(c(1,2,4,8), "w")){
-      for(tissue in names(deg_eqtl_list)){
-        # motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)
-        motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$selection_fdr < sign_filter_alpha & deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)
-        sex_inds <- which(deg_eqtl_list[[tissue]]$sex == sex)
-        timepoint_inds <- which(deg_eqtl_list[[tissue]]$comparison_group == timepoint)
-        n_deGenes[sex, timepoint, tissue] <- (length(intersect(intersect(motrpac_signif_inds, sex_inds), timepoint_inds)))
-      }
-    }
-  }
-  sigfilt_used <- sign_filter_alpha
-  n_deGenes[n_deGenes == 0] <- 1 #make division play nice later
-}
-
-change_names <- F
-change_names_in_plot = T
-pp4_threshold <- 0.01
-if(!exists("coloc_list") & !exists("colocs") | last_import_pp4t != pp4_threshold | change_names != names_changed){
-  load(paste0('~/data/smontgom/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
-  colocs <- coloc_list
-  rm(coloc_list)
-  gonocs <- colocs[colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[1] | colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[2],]
-  gonocs$motrpac_tissue <- "t1000-gonads"
-  colocs <- rbind(colocs, gonocs)
-  coloc_phenotypes <- sort(unique(colocs$gwas_trait))
-  last_import_pp4t <- pp4_threshold
-  trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
-  if(change_names){
-    traitname_map <- trait_categories[,c("Tag", "new_Phenotype")]
-    colocs$gwas_trait <- traitname_map[match(colocs$gwas_trait, traitname_map[,1]),2]
-    coloc_phenotypes <- sort(unique(colocs$gwas_trait))
-    names_changed = T
-  } else {
-    names_changed = F
-  }
-}
-
-load(file = paste0("~/Documents/DExEQTL/probs_noColocs_byTrait_", pp4_threshold, "_threshold"))
-
-coloc_cols = viridis::viridis(50, begin = 0.5, end = 1)
-plot(1:length(coloc_cols), 1:length(coloc_cols), col = coloc_cols, pch = 19)
-padded_nums <- as.character(1:length(coloc_phenotypes))
-padded_nums <- (sapply(padded_nums, function(pn) paste0(paste0(rep("0", max(nchar(padded_nums)) - nchar(pn)), collapse = ""), pn)))
-
-plot_phenotype_summary_figure_geommean = T
-nicole_mods <- T
-arnold_mods <- F
-partition_by_category <- T
-traitwise_partitions <- trait_categories[,c("Tag", "Category")]
-categories <- sort(unique(traitwise_partitions$Category))
-arnold_bayes <- png::readPNG(source = "~/Pictures/ArnoldBayes.png")
-pheno_cols <- disco::disco("rainbow")
-pheno_cols <- rev(colorRampPalette(pheno_cols)(length(coloc_phenotypes)))
-reorder_vertical <- T
-
-if(change_names){
-  for(i1 in seq_along(probs_noColocs)){
-    for(i2 in seq_along(probs_noColocs[[1]])){
-      for(i3 in seq_along(probs_noColocs[[1]][[1]])){
-        names(probs_noColocs[[i1]][[i2]][[i3]]) <- traitname_map[match(names(probs_noColocs[[i1]][[i2]][[i3]]), traitname_map[,1]),2]
-      }
-    }
-  }
-}
-
-
-if(plot_phenotype_summary_figure_geommean){
-  
-  for(timepoint in 1:4){
-    
-    if(reorder_vertical){
-      order_traits <- order(apply(sapply(coloc_phenotypes, (function(coloc_phenotype) sapply(1:2, function(sex) sapply(1:4, function(timepoint) sapply(names(deg_eqtl_list), function(tissue) 
-        probs_noColocs[[tissue]][[c("male", "female")[sex]]][[paste0(c(1,2,4,8), "w")[timepoint]]][[coloc_phenotype]] / n_deGenes[sex, timepoint,tissue]
-      ))))), 2, sum), decreasing = T)
-    } else {
-      order_traits <- 1:length(coloc_phenotypes)
-    }
-    
-    if(partition_by_category){
-      order_traits <- order_traits[order(traitwise_partitions[,2][match(coloc_phenotypes[order_traits], traitwise_partitions[,1])], sort(order_traits))]
-      trait_category_counts <- as.data.table(table(traitwise_partitions[,2][match(coloc_phenotypes[order_traits], traitwise_partitions[,1])] ))
-      trait_category_counts$cN <- cumsum(trait_category_counts$N)
-    }
-    
-    max_prob <- max(unlist(lapply(names(deg_eqtl_list), function(tissue) lapply(1:2, function(sex) 
-      probs_noColocs[[tissue]][[c("male", "female")[sex]]][[paste0(c(1,2,4,8), "w")[timepoint]]] / n_deGenes[sex, timepoint,tissue]))))
-    max_prob <- max_prob + 10^round(log(max_prob))
-    
-    nameloc <- 0.3 + ifelse(change_names | change_names_in_plot, 0, 0.3)
-    grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/byPhenotype_colocalization_summary_geommean_", 
-                                           length(coloc_phenotypes), "traits_", paste0(c(1,2,4,8), "w")[timepoint],"_nicole", ifelse(arnold_mods, "_AB", ""),".pdf"), 
-                         width = 1500 / 72, height = 2000 / 72 *18 / 17, family="Arial Unicode MS")
-    par(mfrow = c(1, 1), mar = c(4,3,2,3), xpd = NA)
-    
-    plot(1,1,xlim = c(0,2.1), ylim = c(0,10), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-    ylocs <- seq(10, 0, length.out = length(coloc_phenotypes))
-    
-    #put boxes around categories, if we're doing that  
-    if(partition_by_category){
-      segments(x0 = -0.1, x1 = -0.1, y0 = 0+diff(ylocs)[1]/2, y1 = 10-diff(ylocs)[1]/2, col = "grey35")
-      for(traitcat in 1:(nrow(trait_category_counts)-1)){
-        segments(y0 = ylocs[trait_category_counts$cN[traitcat]] + diff(ylocs)[1]/2, y1 = ylocs[trait_category_counts$cN[traitcat]] + diff(ylocs)[1]/2, x0 = -0.1, x1 = nameloc, col = "grey35")
-      }
-      catylocs <- (ylocs[trait_category_counts$cN] + c(ylocs[1], ylocs[trait_category_counts$cN][-length(trait_category_counts$cN)])) / 2 - diff(ylocs)[1]/1.5
-      catnames <- as.vector(trait_category_counts$V1)
-      catnames <- sapply(catnames, function(x) strsplit(x, split = c("-"))[[1]][1])
-      catnames <- sapply(catnames, function(x) strsplit(x, split = c(" "))[[1]][1])
-      catylocs[catnames == "Hair"] <- catylocs[catnames == "Hair"] + diff(ylocs)[1]/1.5
-      catylocs[catnames == "Aging"] <- catylocs[catnames == "Aging"] - diff(ylocs)[1]/3
-      catylocs[catnames == "Endocrine"] <- catylocs[catnames == "Endocrine"] - diff(ylocs)[1]/3
-      text(x = -0.1, y = catylocs, labels = catnames, pos = 2, srt = 90, col = "grey35")
-    }
-    
-    #plot names of traits
-    if(change_names_in_plot){
-      coloc_phenotypes_newnames <- traitname_map[match(coloc_phenotypes, traitname_map[,1]),2]
-    } else {
-      coloc_phenotypes_newnames <- coloc_phenotypes
-    }
-    
-    if(nicole_mods){
-      text(paste0(1:length(coloc_phenotypes_newnames), ": ", coloc_phenotypes_newnames)[order_traits], col = 1, x = nameloc, y = ylocs, pos = 2, cex = 1, xpd = NA)
-    } else {
-      text(paste0(1:length(coloc_phenotypes_newnames), ": ", coloc_phenotypes_newnames)[order_traits], col = pheno_cols, x = nameloc, y = ylocs, pos = 2, cex = 1, xpd = NA)
-    }
-    
-    text(labels = "Phenotypes", x = nameloc, y = 10.15, pos = 2, cex = 2.5, xpd = NA, family="Courier", col = "grey25")
-    text(labels = "Posterior Probability of Colocalization (Geometric Mean)", x = 1.225, y = -0.35, cex = 2.25, pos = 1, xpd = NA)
-    
-    #guiding lines for traits
-    if(nicole_mods){
-      segments(x0 = nameloc, x1 = max_horiz_axis, y0 = ylocs, y1 = ylocs, col = "grey80", lty = 3, lwd = 0.5) 
-    }
-    
-    #axes
-    max_horiz_axis <- 2.05
-    segments(x0 = nameloc, x1 = nameloc, y0 = 10.2, y1 = -0.1, lwd = 2)
-    segments(x0 = nameloc, x1 = max_horiz_axis, y0 = -0.1, y1 = -0.1, lwd = 2)
-    
-    #horiz axis ticks and nums
-    segments(x0 = seq(0, max_prob, by = 10^round(log(max_prob))) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-             x1 = seq(0, max_prob, by = 10^round(log(max_prob))) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-             y0 = -0.1, y1 = -0.15, lwd = 2)
-    text(x = seq(0, max_prob, by = 10^round(log(max_prob))) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-         y = -0.135, pos = 1, cex = 1.25,
-         labels =  c(0, sapply(seq(10^round(log(max_prob)), max_prob, by = 10^round(log(max_prob))), function(num) as.expression(bquote(1-10^-.(num))))))
-    
-    #let's get minor tick marks in there too
-    minticks <- log10(as.vector(t(t(1:9)) %*% t(10^seq(0, max_prob, by = 10^round(log(max_prob))))))
-    minticks <- minticks / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025
-    minticks <- minticks[minticks < max_horiz_axis]
-    segments(x0 = minticks, x1 =  minticks, y0 = -0.1, y1 = -0.125, lwd = 1)
-    
-    #dashed lines for ticks
-    if(nicole_mods){
-      segments(x0 = seq(0, max_prob, by = 10^round(log(max_prob))) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-               x1 = seq(0, max_prob, by = 10^round(log(max_prob))) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y0 = 10, y1 = -0.075, lwd = 2, lty = 2, col = "grey75")
-    } else {
-      segments(x0 = seq(0, max_prob, by = 10^round(log(max_prob))) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-               x1 = seq(0, max_prob, by = 10^round(log(max_prob))) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y0 = 10, y1 = -0.1, lwd = 1, lty = 2, col = "grey75")
-    }
-    #plot legend for colors etc.
-    if(nicole_mods){rect(xleft = 1.97, ybottom = 8.35, ytop = 10.1, xright = 2.2, border = NA, col = "white")}
-    text(labels = sapply(names(deg_eqtl_list), function(ts) stringr::str_to_title(paste0(strsplit(ts, "-")[[1]][-1], collapse = " "))),
-         y = seq(9.95,8.75,length.out = length(names(deg_eqtl_list))), x = 2, pos = 4)
-    points(x = rep(1.9925, length(names(deg_eqtl_list))), y = seq(9.955,8.755,length.out = length(names(deg_eqtl_list))), col = cols$Tissue, pch = 15, cex = 1.75)
-    
-    text(labels = c("Male", "Female"),
-         y = seq(8.5, 8.425, length.out = 2), x = 2, pos = 4)
-    points(x = rep(1.9925, 2), y = seq(8.505, 8.43, length.out = 2), col = cols$Sex, pch = c(18, 16), cex = 2)
-    
-    for(tissue in names(deg_eqtl_list)){
-      
-      
-      for(sex in 1:2){
-        # for(sex in 1){
-        
-        sex_inds <- which(deg_eqtl_list[[tissue]]$sex == c("male", "female")[sex])
-        
-        #incompatible gonads message
-        if((tissue == "t64-ovaries" & sex == 1) | (tissue == "t63-testes" & sex == 2)){
-          next()
-        }
-        
-        # horizontal lines for colocalizing traits
-        trait_locs <- ylocs
-        trait_probs <- probs_noColocs[[tissue]][[c("male", "female")[sex]]][[paste0(c(1,2,4,8), "w")[timepoint]]] / n_deGenes[sex, timepoint, tissue]
-        trait_probs <- trait_probs[order_traits]
-        
-        points(x = trait_probs / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y = trait_locs, pch = c(18, 16)[sex], col = grDevices::adjustcolor(cols$Tissue[tissue], alpha.f = 0.85), cex = 2)
-        
-      }
-      
-    }
-    
-    if(arnold_mods){
-      addImg(obj = arnold_bayes, x = 1.9, y = 1.6775, width = 0.5)
-    }
-    
-    dev.off()
-  }
-  
-  
-  
-}
-
-
-#### quick figure to show gastroc kde ####
-
-gastroc_rats <- list(male = "", female = "")
-for(sex in c("male", "female")){
-  for(timepoint in paste0("8w")){
-    for(tissue in names(deg_eqtl_list)[14]){
-      # motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)
-      motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$selection_fdr < sign_filter_alpha & deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)
-      sex_inds <- which(deg_eqtl_list[[tissue]]$sex == sex)
-      timepoint_inds <- which(deg_eqtl_list[[tissue]]$comparison_group == timepoint)
-      delsub <- deg_eqtl_list[[tissue]][intersect(intersect(motrpac_signif_inds, sex_inds), timepoint_inds),]
-      gastroc_rats[[sex]] <- abs(delsub$logFC) - abs(delsub$abs_slope)
-    }
-  }
-}
-
-mdens <- density(gastroc_rats$male, bw = 0.2)
-fdens <- density(gastroc_rats$female, bw = 0.2)
-mdens$y <- mdens$y[mdens$x < 2.5]
-mdens$x <- mdens$x[mdens$x < 2.5]
-fdens$y <- fdens$y[fdens$x < 2.5]
-fdens$x <- fdens$x[fdens$x < 2.5]
-
-
-par(mar = c(4,4,2,2))
-plot(1,1,col = "white", xlim = c(-1.3,3), ylim = c(0,1.3), 
-     xlab = latex2exp::TeX("Abs. Differential Expression ÷ Abs. Lead eVariant eQTL Effect Size (log_{2}ratio)"),
-     ylab = "Density", cex.lab = 1.25)
-lines(mdens$x, mdens$y, lwd = 2, col = cols$Sex["male"])
-lines(fdens$x, fdens$y, lwd = 2, col = cols$Sex["female"])
-polygon(x = mdens$x, y = mdens$y, col = grDevices::adjustcolor(cols$Sex["male"], alpha.f = 0.35))
-polygon(x = fdens$x, y = fdens$y, col = grDevices::adjustcolor(cols$Sex["female"], alpha.f = 0.35))
-segments(x0 = 0, x1 = 0, y0 = 0, y1 = 10, lwd = 2, lty = 2, col = "grey50")
-shadowtext(x = 0, y = 0.2, labels = round(sum(gastroc_rats$female > 0) / length(gastroc_rats$female) * 100), 
-     col = cols$Sex["female"], cex = 1.5, pos = 4, font = 2)
-shadowtext(x = 0, y = 0.2, labels = round(sum(gastroc_rats$female < 0) / length(gastroc_rats$female) * 100), 
-     col = cols$Sex["female"], cex = 1.5, pos = 2, font = 2)
-shadowtext(x = 0, y = 1, labels = round(sum(gastroc_rats$male > 0) / length(gastroc_rats$male) * 100), 
-     col = cols$Sex["male"], cex = 1.5, pos = 4, font = 2)
-shadowtext(x = 0, y = 1, labels = round(sum(gastroc_rats$male < 0) / length(gastroc_rats$male) * 100), 
-     col = cols$Sex["male"], cex = 1.5, pos = 2, font = 2)
-legend(x = "topright", legend = c("males", "females"), col = cols$Sex, pch = 15, cex = 1.5, box.lty = 3, box.lwd = 2, ncol = 1)
-box(which = "plot", lwd = 2)
-
-
-#### comparing coloc probabilities in DE vs. non-DE genes ####
-
-plot_delta_coloc_DEvsNotDE <- T
-change_names = T
-change_names_in_plot = T
-
-tissues <- names(deg_eqtl_list)
-pp4_threshold <- 0
-if(pp4_threshold == 0 & !exists("colocs")){
-  load(file = "~/data/smontgom/coloc_list_of_lists_all_p4-0") #loads 'colocs'
-  coloc_phenotypes <- sort(names(colocs))
 } else {
-  if(!exists("coloc_list") & !exists("colocs")){
-    load(paste0('~/data/smontgom/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
-    colocs <- coloc_list
-    rm(coloc_list)
-    gonocs <- colocs[colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[1] | colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[2],]
-    gonocs$motrpac_tissue <- "t1000-gonads"
-    colocs <- rbind(colocs, gonocs)
-    coloc_phenotypes <- sort(unique(colocs$gwas_trait))
-    colocs <- lapply(coloc_phenotypes, function(coloc_phenotype) colocs[colocs$gwas_trait == coloc_phenotype,])
-    names(colocs) <- coloc_phenotypes
-    for(coloc_phenotype in coloc_phenotypes){
-      print(coloc_phenotype)
-      colocs[[coloc_phenotype]] <-  lapply(tissues, function(tissue) colocs[[coloc_phenotype]][colocs[[coloc_phenotype]]$motrpac_tissue == tissue,])
-      names(colocs[[coloc_phenotype]]) <- tissues
-    }
-  }
-}
-#get names and categories
-trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
-traitname_map <- trait_categories[,c("Tag", "new_Phenotype")]
-
-sign_filter_alpha <- 0.1
-if(!exists("pp4s_DE_notDE") & !file.exists(paste0("~/Documents/DExEQTL/pp4s_DE_notDE_", pp4_threshold, "pp4_alsoRelDEeffects"))){
-  sexes <- c("male", "female"); names(sexes) <- sexes
-  timepoints <- paste0(c(1,2,4,8), "w"); names(timepoints) <- timepoints
-  tissues <- names(deg_eqtl_list); names(tissues) <- tissues
-  names(coloc_phenotypes) <- coloc_phenotypes
-  pp4s_DE_notDE <- lapply(coloc_phenotypes, function(phenotype) 
-    lapply(tissues, function(tissue) 
-    lapply(sexes, function(sex) 
-    lapply(timepoints, function(timepoint) list(DE_coloc_probs = NA, nDE_coloc_probs = NA, DE_rel_effsiz = NA, nDE_rel_effsiz = NA)
-      ))))
-    
-  for(tissue in names(deg_eqtl_list)){
-    
-    for(sex in 1:2){
-      
-      sex_inds <- which(deg_eqtl_list[[tissue]]$sex == c("male", "female")[sex])
-      
-      for(timepoint in 1:4){
-        
-        timepoint_inds <- which(deg_eqtl_list[[tissue]]$comparison_group == paste0(c(1,2,4,8), "w")[timepoint])
-        
-
-        motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$selection_fdr < sign_filter_alpha & deg_eqtl_list[[tissue]]$adj_p_value < sign_filter_alpha)
-        motrpac_insignif_inds <- setdiff(1:length(deg_eqtl_list[[tissue]]$selection_fdr), motrpac_signif_inds)
-
-        delsub <- deg_eqtl_list[[tissue]][intersect(intersect(sex_inds, timepoint_inds), motrpac_signif_inds),]
-        antidelsub <- deg_eqtl_list[[tissue]][intersect(intersect(sex_inds, timepoint_inds), motrpac_insignif_inds),]
-        delsub$abs_logFC_minus_abs_slope <- (abs(delsub$logFC) - delsub$abs_slope) #* sign(delsub$logFC)
-        antidelsub$abs_logFC_minus_abs_slope <- (abs(antidelsub$logFC) - antidelsub$abs_slope) #* sign(delsub$logFC)
-        
-        if((sex == 1 & tissue == "t64-ovaries") | (sex == 2 & tissue == "t63-testes" | nrow(delsub) == 0)){
-          next()
-        }
-        
-        #snag colocalizing genes
-        print(tissue)
-        for(coloc_phenotype in coloc_phenotypes){
-          
-          delsub_coloc_inds <- sapply(delsub$gene_id, function(cg) which(colocs[[coloc_phenotype]][[tissue]]$gene_id == cg)[1])
-          delsub_coloc_inds <- delsub_coloc_inds[!is.na(delsub_coloc_inds)]
-          antidelsub_coloc_inds <- setdiff(1:(length(colocs[[coloc_phenotype]][[tissue]]$gene_id)), delsub_coloc_inds)
-          # delsub$pp4[delsub$pp4 > (1 - 1E-6)] <- (1 - 1E-6)
-          # delsub <- delsub[!is.na(delsub$pp4),]
-          pp4s_DE_notDE[[coloc_phenotype]][[tissue]][[sex]][[timepoint]][["DE_coloc_probs"]] <- colocs[[coloc_phenotype]][[tissue]]$p4[delsub_coloc_inds]
-          pp4s_DE_notDE[[coloc_phenotype]][[tissue]][[sex]][[timepoint]][["nDE_coloc_probs"]] <- colocs[[coloc_phenotype]][[tissue]]$p4[antidelsub_coloc_inds]
-          pp4s_DE_notDE[[coloc_phenotype]][[tissue]][[sex]][[timepoint]][["DE_rel_effsiz"]] <- delsub$abs_logFC_minus_abs_slope
-          pp4s_DE_notDE[[coloc_phenotype]][[tissue]][[sex]][[timepoint]][["nDE_rel_effsiz"]] <- antidelsub$abs_logFC_minus_abs_slope
-          
-          cat(paste0(timepoint, " (", " " , ")"))
-          
-        }
-        
-        
-      }
-      
-    }
-    # dev.off()
-  }
-  save(pp4s_DE_notDE, file = paste0("~/Documents/DExEQTL/pp4s_DE_notDE_", pp4_threshold, "pp4_alsoRelDEeffects"))
+  
+  gene_map <- gencode_gene_map
 }
 
-if(!exists("pp4s_DE_notDE")){
-  load(paste0("~/Documents/DExEQTL/pp4s_DE_notDE_", pp4_threshold, "pp4_alsoRelDEeffects"))
-}
+#### load TWAS results ####
+# twas_tissues <- fread(file = "~/repos/fusion_twas-master/output/all_results.txt")
+# metaxscan_results <- fread(file = "~/repos/MetaXcan/software/results/all_results.txt")
+motrpac_gtex_map = c('t30-blood-rna'='Whole_Blood',
+                     't52-hippocampus'='Brain_Hippocampus',
+                     't53-cortex'='Brain_Cortex',
+                     't54-hypothalamus'='Brain_Hypothalamus',
+                     't55-gastrocnemius'='Muscle_Skeletal',
+                     't56-vastus-lateralis'='Muscle_Skeletal',
+                     't58-heart'='Heart_Left_Ventricle',
+                     't59-kidney'='Kidney_Cortex',
+                     't60-adrenal'='Adrenal_Gland',
+                     't61-colon'='Colon_Transverse',
+                     't62-spleen'='Spleen',
+                     't63-testes'='Testis',
+                     't64-ovaries'='Ovary',
+                     't66-lung'='Lung',
+                     't67-small-intestine'='Small_Intestine_Terminal_Ileum',
+                     't68-liver'='Liver',
+                     't70-white-adipose'='Adipose_Subcutaneous')
 
+#compare twas to coloc results
+# load('~/data/smontgom/coloc_list_pp4threshold_1e-04.RData')
+# geneID_map <- read.table("~/data/smontgom/motrpac_geneID_map.txt")
 
-hist(sapply(coloc_phenotypes, function(phenotype) 
- sapply(tissues, function(tissue) 
-  sapply(sexes, function(sex) 
-   sapply(timepoints, function(timepoint)
-      length(pp4s_DE_notDE[[phenotype]][[tissue]][[sex]][[timepoint]][["DE_coloc_probs"]])
-      )))))
+#whoops there is redundancy here
+# tiss_gene_twas <- paste0(twas_tissues$tissue, "_", twas_tissues$ID) 
+# tiss_gene_coloc <- paste0(coloc_list$motrpac_tissue, "_", coloc_list$gene_id) 
+# 
+# for(i in 1:length(deg_eqtl_list)){
+#   cat(paste0(i, " "))
+#   temp <- deg_eqtl_list[[i]]
+#   tiss_gene_twas_equiv <- paste0(motrpac_gtex_map[match(names(deg_eqtl_list)[i], names(motrpac_gtex_map))], "_", temp$gene_name)
+#   tiss_gene_coloc_equiv <- paste0(names(deg_eqtl_list)[i], "_", temp$gene_id)
+#   temp$TWAS_PVAL <- twas_tissues$TWAS.P[match(tiss_gene_twas_equiv, tiss_gene_twas)]
+#   temp$colocPP4 <- coloc_list$p4[match(tiss_gene_coloc_equiv, tiss_gene_coloc)]
+#   deg_eqtl_list[[i]] <- temp
+# }
+# 
+# twas_pvals <- (do.call(rbind,deg_eqtl_list)$TWAS_PVAL)
+# coloc_pp4s <- (do.call(rbind,deg_eqtl_list)$colocPP4)
+# plot(-log(twas_pvals), -log(1-coloc_pp4s))
+# 
+# all_gene_names <- unique(map$human_gene_symbol)
+# gene_names_DE <- unique(do.call(rbind, deg_eqtl_list)$gene_name)
+# mean(!is.na(match(gene_names_DE, all_gene_names)))
+# gene_names_TWAS <- unique(twas_tissues$ID)
+# gene_names_metaxscan <- unique(metaxscan_results$gene_name)
+# mean(!is.na(match(gene_names_TWAS, all_gene_names)))
+# length(setdiff(gene_names_DE, gene_names_TWAS)) / length(gene_names_DE)
+# sapply(names(deg_eqtl_list), function(i) mean(!is.na(deg_eqtl_list[[i]]$TWAS_PVAL))*100)
+# twas_tissuegenes <- sapply(unique(twas_tissues$tissue), function(tiss) unique(twas_tissues$ID[twas_tissues$tissue == tiss]))
+# sapply(twas_tissuegenes, function(x) length(x))
+# length(setdiff(gene_names_DE, gene_names_metaxscan)) / length(gene_names_DE)
+# length(setdiff(gene_names_DE, gene_names_metaxscan)) / length(gene_names_DE)
+# gene_IDs_metaxscan <- unique(metaxscan_results$gene)
+# gene_IDs_DE <- unique(do.call(rbind, deg_eqtl_list)$gene_id)
+# length(setdiff(gene_names_DE, gene_names_metaxscan)) / length(gene_names_DE)
+# length(setdiff(gene_IDs_DE, gene_IDs_metaxscan)) / length(gene_IDs_DE)
 
-
-#specify colors
-coloc_cols = viridis::viridis(50, begin = 0.5, end = 1)
-plot(1:length(coloc_cols), 1:length(coloc_cols), col = coloc_cols, pch = 19)
-padded_nums <- as.character(1:length(coloc_phenotypes))
-padded_nums <- (sapply(padded_nums, function(pn) paste0(paste0(rep("0", max(nchar(padded_nums)) - nchar(pn)), collapse = ""), pn)))
-cols = list(Tissue=tissue_cols[names(deg_eqtl_list)], 
-            Time=group_cols[paste0(c(1,2,4,8), "w")],
-            Sex=sex_cols[c('male','female')])
-cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
-names(cols$Tissue)[which(is.na(names(cols$Tissue)))] <- "t1000-gonads"
-
-plot_DEvNDE_Figure_colocs <- T
-nicole_mods <- T
-arnold_mods <- F
-arnold_bayes <- png::readPNG(source = "~/Pictures/ArnoldBayes.png")
-pheno_cols <- disco::disco("rainbow")
-pheno_cols <- rev(colorRampPalette(pheno_cols)(length(coloc_phenotypes)))
-
-reorder_vertical <- T
-partition_by_category <- T
-traitwise_partitions <- trait_categories[,c("Tag", "Category")]
-categories <- sort(unique(traitwise_partitions$Category))
-
-#munge into array for efficiency
-if(!exists("pp4s_DE_notDE_array")){
-  pp4s_DE_notDE_array <- array(data = 0, dim = c(2,4,length(names(deg_eqtl_list)),length(coloc_phenotypes),4), 
-                                 dimnames = list(sex = c("male", "female"), 
-                                                 timepoint = paste0(c(1,2,4,8), "w"),
-                                                 tissue = names(deg_eqtl_list),
-                                                 coloc_phenotype = coloc_phenotypes,
-                                                 value = c("DE_coloc_probs", "nDE_coloc_probs", "DE_rel_effsiz", "nDE_rel_effsiz")))
-  
-  for(tissue in names(deg_eqtl_list)){
-    for(sex in 1:2){
-      for(timepoint in 1:4){
-        for(coloc_phenotype in coloc_phenotypes){
-          pp4s_DE_notDE_array[sex, timepoint, tissue, coloc_phenotype, "DE_coloc_probs"] <- mean(log(pp4s_DE_notDE[[coloc_phenotype]][[tissue]][[sex]][[timepoint]][["DE_coloc_probs"]]))
-          pp4s_DE_notDE_array[sex, timepoint, tissue, coloc_phenotype, "nDE_coloc_probs"] <- mean(log(pp4s_DE_notDE[[coloc_phenotype]][[tissue]][[sex]][[timepoint]][["nDE_coloc_probs"]]))
-          pp4s_DE_notDE_array[sex, timepoint, tissue, coloc_phenotype, "DE_rel_effsiz"] <- mean(pp4s_DE_notDE[[coloc_phenotype]][[tissue]][[sex]][[timepoint]][["DE_rel_effsiz"]])
-          pp4s_DE_notDE_array[sex, timepoint, tissue, coloc_phenotype, "nDE_rel_effsiz"] <- mean(pp4s_DE_notDE[[coloc_phenotype]][[tissue]][[sex]][[timepoint]][["nDE_rel_effsiz"]])
-        }
-      }
-    }
-  }
-}
-
-use_geometric_mean <- T
-
-if(plot_DEvNDE_Figure_colocs){
-  
-  max_horiz_axis <- 2.05
-  
-  for(timepoint in 1:4){
-    
-    if(reorder_vertical){
-      
-      order_traits <- order(sapply(coloc_phenotypes, function(coloc_phenotype) sum(pp4s_DE_notDE_array[,,,coloc_phenotype,1] - pp4s_DE_notDE_array[,,,coloc_phenotype,2], na.rm = T)), decreasing = T)
-      
-    } else {
-      order_traits <- 1:length(coloc_phenotypes)
-    }
-    
-    if(partition_by_category){
-      order_traits <- order_traits[order(traitwise_partitions[,2][match(coloc_phenotypes[order_traits], traitwise_partitions[,1])], sort(order_traits))]
-      trait_category_counts <- as.data.table(table(traitwise_partitions[,2][match(coloc_phenotypes[order_traits], traitwise_partitions[,1])] ))
-      trait_category_counts$cN <- cumsum(trait_category_counts$N)
-    }
-    
-    if(use_geometric_mean){
-      logprob_range <- range(as.vector(sapply(coloc_phenotypes, function(coloc_phenotype) sapply(1:2, function(sex) sapply(names(deg_eqtl_list), function(tissue) 
-        pp4s_DE_notDE_array[sex, timepoint, tissue, coloc_phenotype, "DE_coloc_probs"]  - 
-          pp4s_DE_notDE_array[sex, timepoint, tissue, coloc_phenotype, "nDE_coloc_probs"]  )))), na.rm = T)
-    } 
-    max_prob <- diff(logprob_range) + ifelse(use_geometric_mean, 0.01, 1)
-    
-    
-    nameloc <- 0.3 + ifelse(change_names | change_names_in_plot, 0, 0.3)
-    
-    grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/DEvsNDE_", ifelse(use_geometric_mean, "geommean_", ""),
-                                           length(coloc_phenotypes), "traits_", paste0(c(1,2,4,8), "w")[timepoint], ifelse(arnold_mods, "_AB", ""),".pdf"), 
-                         width = 1500 / 72, height = 2000 / 72 *18 / 17, family="Arial Unicode MS")
-    par(mfrow = c(1, 1), mar = c(4,3,3,3), xpd = NA)
-    
-    
-    plot(1,1,xlim = c(0,2.1), ylim = c(0,10), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-    
-    ylocs <- seq(10, 0, length.out = length(coloc_phenotypes))
-    
-    #put boxes around categories, if we're doing that  
-    if(partition_by_category){
-      segments(x0 = -0.1, x1 = -0.1, y0 = 0+diff(ylocs)[1]/2, y1 = 10-diff(ylocs)[1]/2, col = "grey35")
-      for(traitcat in 1:(nrow(trait_category_counts)-1)){
-        segments(y0 = ylocs[trait_category_counts$cN[traitcat]] + diff(ylocs)[1]/2, y1 = ylocs[trait_category_counts$cN[traitcat]] + diff(ylocs)[1]/2, x0 = -0.1, x1 = nameloc, col = "grey35")
-      }
-      catylocs <- (ylocs[trait_category_counts$cN] + c(ylocs[1], ylocs[trait_category_counts$cN][-length(trait_category_counts$cN)])) / 2 - diff(ylocs)[1]/1.5
-      catnames <- as.vector(trait_category_counts$V1)
-      catnames <- sapply(catnames, function(x) strsplit(x, split = c("-"))[[1]][1])
-      catnames <- sapply(catnames, function(x) strsplit(x, split = c(" "))[[1]][1])
-      catylocs[catnames == "Hair"] <- catylocs[catnames == "Hair"] + diff(ylocs)[1]/1.5
-      catylocs[catnames == "Aging"] <- catylocs[catnames == "Aging"] - diff(ylocs)[1]/3
-      catylocs[catnames == "Endocrine"] <- catylocs[catnames == "Endocrine"] - diff(ylocs)[1]/3
-      text(x = -0.1, y = catylocs, labels = catnames, pos = 2, srt = 90, col = "grey35")
-    }
-    
-    #plot names of traits
-    if(change_names_in_plot){
-      coloc_phenotypes_newnames <- traitname_map[match(coloc_phenotypes, traitname_map[,1]),2]
-    } else {
-      coloc_phenotypes_newnames <- coloc_phenotypes
-    }
-    
-    if(nicole_mods){
-      text(paste0(1:length(coloc_phenotypes_newnames), ": ", coloc_phenotypes_newnames)[order_traits], col = 1, x = nameloc, y = ylocs, pos = 2, cex = 1, xpd = NA)
-    } else {
-      text(paste0(1:length(coloc_phenotypes_newnames), ": ", coloc_phenotypes_newnames)[order_traits], col = pheno_cols, x = nameloc, y = ylocs, pos = 2, cex = 1, xpd = NA)
-    }
-    
-    
-    text(labels = "Phenotypes", x = nameloc, y = 10.15, pos = 2, cex = 2.5, xpd = NA, family="Courier", col = "grey25")
-    if(use_geometric_mean){
-      text(labels = "Ratio in Geometric Mean Posterior Probability of Colocalization (DE / nDE)", x = 1.2, y = -0.35, cex = 2.25, pos = 1, xpd = NA)
-    } else {
-      text(labels = "Ratio in Posterior Probability of Colocalization in at Least One Gene", x = 1.2, y = -0.35, cex = 2.25, pos = 1, xpd = NA)  
-    }
-    
-    
-    #guiding lines for traits
-    if(nicole_mods){
-      segments(x0 = nameloc, x1 = max_horiz_axis, y0 = ylocs, y1 = ylocs, col = "grey80", lty = 3, lwd = 0.5) 
-    }
-    
-    #axes
-    segments(x0 = nameloc, x1 = nameloc, y0 = 10.2, y1 = -0.1, lwd = 2)
-    segments(x0 = nameloc, x1 = max_horiz_axis, y0 = -0.1, y1 = -0.1, lwd = 2)
-    
-    #horiz axis ticks and nums
-    if(use_geometric_mean){
-      
-      probs <- ceiling(logprob_range[1]):ceiling(logprob_range[2])
-      segments(x0 = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-               x1 = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-               y0 = -0.1, y1 = -0.15, lwd = 2)
-      text(x = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-           y = -0.135, pos = 1, cex = 1.25,
-           labels =  c(sapply(probs, function(num) as.expression(bquote(10^.(num))))))
-      
-    } else {
-      
-      segments(x0 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-               x1 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-               y0 = -0.1, y1 = -0.15, lwd = 2)
-      text(x = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-           y = -0.135, pos = 1, cex = 1.25,
-           labels =  c(sapply(seq(ceiling(logprob_range[1]), ceiling(logprob_range[2]), by = 1), function(num) as.expression(bquote(10^.(num))))))
-    }
-    
-    
-    #let's get minor tick marks in there too
-    if(use_geometric_mean){
-      minticks <- log10(as.vector(sapply(1:(length(probs)-1), function(p) seq(10^probs[p], 10^probs[p+1], length.out = 10))))
-      minticks <- (minticks - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc
-      minticks <- minticks[minticks < max_horiz_axis]
-      segments(x0 = minticks, x1 =  minticks, y0 = -0.1, y1 = -0.125, lwd = 1)
-      #hmm being weird
-    } else {
-      minticks <- log10(as.vector(t(t(1:9)) %*% t(10^seq(0, max_prob, by = 10^round(log(max_prob))))))
-      minticks <- minticks / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025
-      minticks <- minticks[minticks < max_horiz_axis]
-      segments(x0 = minticks, x1 =  minticks, y0 = -0.1, y1 = -0.125, lwd = 1)
-    }
-    
-    
-    #dashed lines for ticks
-    if(use_geometric_mean){
-      if(nicole_mods){
-        segments(x0 = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-                 x1 = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y0 = 10, y1 = -0.075, lwd = 2, lty = 2, col = "grey75")
-      } else {
-        segments(x0 = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-                 x1 = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y0 = 10, y1 = -0.1, lwd = 1, lty = 2, col = "grey75")
-      }
-    } else {
-      if(nicole_mods){
-        segments(x0 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-                 x1 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y0 = 10, y1 = -0.075, lwd = 2, lty = 2, col = "grey75")
-      } else {
-        segments(x0 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-                 x1 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y0 = 10, y1 = -0.1, lwd = 1, lty = 2, col = "grey75")
-      }  
-    }
-    
-    
-    #helpful hint line about direction
-    
-    if(use_geometric_mean){
-      segments(x0 = (0 - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-               x1 = (0 - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y0 = 10, y1 = 10.4, lwd = 2, lty = 2, col = "grey75")
-      text(labels = "non-DE Genes", srt = 90, x = (0 - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y = 10.4, pos = 2, col = "grey75", cex = 0.75)
-      text(labels = "DE Genes", srt = 270, x = (0 - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y = 10.4, pos = 4, col = "grey75", cex = 0.75)
-      text(labels = "Stronger Coloc\nSignal In", srt = 0, x = (0 - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y = 10.3875, pos = 3, col = "grey75", cex = 0.75)
-    } else {
-      segments(x0 = floor(-logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-               x1 = floor(-logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y0 = 10, y1 = 10.4, lwd = 2, lty = 2, col = "grey75")
-      text(labels = "eQTL > DEG", srt = 90, x = floor(-logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y = 10.4, pos = 2, col = "grey75", cex = 0.75)
-      text(labels = "DEG > eQTL", srt = 270, x = floor(-logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y = 10.4, pos = 4, col = "grey75", cex = 0.75)
-      text(labels = "Stronger Coloc\nSignal In", srt = 0, x = floor(-logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y = 10.3875, pos = 3, col = "grey75", cex = 0.75)
-    }
-    
-    #plot legend for colors etc.
-    if(nicole_mods){rect(xleft = 1.97, ybottom = 8.35, ytop = 10.1, xright = 2.2, border = NA, col = "white")}
-    # text(labels = sapply(names(deg_eqtl_list), function(ts) stringr::str_to_title(paste0(strsplit(ts, "-")[[1]][-1], collapse = " "))),
-    #      y = seq(9.95,8.75,length.out = length(names(deg_eqtl_list))), x = 2, pos = 4)
-    # points(x = rep(1.9925, length(names(deg_eqtl_list))), y = seq(9.955,8.755,length.out = length(names(deg_eqtl_list))), col = cols$Tissue, pch = 15, cex = 1.75)
-    text(labels = sapply(names(deg_eqtl_list)[-18], function(ts) stringr::str_to_title(paste0(strsplit(ts, "-")[[1]][-1], collapse = " "))),
-         y = seq(9.95,8.75,length.out = length(names(deg_eqtl_list)[-18])), x = 2, pos = 4)
-    points(x = rep(1.9925, length(names(deg_eqtl_list)[-18])), y = seq(9.955,8.755,length.out = length(names(deg_eqtl_list)[-18])), col = cols$Tissue, pch = 15, cex = 1.75)
-    
-    text(labels = c("Male", "Female"),
-         y = seq(8.5, 8.425, length.out = 2), x = 2, pos = 4)
-    points(x = rep(1.9925, 2), y = seq(8.505, 8.43, length.out = 2), col = cols$Sex, pch = c(18, 16), cex = 2)
-    
-    for(tissue in names(deg_eqtl_list)){
-      
-      for(sex in 1:2){
-        
-        sex_inds <- which(deg_eqtl_list[[tissue]]$sex == c("male", "female")[sex])
-        
-        if((tissue == "t64-ovaries" & sex == 1) | (tissue == "t63-testes" & sex == 2) | (tissue == "t1000-gonads")){
-          next()
-        }
-        
-        # horizontal lines for colocalizing traits
-        trait_locs <- ylocs
-        
-        if(use_geometric_mean){
-          trait_probs <- pp4s_DE_notDE_array[sex, timepoint, tissue,,"DE_coloc_probs"] - 
-            pp4s_DE_notDE_array[sex, timepoint, tissue,,"nDE_coloc_probs"]
-        }
-        
-        trait_probs <- trait_probs[order_traits]
-        
-        points(x = (trait_probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y = trait_locs, pch = c(18, 16)[sex], col = grDevices::adjustcolor(cols$Tissue[tissue], alpha.f = 0.75), cex = 2)
-        
-        
-        
-      }
-      
-    }
-    
-    if(arnold_mods){
-      addImg(obj = arnold_bayes, x = 1.9, y = 1.6775, width = 0.5)
-    }
-    
-    dev.off()
-  }
-  
-  
-  
-}
-
-#sanity check
-pp4s_DE_notDE_array["female", "8w", tissues[grep(tissues, pattern = "lung")], coloc_phenotypes[grep(coloc_phenotypes, pattern = "height")], "DE_coloc_probs"] - 
-  pp4s_DE_notDE_array["female", "8w", tissues[grep(tissues, pattern = "lung")], coloc_phenotypes[grep(coloc_phenotypes, pattern = "height")], "nDE_coloc_probs"]
-
-
-#stephen requests genes that colocalize in male colon, male small intestine, female ovaries for alzheimers
-tissues_to_focus_on <- c("t61-colon", "t64-ovaries", "t67-small-intestine")
-DE_genes_in_tissues <- deg_eqtl_list[tissues_to_focus_on]
-DE_genes_in_tissues <- lapply(names(DE_genes_in_tissues), function(x) DE_genes_in_tissues[[x]][(DE_genes_in_tissues[[x]]$selection_fdr < sign_filter_alpha & DE_genes_in_tissues[[x]]$adj_p_value < sign_filter_alpha),])
-# DE_genes_in_tissues <- lapply(names(DE_genes_in_tissues), function(x) DE_genes_in_tissues[[x]][(DE_genes_in_tissues[[x]]$adj_p_value < sign_filter_alpha),])
-names(DE_genes_in_tissues) <- tissues_to_focus_on
-DE_genes_in_tissues <- list(
-  DE_genes_in_tissues$`t61-colon`$gene_id[DE_genes_in_tissues$`t61-colon`$comparison_group == "8w" & DE_genes_in_tissues$`t61-colon`$sex == "male"],
-  DE_genes_in_tissues$`t64-ovaries`$gene_id[DE_genes_in_tissues$`t64-ovaries`$comparison_group == "8w" & DE_genes_in_tissues$`t64-ovaries`$sex == "female"],
-  DE_genes_in_tissues$`t67-small-intestine`$gene_id[DE_genes_in_tissues$`t67-small-intestine`$comparison_group == "8w" & DE_genes_in_tissues$`t67-small-intestine`$sex == "male"]
-); names(DE_genes_in_tissues) <- tissues_to_focus_on
-
-colocs_in_tissues <- colocs[[traitname_map$Tag[grep("Alzh", traitname_map$new_Phenotype)]]][tissues_to_focus_on]
-
-colocs_in_tissues$`t61-colon`$gene_name <- deg_eqtl_list$`t61-colon`$gene_name[match(colocs_in_tissues$`t61-colon`$gene_id, deg_eqtl_list$`t61-colon`$gene_id)]
-colocs_in_tissues$`t64-ovaries`$gene_name <- deg_eqtl_list$`t64-ovaries`$gene_name[match(colocs_in_tissues$`t64-ovaries`$gene_id, deg_eqtl_list$`t64-ovaries`$gene_id)]
-colocs_in_tissues$`t67-small-intestine`$gene_name <- deg_eqtl_list$`t67-small-intestine`$gene_name[match(colocs_in_tissues$`t67-small-intestine`$gene_id, deg_eqtl_list$`t67-small-intestine`$gene_id)]
-
-colocs_in_tissues$`t61-colon`[match(DE_genes_in_tissues$`t61-colon`, colocs_in_tissues$`t61-colon`$gene_id),]
-colocs_in_tissues$`t64-ovaries`[match(DE_genes_in_tissues$`t64-ovaries`, colocs_in_tissues$`t64-ovaries`$gene_id),]
-colocs_in_tissues$`t67-small-intestine`[match(DE_genes_in_tissues$`t67-small-intestine`, colocs_in_tissues$`t67-small-intestine`$gene_id),]
-
-(mean(log(colocs_in_tissues$`t61-colon`[match(DE_genes_in_tissues$`t61-colon`, colocs_in_tissues$`t61-colon`$gene_id),"p4"])) -
-  mean(log(colocs_in_tissues$`t61-colon`[-match(DE_genes_in_tissues$`t61-colon`, colocs_in_tissues$`t61-colon`$gene_id),"p4"])))
-(mean(log(colocs_in_tissues$`t64-ovaries`[match(DE_genes_in_tissues$`t64-ovaries`, colocs_in_tissues$`t64-ovaries`$gene_id),"p4"])) - 
-  mean(log(colocs_in_tissues$`t64-ovaries`[-match(DE_genes_in_tissues$`t64-ovaries`, colocs_in_tissues$`t64-ovaries`$gene_id),"p4"])))
-(mean(log(colocs_in_tissues$`t67-small-intestine`[match(DE_genes_in_tissues$`t67-small-intestine`, colocs_in_tissues$`t67-small-intestine`$gene_id),"p4"])) - 
-  mean(log(colocs_in_tissues$`t67-small-intestine`[-match(DE_genes_in_tissues$`t67-small-intestine`, colocs_in_tissues$`t67-small-intestine`$gene_id),"p4"])))
-
-mean(mean(log(colocs_in_tissues$`t61-colon`[match(DE_genes_in_tissues$`t61-colon`, colocs_in_tissues$`t61-colon`$gene_id),"p4"])) > 
-       log(colocs_in_tissues$`t61-colon`[-match(DE_genes_in_tissues$`t61-colon`, colocs_in_tissues$`t61-colon`$gene_id),"p4"]))
-mean(mean(log(colocs_in_tissues$`t64-ovaries`[match(DE_genes_in_tissues$`t64-ovaries`, colocs_in_tissues$`t64-ovaries`$gene_id),"p4"])) > 
-       log(colocs_in_tissues$`t64-ovaries`[-match(DE_genes_in_tissues$`t64-ovaries`, colocs_in_tissues$`t64-ovaries`$gene_id),"p4"]))
-mean(mean(log(colocs_in_tissues$`t67-small-intestine`[match(DE_genes_in_tissues$`t67-small-intestine`, colocs_in_tissues$`t67-small-intestine`$gene_id),"p4"])) > 
-       log(colocs_in_tissues$`t67-small-intestine`[-match(DE_genes_in_tissues$`t67-small-intestine`, colocs_in_tissues$`t67-small-intestine`$gene_id),"p4"]))
-
-
-
-#### LDSC output ####
-
+#now let's use the TWAS results from Barbeira et al. 2021
+twas_results_directory <- "~/data/smontgom/eqtl/"
+# tissue = motrpac_gtex_map[6]
 gwas_dir <- "~/data/smontgom/imputed_gwas_hg38_1.1/"
 gwas_summary_files <- list.files(gwas_dir)
 gwas_summary_files <- gwas_summary_files[-grep(gwas_summary_files, pattern = "README")]
 gwas_names <- stringr::str_replace_all(gwas_summary_files, ".txt.gz", "")
-coloc_phenotypes <- stringr::str_replace_all(gwas_names, "imputed_", "")
-ldsc_output_dir <- "~/repos/ldsc/output/"
-ldsc_results_paths <- list.files(ldsc_output_dir)
-ldsc_log_paths <- paste0(ldsc_output_dir, ldsc_results_paths[grep(ldsc_results_paths, pattern = "log")])
-ldsc_results_paths <- paste0(ldsc_output_dir, ldsc_results_paths[grep(ldsc_results_paths, pattern = "results")])
-tissue_abbrev <- unique(MotrpacBicQC::bic_animal_tissue_code$abbreviation)
-tissue_abbrev <- tissue_abbrev[!is.na(tissue_abbrev)]
-tissue_abbrev <- setdiff(tissue_abbrev, c("PLASMA", "HYPOTH", "TESTES", "OVARY", "VENACV"))
-cluster_names <- paste0(tissue_abbrev, "-sex_homogeneous_changing")
-ldsc_results_paths <- lapply(gwas_names, function(gwas) ldsc_results_paths[grep(pattern = gwas, ldsc_results_paths)])
-ldsc_log_paths <- lapply(gwas_names, function(gwas) ldsc_log_paths[grep(pattern = gwas, ldsc_log_paths)])
-names(ldsc_results_paths) <- names(ldsc_log_paths) <- gwas_names
+gwas_names <- stringr::str_replace_all(gwas_names, "imputed_", "")
+# trait <- gwas_names[grep("hyperte", gwas_names, T)]
+# twas <- fread(file = paste0(twas_results_directory, "spredixcan_igwas_gtexmashrv8_", trait, "__PM__", tissue, ".csv"))
 
+# jac <- function(x1, x2){length(intersect(x1, x2)) / length(union(x1, x2))}
+# jac(unique(deg_eqtl_list[[names(tissue)]]$gene_name), twas$gene_name)
+# jac(unique(deg_eqtl_list[[names(tissue)]]$gene_id), twas$gene)
+# 1 - (length(setdiff(unique(deg_eqtl_list[[names(tissue)]]$gene_id[deg_eqtl_list[[names(tissue)]]$selection_fdr < 0.05]), twas$gene)) / 
+#        length(unique(deg_eqtl_list[[names(tissue)]]$gene_id[deg_eqtl_list[[names(tissue)]]$selection_fdr < 0.05])))
 
-log_files <- as.data.frame(matrix(data = NA, ncol = 5, nrow = length(gwas_names) * length(cluster_names)))
-colnames(log_files) <- c("h2", "h2se", "chi2", "gwas", "cluster")
-log_files$cluster <- rep(1:length(cluster_names), length(gwas_names))
-log_files$gwas <- c(sapply(gwas_names, function(gwas_name) rep(gwas_name, length(cluster_names))))
-for(i in 1:nrow(log_files)){
-  logfile <- readLines(ldsc_log_paths[[log_files$gwas[i]]][grep(pattern = paste0(cluster_names[log_files$cluster[i]], ".log"), ldsc_log_paths[[log_files$gwas[i]]])][1])
-  h2 <- logfile[grep(logfile, pattern = "Total Observed scale h2")]
-  log_files$h2[i] <- as.numeric(strsplit(h2, " ")[[1]][5])
-  log_files$h2se[i] <- as.numeric(substr(x = strsplit(h2, " ")[[1]][6], start = 2, stop = nchar(strsplit(h2, " ")[[1]][6]) - 1))
-  chi2 <- as.numeric(strsplit(logfile[grep(logfile, pattern = "Mean Chi")], split = " ")[[1]][3])
-  log_files$chi2[i] <- chi2
-}
-log_files$gwas <- stringr::str_replace_all(log_files$gwas, "imputed_", "")
+available_twas_traits <- list.files(path = twas_results_directory)
+available_twas_tissues <- table(sapply(available_twas_traits, function(x) strsplit(x, "__PM__")[[1]][2]))
+available_twas_traits <- table(sapply(gsub(x = available_twas_traits, "spredixcan_igwas_gtexmashrv8_", ""), 
+                                      function(x) strsplit(x, "__P")[[1]][1]))
 
+# check cluster membership vs. FDR
+# load("~/data/dea_clustering_0.1-FDR-ftest_kmeans-15.RData")
+# load('~/data/smontgom/dea/transcript_rna_seq_20210804.RData')
+# cluster_membership <- cluster_membership[cluster_membership$cluster %in% c(1,3,7,15) & cluster_membership$assay == "TRNSCRPT",]
+# map = fread('~/data/smontgom/pass1b-06_transcript-rna-seq_feature-mapping_20210721.txt', sep='\t', header=T)
+# rna_dea_list <- lapply(setNames(unique(rna_dea$timewise_dea$tissue_abbreviation), unique(rna_dea$timewise_dea$tissue_abbreviation)), 
+#                        function(tissue_abbrev) rna_dea$timewise_dea[rna_dea$timewise_dea$tissue_abbreviation == tissue_abbrev,])
+# 
+# selection_FDRs <- sapply(1:nrow(cluster_membership), function(ri)
+#   rna_dea_list[[cluster_membership$tissue[ri]]]$selection_fdr[rna_dea_list[[cluster_membership$tissue[ri]]]$feature_ID == cluster_membership$feature_ID[ri]][1])
+# hist(selection_FDRs, breaks = 0:100/100)
+# mean(selection_FDRs > 0.1)
 
-if(file.exists("~/data/smontgom/ldsc_cluster_results.txt")){
-  ldsc_results <- as.data.frame(fread("~/data/smontgom/ldsc_cluster_results.txt"))
-} else{
-  ldsc_results <- as.data.frame(matrix(data = NA, ncol = ncol(fread(ldsc_results_paths[[1]][1])), nrow = length(gwas_names) * length(cluster_names)))
-  colnames(ldsc_results) <- colnames(fread(ldsc_results_paths[[1]][1]))
-  ldsc_results$cluster <- rep(cluster_names, length(gwas_names))
-  ldsc_results$gwas <- c(sapply(gwas_names, function(gwas_name) rep(gwas_name, length(cluster_names))))
-  for(i in 1:nrow(ldsc_results)){
-    output <- fread(ldsc_results_paths[[ldsc_results$gwas[i]]][grep(pattern = paste0(ldsc_results$cluster[i], ".res"), 
-                                                                    ldsc_results_paths[[ldsc_results$gwas[i]]])][1])
-    ldsc_results[i,1:ncol(output)] <- output[grep(pattern = ldsc_results$cluster[i], output$Category),]
+#compile the twas into one big data frame?
+all_twas <- lapply(setNames(gwas_names, gwas_names), function(trait) data.table());
+for(trait in gwas_names){
+  print(trait)
+  all_tissues <- lapply(setNames(names(motrpac_gtex_map), names(motrpac_gtex_map)), function(tissue) data.table());
+  for(tissue in names(motrpac_gtex_map)){
+    twas <- fread(file = paste0(twas_results_directory, "spredixcan_igwas_gtexmashrv8_", trait, "__PM__", motrpac_gtex_map[names(motrpac_gtex_map) == tissue], ".csv"))
+    twas <- twas[,c("gene", "gene_name", "zscore", "pvalue")]
+    twas <- twas[-which(is.na(twas$zscore) & is.na(twas$pvalue)),]
+    twas$tissue <- tissue
+    twas$trait <- trait
+    all_tissues[[tissue]] <- twas
   }
-  fwrite(ldsc_results, "~/data/smontgom/ldsc_cluster_results.txt")
+  all_twas[[trait]] <- do.call(rbind, all_tissues)
 }
 
-ldsc_results$gwas <- stringr::str_replace_all(ldsc_results$gwas, "imputed_", "")
+# data <- data.frame(trait = names(sort(sapply(gwas_names, function(trait) 1-qvalue::pi0est(all_twas[[trait]]$pvalue)$pi0))),
+#                    pi1 = sort(sapply(gwas_names, function(trait) 1-qvalue::pi0est(all_twas[[trait]]$pvalue)$pi0)))
+# ggplot(data, aes(x=trait, y=pi1)) + 
+#   geom_bar(stat = "identity") + theme_bw(base_size = 10) + 
+#   coord_flip() + scale_x_discrete(limits=data$trait)
 
-ldsc_results$logPVal_enrichment <- log10(ldsc_results$Enrichment_p)
-hist(ldsc_results$logPVal_enrichment)
-hist(ldsc_results$logPVal_enrichment + log10(nrow(ldsc_results)))
-abline(v = log10(0.1), col = 2)
-plot((ldsc_results$Prop._h2 - ldsc_results$Prop._SNPs) / ldsc_results$Prop._h2_std_error, ldsc_results$Enrichment_p)
-plot(ldsc_results$Enrichment / ldsc_results$Enrichment_std_error, ldsc_results$Enrichment_p)
-plot(ldsc_results$Prop._h2 / ldsc_results$Prop._SNPs, ldsc_results$Enrichment)
+all.twas <- do.call(rbind, all_twas)
+# 1-qvalue::pi0est(all.twas$pvalue)$pi0
+# hist(all.twas$pvalue)
 
-cols = list(Tissue=tissue_cols[tissue_abbrev], 
+#filter by category
+trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
+traitwise_partitions <- trait_categories[,c("Tag", "Category")]
+all.twas$trait_category <- traitwise_partitions$Category[match(all.twas$trait, traitwise_partitions$Tag)]
+use_all_cats <- T
+if(use_all_cats){
+  salient.categories <- unique(traitwise_partitions$Category)
+} else {
+  salient.categories <- c("Cardiometabolic", "Aging", "Anthropometric", 
+                          "Immune", "Psychiatric-neurologic")
+}
+
+some.twas <- all.twas[all.twas$trait_category %in% salient.categories]
+
+#cleanup memory
+rm("all.twas")
+rm("all_twas")
+
+hist(some.twas$pvalue)
+# hist(log(all.twas$pvalue), breaks = -700:1)
+# 1-qvalue::pi0est(some.twas$pvalue)$pi0
+# sum(some.twas$pvalue < 0.05 / nrow(some.twas))
+
+# data <- data.frame(Trait = names(sort(table(some.twas[p.adjust(some.twas$pvalue, method = "bonf") < 0.05,]$trait))),
+#                    n_sig_bonferroni = as.integer(sort(table(some.twas[p.adjust(some.twas$pvalue, method = "bonf") < 0.05,]$trait))))
+# ggplot(data, aes(x=Trait, y=n_sig_bonferroni)) + 
+#   geom_bar(stat = "identity") + theme_bw(base_size = 10) + 
+#   coord_flip() + scale_x_discrete(limits=data$Trait)                      
+# 
+# data <- data.frame(trait = names(sort(table(all.twas[all.twas$pvalue < 0.05 / nrow(all.twas),]$trait))),
+#                    n_sig = as.integer(sort(table(all.twas[all.twas$pvalue < 0.05 / nrow(all.twas),]$trait))))
+# ggplot(data, aes(x=trait, y=n_sig)) + 
+#   geom_bar(stat = "identity") + theme_bw(base_size = 10) + 
+#   coord_flip() + scale_x_discrete(limits=data$trait)                      
+# 
+# data <- data.frame(trait = names(sort(table(some.twas[some.twas$pvalue < 0.05 / nrow(some.twas),]$gene_name))),
+#                    n_sig = as.integer(sort(table(some.twas[some.twas$pvalue < 0.05 / nrow(some.twas),]$gene_name))))
+# ggplot(data, aes(x=trait, y=n_sig)) + 
+#   geom_bar(stat = "identity") + theme_bw(base_size = 10) + 
+#   coord_flip() + scale_x_discrete(limits=data$trait)    
+
+#ok now let's try to x-reference it to the differential expression results!
+# DEsub <- deg_eqtl_list[[tissue]]
+# hist(DEsub$selection_fdr)
+# sum(p.adjust(some.twas$pvalue, method = "BH") < 0.05) / length(some.twas$pvalue)
+# some.twas$adj_pvalue <- p.adjust(some.twas$pvalue, method = "BH")
+
+if(use_all_cats){
+  if(!file.exists("~/data/smontgom/ihw_results_all.twas.RData")){
+    ihw_twas <- as.data.frame(cbind(trait_tissue = as.factor(paste0(some.twas$trait, "~", some.twas$tissue)), pvalue = some.twas$pvalue))
+    ihw_results <- IHW::ihw(pvalue ~ trait_tissue, data = ihw_twas, alpha = 0.05)  
+    save(ihw_results, file = "~/data/smontgom/ihw_results_all.twas.RData")
+  } else {
+    load("~/data/smontgom/ihw_results_all.twas.RData")
+    some.twas$adj_pvalue <- IHW::adj_pvalues(ihw_results)
+    rm(ihw_results)
+  }
+  
+} else {
+  if(!file.exists("~/data/smontgom/ihw_results_some.twas.RData")){
+    ihw_twas <- as.data.frame(cbind(trait_tissue = as.factor(paste0(some.twas$trait, "~", some.twas$tissue)), pvalue = some.twas$pvalue))
+    ihw_results <- IHW::ihw(pvalue ~ trait_tissue, data = ihw_twas, alpha = 0.05)  
+    save(ihw_results, file = "~/data/smontgom/ihw_results_some.twas.RData")
+  } else {
+    load("~/data/smontgom/ihw_results_some.twas.RData")
+    some.twas$adj_pvalue <- IHW::adj_pvalues(ihw_results)
+    rm(ihw_results)
+  }
+  
+}
+
+salient_twas <- unique(some.twas$trait)
+# deg_eqtl_list_TWAS <- deg_eqtl_list
+# for(tissue_i in names(motrpac_gtex_map)){
+# 
+#   print(tissue_i)
+#   # twas_addition <- data.frame(matrix(nrow = nrow(deg_eqtl_list_TWAS[[tissue_i]]), ncol = length(salient_twas)))
+#   # twas_addition_nominalPValue <- data.frame(matrix(nrow = nrow(deg_eqtl_list_TWAS[[tissue_i]]), ncol = length(salient_twas)))
+#   # twas_addition_zscore <- data.frame(matrix(nrow = nrow(deg_eqtl_list_TWAS[[tissue_i]]), ncol = length(salient_twas)))
+#   # colnames(twas_addition) <- colnames(twas_addition_zscore) <- salient_twas
+#   twas_sub <- some.twas[tissue == tissue_i]
+# 
+#   gtex_motrpac <- rna_dea$timewise_dea[tissue == tissue_i]
+#   for(trait_j in salient_twas){
+#     # twas_sub_sub <- twas_sub[trait == trait_j]
+#     # twas_addition[,trait_j] <- twas_sub_sub$adj_pvalue[match(deg_eqtl_list_TWAS[[tissue_i]]$gene_id, twas_sub_sub$gene)]
+# 
+#     # subset in TWAS
+#     twas_sub_sub <- twas_sub[trait == trait_j]
+#     twas_sub_sub[, human_ensembl_gene := gsub('\\..*','',gene)]
+#     twas_sub_sub$human_gene_symbol <- twas_sub_sub$gene_name
+#     p_twas_in_map <- round(mean(unique(twas_sub_sub$human_gene_symbol) %in% unique(map$human_gene_symbol)), 3)
+# 
+#     # match human genes with rat ensembl genes
+#     twas_sub_sub = merge(twas_sub_sub, map, by='human_gene_symbol')
+#     twas_sub_sub <- twas_sub_sub[,c("feature_ID", "gene_name", "pvalue", "zscore")]
+#     colnames(twas_sub_sub)[-match(c("feature_ID", "gene_name"), colnames(twas_sub_sub))] <- paste0(trait_j, ".",
+#                         colnames(twas_sub_sub)[-match(c("feature_ID", "gene_name"), colnames(twas_sub_sub))])
+# 
+#     matched_twas <- twas_sub_sub[match(gtex_motrpac$feature_ID, twas_sub_sub$feature_ID),-c("feature_ID")]
+#     if(trait_j != salient_twas[1]){matched_twas <- matched_twas[,-"gene_name"]}
+#     gtex_motrpac <- cbind(gtex_motrpac, matched_twas)
+# 
+#     cat(paste0("\nPr(twas in map): ", p_twas_in_map,
+#                  "; Pr(feature_IDs in GTEx): ", round(mean(!is.na(matched_twas[,1])), 3)))
+# 
+#     # twas_addition_nominalPValue[,trait_j] <- twas_sub_sub$pvalue[match(deg_eqtl_list_TWAS[[tissue_i]]$gene_id, twas_sub_sub$gene)]
+#     # twas_addition_zscore[,trait_j] <- twas_sub_sub$zscore[match(deg_eqtl_list_TWAS[[tissue_i]]$gene_id, twas_sub_sub$gene)]
+#   }
+#   deg_eqtl_list_TWAS[[tissue_i]] <- gtex_motrpac
+# 
+#   # colnames(twas_addition) <- paste0(colnames(twas_addition), "_BH_PValue")
+#   # colnames(twas_addition_nominalPValue) <- paste0(colnames(twas_addition_nominalPValue), "_Nominal_PValue")
+#   # colnames(twas_addition_zscore) <- paste0(colnames(twas_addition_zscore), "_zscore")
+#   # deg_eqtl_list_TWAS[[tissue_i]] <- cbind(deg_eqtl_list_TWAS[[tissue_i]], twas_addition, twas_addition_nominalPValue, twas_addition_zscore)
+# 
+# }
+
+#get number of p-values
+# deg_eqtl_list_TWAS_all <- do.call(rbind, deg_eqtl_list_TWAS)
+# deg_eqtl_list_TWAS_all <- deg_eqtl_list_TWAS_all[deg_eqtl_list_TWAS_all$sex == "female"]
+# deg_eqtl_list_TWAS_all <- deg_eqtl_list_TWAS_all[deg_eqtl_list_TWAS_all$comparison_group == "8w"]
+# 
+# all_twas_pvalues <- unlist(as.data.frame(deg_eqtl_list_TWAS_all)[,grep(colnames(deg_eqtl_list_TWAS_all), pattern = ".pvalue")])
+# all_twas_pvalues <- all_twas_pvalues[!is.na(all_twas_pvalues)]
+# n_twas_comparisons <- length(all_twas_pvalues)
+
+#first do simple gene intersect
+if(!exists("cluster_membership") | !exists("node_metadata")){
+  # load("~/data/dea_clustering_0.1-FDR-ftest_kmeans-15.RData")
+  # cluster_membership <- cluster_membership[cluster_membership$cluster %in% c(1,3,7,15) & cluster_membership$assay == "TRNSCRPT",]
+  # map = fread('~/data/smontgom/pass1b-06_transcript-rna-seq_feature-mapping_20210721.txt', sep='\t', header=T)
+  # cluster_genes <- map$human_gene_symbol[match(cluster_membership$feature_ID, map$feature_ID)]
+  # cluster_genes <- cluster_genes[!is.na(cluster_genes)]
+  
+  load("~/data/smontgom/graphical_analysis_results_20211220.RData")
+  nodes_to_look_at_list <- list(c("1w_F1_M1", "1w_F-1_M-1"),
+                                c("2w_F1_M1", "2w_F-1_M-1"),
+                                c("4w_F1_M1", "4w_F-1_M-1"),
+                                c("8w_F1_M1", "8w_F-1_M-1"))
+  
+  node_metadata_list <- lapply(setNames(nodes_to_look_at_list, paste0(2^(0:3), "w")), function(nodes_to_look_at){
+    node_metadata <- lapply(setNames(nodes_to_look_at, nodes_to_look_at), function(node_to_look_at)
+      cbind(do.call(rbind, strsplit(node_sets[node_to_look_at][[node_to_look_at]][grep(
+        node_sets[node_to_look_at][[node_to_look_at]], pattern = "TRNSCRPT")], ";")), node_to_look_at))
+    node_metadata <- as.data.table(do.call(rbind, node_metadata))
+    colnames(node_metadata) <- c("ome","tissue","ensembl_gene", "node")
+    
+    
+    node_metadata$rat_gene_symbol <- gene_map$RAT_SYMBOL[match(node_metadata$ensembl_gene, gene_map$RAT_ENSEMBL_ID)]
+    node_metadata$human_gene_symbol <- gene_map$HUMAN_ORTHOLOG_SYMBOL[match(node_metadata$ensembl_gene, gene_map$RAT_ENSEMBL_ID)]
+    node_metadata$human_ensembl_gene <- gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID[match(node_metadata$ensembl_gene, gene_map$RAT_ENSEMBL_ID)]
+    node_metadata$human_ensembl_gene <- gsub(node_metadata$human_ensembl_gene, pattern = "\\..*", replacement = "")
+    node_metadata$cluster <- paste0(node_metadata$tissue, "-", node_metadata$node)
+    node_metadata$cluster <- paste0(node_metadata$tissue, "-", "sex_homogeneous_changing")
+    node_metadata
+  })
+  
+}
+
+save(node_metadata_list, file = "~/data/smontgom/node_metadata_list.RData")
+
+# deg_eqtl_list_TWAS_all_1.3.7.15 <- deg_eqtl_list_TWAS_all[deg_eqtl_list_TWAS_all$gene_name %in% cluster_genes,]
+# all_twas_pvalues_clusters_1.3.7.15 <- unlist(as.data.frame(deg_eqtl_list_TWAS_all_1.3.7.15)[,grep(colnames(deg_eqtl_list_TWAS_all_1.3.7.15_subsetSexTime), pattern = ".pvalue")])
+# all_twas_pvalues_clusters_1.3.7.15 <- all_twas_pvalues_clusters_1.3.7.15[!is.na(all_twas_pvalues_clusters_1.3.7.15)]
+# n_twas_comparisons_clusters_1.3.7.15 <- length(all_twas_pvalues_clusters_1.3.7.15)
+
+#hmm wait that is not quite right... let's subset it to the cluster-tissue subset first, and then further subset it to the FDR genes
+# deg_eqtl_list_TWAS_cluster_subset_list <- lapply(setNames(node_metadata_list, paste0(2^(0:3), "w")), function(node_metadata){
+#   lapply(deg_eqtl_list_TWAS[-which(names(deg_eqtl_list_TWAS) %in% c("t1000-gonads", "t63-testes", "t64-ovaries"))], function(tissue_dea) 
+#     tissue_dea[tissue_dea$feature_ID %in% node_metadata$ensembl_gene[node_metadata$tissue == tissue_dea$tissue_abbreviation[1]],]) 
+# })
+
+# deg_eqtl_list_TWAS_cluster_subset <- deg_eqtl_list_TWAS_cluster_subset_list[[2]]
+# 
+# deg_eqtl_list_TWAS_cluster_subset_ntests <- do.call(rbind, deg_eqtl_list_TWAS_cluster_subset)
+# deg_eqtl_list_TWAS_cluster_subset_ntests <- deg_eqtl_list_TWAS_cluster_subset_ntests[deg_eqtl_list_TWAS_cluster_subset_ntests$sex == "female" &
+#                                                                                        deg_eqtl_list_TWAS_cluster_subset_ntests$comparison_group == "8w",]
+# twas_pvalues_clusters <- unlist(as.data.frame(deg_eqtl_list_TWAS_cluster_subset_ntests)[,grep(colnames(deg_eqtl_list_TWAS_cluster_subset_ntests), pattern = ".pvalue")])
+# twas_pvalues_clusters <- twas_pvalues_clusters[!is.na(twas_pvalues_clusters)]
+# n_twas_comparisons_clusters <- length(twas_pvalues_clusters)
+
+n_deg_sigtwas_intersect <- as.data.frame(matrix(0, nrow = length(names(motrpac_gtex_map)), 
+                                                ncol = length(salient_twas), 
+                                                dimnames = list(names(motrpac_gtex_map), salient_twas)))
+timepoint = "8w"
+adj_pvalue_alpha <- 0.05
+sig_twas_by_tissue <- lapply(setNames(names(motrpac_gtex_map), names(motrpac_gtex_map)), 
+                             function(tissue_i) some.twas[some.twas$tissue == tissue_i & some.twas$adj_pvalue < adj_pvalue_alpha,])
+tissue_code <- MotrpacBicQC::bic_animal_tissue_code
+for(tissue_i in names(motrpac_gtex_map)){
+  
+  print(tissue_i)
+  # DELT <- as.data.frame(deg_eqtl_list_TWAS_cluster_subset[[tissue_i]])
+  # 
+  # DE_inds <- which(DELT$selection_fdr <= 1) #since we're subsetting to monotonic clusters already, but why not
+  # TWAS_inds <- apply(log(DELT[,grep(colnames(DELT), pattern = ".pvalue")]) <= (log(0.05) - log(n_twas_comparisons_clusters)), 2, which)
+  
+  # intersect_inds <- lapply(TWAS_inds, function(twi) intersect(DE_inds, twi))
+  # intersect_genes <- lapply(intersect_inds, function(ii) unique(DELT$gene_name[ii]))
+  # intersect_genes <- lapply(intersect_genes, function(ii) intersect(ii, cluster_genes)) #subset to just monotonic sex-homogenous clusters
+  
+  
+  sig_twas_by_trait <- lapply(setNames(salient_twas, salient_twas), 
+                              function(trait_i) sig_twas_by_tissue[[tissue_i]][sig_twas_by_tissue[[tissue_i]]$trait == trait_i,])
+  sig_twas_by_trait_genes <- lapply(setNames(salient_twas, salient_twas), 
+                                    function(trait_i) sig_twas_by_trait[[trait_i]]$gene_name)
+  
+  
+  n_intersect <- sapply(sig_twas_by_trait_genes, function(twas_genes) 
+    length(intersect(twas_genes, node_metadata_list[[timepoint]]$human_gene_symbol[
+      node_metadata_list[[timepoint]]$tissue == tissue_code$abbreviation[tissue_code$tissue_name_release == tissue_i]])))
+  
+  
+  
+  ##WAS HERE
+  # names(n_intersect) <- gsub(names(n_intersect), pattern = ".pvalue", replacement = "")
+  n_deg_sigtwas_intersect[tissue_i,names(n_intersect)] <- n_intersect
+  
+}
+
+#tidy this up
+n_deg_sigtwas_intersect <- n_deg_sigtwas_intersect[,order(apply(n_deg_sigtwas_intersect, 2, sum), decreasing = T)]
+n_deg_sigtwas_intersect <- n_deg_sigtwas_intersect[,apply(n_deg_sigtwas_intersect, 2, sum) != 0]
+rownames(n_deg_sigtwas_intersect) <- MotrpacBicQC::tissue_abbr[rownames(n_deg_sigtwas_intersect)]
+n_deg_sigtwas_intersect <- n_deg_sigtwas_intersect[order(match(rownames(n_deg_sigtwas_intersect), MotrpacBicQC::tissue_order)),]
+n_deg_sigtwas_intersect <- n_deg_sigtwas_intersect[nrow(n_deg_sigtwas_intersect):1,]
+n_deg_sigtwas_intersect <- n_deg_sigtwas_intersect[!(rownames(n_deg_sigtwas_intersect) %in% c("OVARY", "TESTES")),]
+
+#add in an extra row and column for totals
+#needs to be ones that can be mapped to rat orthologs
+#colsums
+tissue_code <- MotrpacBicQC::bic_animal_tissue_code
+tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
+tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
+tissue_code <- setNames(tissue_code$tissue_name_release, tissue_code$abbreviation)
+load("~/data/smontgom/genes_tested_in_transcriptome_DEA.RData")
+all_orthologs_tested <- gene_map$HUMAN_ORTHOLOG_SYMBOL[match(genes_tested_in_transcriptome_DEA, gene_map$RAT_ENSEMBL_ID)]
+all_orthologs_tested <- all_orthologs_tested[!is.na(all_orthologs_tested)]
+tissues <- rownames(n_deg_sigtwas_intersect)
+sig_twas_by_trait_genes_matrix <- t(sapply(setNames(tissues, tissues), function(tissue_i){
+  sig_twas_by_trait <- lapply(setNames(salient_twas, salient_twas), 
+                              function(trait_i) sig_twas_by_tissue[[tissue_code[tissue_i]]][sig_twas_by_tissue[[tissue_code[tissue_i]]]$trait == trait_i,])
+  return(sapply(setNames(salient_twas, salient_twas), function(trait_i){
+    twas_genes <- sig_twas_by_trait[[trait_i]]$gene_name
+    twas_genes <- twas_genes[!is.na(twas_genes)]
+    return(length(intersect(all_orthologs_tested, twas_genes)))
+  }))
+}))
+sig_twas_by_trait_genes_matrix <- sig_twas_by_trait_genes_matrix[,colnames(n_deg_sigtwas_intersect)]
+sig_twas_by_trait_genes_range <- apply(apply(sig_twas_by_trait_genes_matrix, 2, range), 2, paste0, collapse = " - ")
+sig_twas_by_trait_genes <- apply(sig_twas_by_trait_genes_matrix, 2, mean)
+
+prop_twas_are_degs <- t(sapply(rownames(n_deg_sigtwas_intersect), function(tissue) n_deg_sigtwas_intersect[tissue,] / sig_twas_by_trait_genes))
+prop_twas_are_degs <- apply(prop_twas_are_degs, 2, unlist)
+prop_twas_are_degs <- prop_twas_are_degs[,order(apply(prop_twas_are_degs, 2, mean), decreasing = T)]
+# hist(apply(prop_twas_are_degs, 2, mean))
+#rowsums
+all_twas_genes_tested <- unique(some.twas$gene_name)
+possible_genes <- intersect(all_orthologs_tested, all_twas_genes_tested)
+compatible_twas_genes <- some.twas$gene_name %in% possible_genes
+twas_by_tissue <- lapply(setNames(unique(some.twas$tissue), tissue_abbr[unique(some.twas$tissue)]), function(tiss) {
+  print(tiss)
+  some.twas[some.twas$tissue == tiss & compatible_twas_genes,]
+})
+tissues <- setNames(MotrpacBicQC::tissue_abbr[names(motrpac_gtex_map)], MotrpacBicQC::tissue_abbr[names(motrpac_gtex_map)])
+n_genes_in_nodes_matrix <- t(sapply(tissues, function(tiss){
+  print(tiss)
+  sapply(setNames(salient_twas, salient_twas), function(trait_i){
+    twas_genes_tested <- twas_by_tissue[[tiss]]$gene_name[twas_by_tissue[[tiss]]$trait == trait_i]
+    length(intersect(twas_genes_tested, node_metadata_list[[timepoint]]$human_gene_symbol[node_metadata_list[[timepoint]]$tissue == tiss]))
+  }) 
+}))
+n_genes_in_nodes_matrix <- n_genes_in_nodes_matrix[rownames(n_deg_sigtwas_intersect),colnames(n_deg_sigtwas_intersect)]
+n_genes_in_nodes <- apply(n_genes_in_nodes_matrix, 1, mean)
+n_genes_in_nodes_range <- apply(apply(n_genes_in_nodes_matrix, 1, range), 2, paste0, collapse = " - ")
+
+prop_degs_are_twas <- (sapply(colnames(n_deg_sigtwas_intersect), function(trait) n_deg_sigtwas_intersect[,trait] / n_genes_in_nodes[rownames(n_deg_sigtwas_intersect)]))
+prop_degs_are_twas <- apply(prop_degs_are_twas, 2, unlist)
+prop_degs_are_twas <- prop_degs_are_twas[,order(apply(prop_degs_are_twas, 2, mean), decreasing = T)]
+
+#### obtain a bayesian estimate of the twas proportion and perform an 'enrichment' analysis ####
+
+#get total number of possible hits
+total_number_of_possible_hits <- length(intersect(all_orthologs_tested, all_twas_genes_tested))
+
+load('~/data/smontgom/transcript_rna_seq_20211008.RData')
+rna_dea <- transcript_rna_seq$timewise_dea
+rm(transcript_rna_seq)
+rna_dea <- rna_dea[rna_dea$comparison_group == "8w",]
+rna_dea_genes <- lapply(setNames(tissues, tissues), function(tiss){
+  genesymbols <- unique(gene_map$HUMAN_ORTHOLOG_SYMBOL[match(unique(rna_dea$feature_ID[rna_dea$tissue_abbreviation == tiss]), gene_map$RAT_ENSEMBL_ID)])
+  genesymbols <- genesymbols[!is.na(genesymbols)]
+})
+
+total_number_of_possible_hits_matrix <- t(sapply(tissues, function(tiss){
+  print(tiss)
+  sapply(setNames(salient_twas, salient_twas), function(trait_i){
+    twas_genes_tested <- twas_by_tissue[[tiss]]$gene_name[twas_by_tissue[[tiss]]$trait == trait_i]
+    motrpac_genes_tested <- rna_dea_genes[[tiss]]
+    length(intersect(twas_genes_tested, motrpac_genes_tested))
+  }) 
+}))
+total_number_of_possible_hits_matrix <- total_number_of_possible_hits_matrix[rownames(n_deg_sigtwas_intersect), colnames(n_deg_sigtwas_intersect)]
+
+#compile dataframe
+data1 <- data.frame(count = as.integer(unlist(c(n_deg_sigtwas_intersect))))
+data1$tissue <- rep(rownames(n_deg_sigtwas_intersect), ncol(n_deg_sigtwas_intersect))
+data1$trait <- unlist(lapply(colnames(n_deg_sigtwas_intersect), function(tri) rep(tri, nrow(n_deg_sigtwas_intersect))))
+data1$total <- n_genes_in_nodes[data1$tissue]
+# data$total <- unlist(lapply(sig_twas_by_trait_genes, function(trait_total) rep(trait_total, nrow(n_deg_sigtwas_intersect))))
+data1$TWAS_Hit <- "YES"
+
+data2 <- data1
+data2$TWAS_Hit <- "NO"
+# data2$count <- n_genes_in_nodes[data$tissue] - data$count
+# data2$total <- unlist(lapply(total_number_of_possible_hits - sig_twas_by_trait_genes, function(trait_total) rep(trait_total, nrow(n_deg_sigtwas_intersect))))
+data2$count <- sig_twas_by_trait_genes[data1$trait] - data1$count
+data2$total <- (total_number_of_possible_hits - n_genes_in_nodes)[data1$tissue]
+
+# plot((data2$count / data2$total)[data$trait == "UKB_50_Standing_height"], 
+#      (data1$count / data1$total)[data$trait == "UKB_50_Standing_height"])
+par(mfrow = c(3,5))
+for(i in (1:15)[-4]){
+  plot(logit((data2$count / data2$total)[data2$tissue == names(n_genes_in_nodes)[i]]), 
+       logit((data1$count / data1$total)[data1$tissue == names(n_genes_in_nodes)[i]]),
+       main = names(n_genes_in_nodes)[i], 
+       col = adjustcolor(1, 0.5),
+       pch = 19, cex = 2)
+  abline(0,1)
+}
+
+
+# for(i in 1:30){
+#   plot(logit((data2$count / data2$total)[data$trait == names(sig_twas_by_trait_genes)[i]]), 
+#        logit((data$count / data$total)[data$trait == names(sig_twas_by_trait_genes)[i]]),
+#        main = names(sig_twas_by_trait_genes)[i], 
+#        col = tissue_cols[(data$tissue)[data$trait == names(sig_twas_by_trait_genes)[i]]],
+#        pch = 19, cex = 2)
+#   print(round(mean((data$count / data$total)[data$trait == names(sig_twas_by_trait_genes)[i]]),4))
+#   print(round(mean((data2$count / data2$total)[data$trait == names(sig_twas_by_trait_genes)[i]]),4))
+#   abline(0,-1)
+# }
+#check residuals
+
+# data <- rbind(data1, data2)
+# data <- data[!(data$tissue %in% unique(data1$tissue[data1$total == 0])),]
+# 
+# 
+# 
+# #average enrichment? quick check
+# (mean((data$count / data$total)[data$TWAS_Hit == "YES"]) - 
+#     mean((data$count / data$total)[data$TWAS_Hit == "NO"])) / 
+#   mean((data$count / data$total)[data$TWAS_Hit == "NO"])
+# 
+# mean((((data$count / data$total)[data$TWAS_Hit == "YES"]) - 
+#     ((data$count / data$total)[data$TWAS_Hit == "NO"])) > 0)
+# 
+# 
+# d <- list(count = data$count,
+#           total = data$total,
+#           trait = as.integer(as.factor(data$trait)),
+#           tissue = as.integer(as.factor(data$tissue)),
+#           TWAS_hit = as.integer(data$TWAS_Hit == "YES") + 1,
+#           n = nrow(data),
+#           n_trait = ncol(n_deg_sigtwas_intersect),
+#           n_tissue = nrow(n_deg_sigtwas_intersect),
+#           n_cond = 2
+#           )
+# 
+# hist(sapply(1:80, function(i) mean((d$count / d$total)[d$TWAS_hit == 2 & d$trait == i])), breaks = 0:500/1000)
+# sapply(1:20, function(i) mean((d$count / d$total)[d$TWAS_hit == 2 & d$trait == i]))
+# hist(apply(n_deg_sigtwas_intersect, 2, mean) / sig_twas_by_trait_genes, breaks = 0:150/1000)
+# 
+# hist(sapply(colnames(n_deg_sigtwas_intersect), function(i) mean((data2$count / data2$total)[data2$TWAS_Hit == "NO" & data2$trait == i])), 
+#      breaks = 0:50/100)
+# hist(sapply(colnames(n_deg_sigtwas_intersect), function(i) mean((data$count / data$total)[data$TWAS_Hit == "YES" & data$trait == i])), 
+#      breaks = 0:50/100)
+# 
+# sapply(1:80, function(i) ((d$count / d$total)[d$TWAS_hit == 1 & d$trait == i]))
+# sapply(1:80, function(i) ((d$tissue)[d$TWAS_hit == 1 & d$trait == i]))
+# sapply(1:80, function(i) ((d$trait)[d$TWAS_hit == 1 & d$trait == i]))
+# sapply(1:80, function(i) ((d$total)[d$TWAS_hit == 2 & d$trait == i]))
+# sapply(1:80, function(i) ((d$count)[d$TWAS_hit == 2 & d$trait == i]))
+
+# 
+# 
+# #subset to some tissues & traits for troubleshooting
+# trait_subset <- names(sig_twas_by_trait_genes)[order(sig_twas_by_trait_genes, decreasing = T)][1:20]
+# tissue_subset <- names(n_genes_in_nodes)[order(n_genes_in_nodes, decreasing = T)][1:5]
+# d <- list(count = data$count[data$tissue %in% tissue_subset & data$trait %in% trait_subset],
+#           total = data$total[data$tissue %in% tissue_subset & data$trait %in% trait_subset],
+#           trait = as.integer(as.factor(data$trait[data$tissue %in% tissue_subset & data$trait %in% trait_subset])),
+#           tissue = as.integer(as.factor(data$tissue[data$tissue %in% tissue_subset & data$trait %in% trait_subset])),
+#           TWAS_hit = as.integer(data$TWAS_Hit[data$tissue %in% tissue_subset & data$trait %in% trait_subset] == "YES") + 1,
+#           n = nrow(data[data$tissue %in% tissue_subset & data$trait %in% trait_subset,]),
+#           n_trait = length(trait_subset),
+#           n_tissue = length(tissue_subset),
+#           n_cond = 2
+# )
+# 
+# d <- list(count = data$count[data$tissue %in% tissue_subset & data$trait %in% trait_subset & data$TWAS_Hit == "YES"],
+#           total = data$total[data$tissue %in% tissue_subset & data$trait %in% trait_subset & data$TWAS_Hit == "YES"],
+#           trait = as.integer(as.factor(data$trait[data$tissue %in% tissue_subset & data$trait %in% trait_subset & data$TWAS_Hit == "YES"])),
+#           tissue = as.integer(as.factor(data$tissue[data$tissue %in% tissue_subset & data$trait %in% trait_subset & data$TWAS_Hit == "YES"])),
+#           TWAS_hit = as.integer(data$TWAS_Hit[data$tissue %in% tissue_subset & data$trait %in% trait_subset & data$TWAS_Hit == "YES"] == "YES") + 1,
+#           n = nrow(data[data$tissue %in% tissue_subset & data$trait %in% trait_subset & data$TWAS_Hit == "YES",]),
+#           n_trait = length(trait_subset),
+#           n_tissue = length(tissue_subset),
+#           n_cond = 1
+# )
+
+#are cell counts just the product of their row and column counts?
+expected_prob <- t(t(n_genes_in_nodes / total_number_of_possible_hits)) %*% 
+  t(sig_twas_by_trait_genes / total_number_of_possible_hits)
+expected_prob <- expected_prob[,colnames(n_deg_sigtwas_intersect)]
+expected_count <- expected_prob * total_number_of_possible_hits
+par(mfrow = c(2,1), mar = c(4,4,1,1))
+plot(as.matrix(n_deg_sigtwas_intersect), (expected_count))
+sample_count <- t(sapply(rownames(expected_prob), function(ri) sapply(colnames(expected_prob), function(ci) 
+  rbinom(size = total_number_of_possible_hits, n = 1, prob = expected_prob[ri, ci]))))
+plot(as.matrix(n_deg_sigtwas_intersect), (sample_count))
+sample_prob <- sample_count / total_number_of_possible_hits
+
+
+#observed
+par(mfrow = c(2,2), mar = c(4.5,4.25,1,1))
+remove_inf <- function(x) x[x != Inf & x != -Inf]
+partway <- function(x, p = 0.35) x[1]*p + x[2]*(1-p)
+plot(y = range(remove_inf(c(logit(as.matrix(n_deg_sigtwas_intersect) / total_number_of_possible_hits)))), 
+     x = range(remove_inf(c(logit(expected_prob)))),
+     col = "white", 
+     pch = as.character(unlist(lapply(1:ncol(expected_prob), function(i) rep(i, nrow(expected_prob))))),
+     ylab = "true sample logodds", xlab = "expected logodds")
+text(y = c(logit(as.matrix(n_deg_sigtwas_intersect) / total_number_of_possible_hits)), x = c(logit(expected_prob)),
+     col = rep(tissue_cols[rownames(expected_prob)], ncol(expected_prob)), 
+     labels = as.character(unlist(lapply(1:ncol(expected_prob), function(i) rep(i, nrow(expected_prob))))))
+text(partway(par("usr")[1:2]), par("usr")[4], labels = "numbers represent trait indices", pos = 1)
+legend(x = "bottomleft", legend = rownames(expected_prob), col = tissue_cols[rownames(expected_prob)], 
+       pch = "X", ncol = 1, pt.cex = 1, cex = 0.75)
+legend(x = "topleft", legend = "1-to-1 line", lty = 2, col = adjustcolor(1,0.5), lwd = 2)
+abline(0,1, lty = 2, col = adjustcolor(1,0.5), lwd = 2)
+
+plot(y = range(c((as.matrix(n_deg_sigtwas_intersect) / total_number_of_possible_hits))), x = range(c((expected_prob))),
+     col = "white", 
+     pch = as.character(unlist(lapply(1:ncol(expected_prob), function(i) rep(i, nrow(expected_prob))))),
+     ylab = "true sample frequencies", xlab = "expected frequencies")
+text(y = c((as.matrix(n_deg_sigtwas_intersect) / total_number_of_possible_hits)), x = c((expected_prob)),
+     col = rep(tissue_cols[rownames(expected_prob)], ncol(expected_prob)), 
+     labels = as.character(unlist(lapply(1:ncol(expected_prob), function(i) rep(i, nrow(expected_prob))))))
+text(mean(par("usr")[1:2]), par("usr")[3], labels = "numbers represent trait indices", pos = 3)
+legend(x = "bottomright", legend = rownames(expected_prob), col = tissue_cols[rownames(expected_prob)], 
+       pch = "X", ncol = 1, pt.cex = 1, cex = 0.75)
+legend(x = "topleft", legend = "1-to-1 line", lty = 2, col = adjustcolor(1,0.5), lwd = 2)
+abline(0,1, lty = 2, col = adjustcolor(1,0.5), lwd = 2)
+
+#simulated
+plot(y = range(remove_inf(c(logit(as.matrix(sample_count) / total_number_of_possible_hits)))), 
+     x = range(remove_inf(c(logit(expected_prob)))),
+     col = "white", 
+     pch = as.character(unlist(lapply(1:ncol(expected_prob), function(i) rep(i, nrow(expected_prob))))),
+     ylab = "simulated sample logodds", xlab = "expected logodds")
+text(y = c(logit(as.matrix(sample_count) / total_number_of_possible_hits)), x = c(logit(expected_prob)),
+     col = rep(tissue_cols[rownames(expected_prob)], ncol(expected_prob)), 
+     labels = as.character(unlist(lapply(1:ncol(expected_prob), function(i) rep(i, nrow(expected_prob))))))
+text(partway(par("usr")[1:2]), par("usr")[4], labels = "numbers represent trait indices", pos = 1)
+legend(x = "bottomleft", legend = rownames(expected_prob), col = tissue_cols[rownames(expected_prob)], 
+       pch = "X", ncol = 1, pt.cex = 1, cex = 0.75)
+legend(x = "topleft", legend = "1-to-1 line", lty = 2, col = adjustcolor(1,0.5), lwd = 2)
+abline(0,1, lty = 2, col = adjustcolor(1,0.5), lwd = 2)
+
+plot(y = range(c((as.matrix(sample_count) / total_number_of_possible_hits))), x = range(c((expected_prob))),
+     col = "white", 
+     pch = as.character(unlist(lapply(1:ncol(expected_prob), function(i) rep(i, nrow(expected_prob))))),
+     ylab = "simulated sample frequencies", xlab = "expected frequencies")
+text(y = c((as.matrix(sample_count) / total_number_of_possible_hits)), x = c((expected_prob)),
+     col = rep(tissue_cols[rownames(expected_prob)], ncol(expected_prob)), 
+     labels = as.character(unlist(lapply(1:ncol(expected_prob), function(i) rep(i, nrow(expected_prob))))))
+text(mean(par("usr")[1:2]), par("usr")[3], labels = "numbers represent trait indices", pos = 3)
+legend(x = "bottomright", legend = rownames(expected_prob), col = tissue_cols[rownames(expected_prob)], 
+       pch = "X", ncol = 1, pt.cex = 1, cex = 0.75)
+legend(x = "topleft", legend = "1-to-1 line", lty = 2, col = adjustcolor(1,0.5), lwd = 2)
+abline(0,1, lty = 2, col = adjustcolor(1,0.5), lwd = 2)
+
+
+#alternate d
+
+# d <- list(count_1 = data1$count,
+#           total_1 = data1$total,
+#           count_2 = data2$count,
+#           total_2 = data2$total,
+#           trait = as.integer(as.factor(data1$trait)),
+#           tissue = as.integer(as.factor(data1$tissue)),
+#           n = nrow(data1),
+#           n_trait = length(unique(data1$trait)),
+#           n_tissue = length(unique(data1$tissue))
+# )
+# 
+# trait_subset <- names(sig_twas_by_trait_genes)[order(sig_twas_by_trait_genes, decreasing = T)][1:2]
+# tissue_subset <- names(n_genes_in_nodes)[order(n_genes_in_nodes, decreasing = T)][1:5]
+# d <- list(count_1 = data1$count[data1$tissue %in% tissue_subset & data1$trait %in% trait_subset],
+#           total_1 = data1$total[data1$tissue %in% tissue_subset & data1$trait %in% trait_subset],
+#           count_2 = data2$count[data1$tissue %in% tissue_subset & data1$trait %in% trait_subset],
+#           total_2 = data2$total[data1$tissue %in% tissue_subset & data1$trait %in% trait_subset],
+#           trait = as.integer(as.factor(data1$trait[data1$tissue %in% tissue_subset & data1$trait %in% trait_subset])),
+#           tissue = as.integer(as.factor(data1$tissue[data1$tissue %in% tissue_subset & data1$trait %in% trait_subset])),
+#           n = nrow(data1[data1$tissue %in% tissue_subset & data1$trait %in% trait_subset,]),
+#           n_trait = length(unique(data1$trait[data1$tissue %in% tissue_subset & data1$trait %in% trait_subset])),
+#           n_tissue = length(unique(data1$tissue[data1$tissue %in% tissue_subset & data1$trait %in% trait_subset]))
+# )
+
+
+# trait_subset <- names(sig_twas_by_trait_genes)[order(sig_twas_by_trait_genes, decreasing = T)][1:20]
+# tissue_subset <- names(n_genes_in_nodes)[order(n_genes_in_nodes, decreasing = T)][1:5]
+# d <- list(count_1 = data1$count[data1$tissue %in% tissue_subset & data1$trait %in% trait_subset],
+#           total_1 = data1$total[data1$tissue %in% tissue_subset & data1$trait %in% trait_subset],
+#           count_2 = data2$count[data2$tissue %in% tissue_subset & data1$trait %in% trait_subset],
+#           total_2 = data2$total[data2$tissue %in% tissue_subset & data1$trait %in% trait_subset],
+#           trait = as.integer(as.factor(data1$trait[data1$tissue %in% tissue_subset & data1$trait %in% trait_subset])),
+#           tissue = as.integer(as.factor(data1$tissue[data1$tissue %in% tissue_subset & data1$trait %in% trait_subset])),
+#           n = nrow(data1[data1$tissue %in% tissue_subset & data1$trait %in% trait_subset,]),
+#           n_trait = length(unique(data1$trait[data1$tissue %in% tissue_subset & data1$trait %in% trait_subset])),
+#           n_tissue = length(unique(data1$tissue[data1$tissue %in% tissue_subset & data1$trait %in% trait_subset]))
+# )
+
+
+
+
+## STAN model
+# stan_program <- '
+# data {
+#     int<lower=1> n;
+#     int<lower=1> n_trait;
+#     int<lower=1> n_tissue;
+#     int<lower=0> count_1[n];
+#     int<lower=0> total_1[n];
+#     int<lower=0> count_2[n];
+#     int<lower=0> total_2[n];
+#     int<lower=1> trait[n];
+#     int<lower=1> tissue[n];
+# }
+# transformed data {
+# 
+# }
+# parameters {
+#     vector<lower=0,upper=1>[2] mean_beta;
+#     vector<lower=0>[2] conc_beta;
+#     vector<lower=0,upper=1>[n] prop_1;
+#     vector<lower=0,upper=1>[n] prop_2;
+# }
+# transformed parameters {
+#     vector<lower=0>[2] alpha = mean_beta .* conc_beta;
+#     vector<lower=0>[2] beta = (1 - mean_beta) .* (conc_beta);
+# }
+# model {
+#     //priors
+#     mean_beta ~ beta(1,1);
+#     conc_beta ~ exponential(0.01);
+#     
+#     //likelihood for obs
+#     count_1 ~ binomial(total_1, prop_1);
+#     count_2 ~ binomial(total_2, prop_2);
+#     
+#     //hierarchical model for props
+#     prop_1 ~ beta(alpha[1], beta[1]);
+#     prop_2 ~ beta(alpha[2], beta[2]);
+# }
+# generated quantities {
+#   vector[n] difference_in_props = prop_1 - prop_2;
+# }
+# '
+
+# # STAN model
+# stan_program <- '
+# data {
+#     int<lower=1> n;
+#     int<lower=1> n_cond;
+#     int<lower=1> n_trait;
+#     int<lower=1> n_tissue;
+#     int<lower=0> count[n];
+#     int<lower=0> total[n];
+#     int<lower=1> trait[n];
+#     int<lower=1> tissue[n];
+#     int<lower=1> TWAS_hit[n];
+# }
+# transformed data {
+#     vector<lower = 0>[3] concentration_offset = [2,2,2]\';
+# }
+# parameters {
+#     //4th floor
+#     real<lower=0,upper=1> mean_beta;
+#     real<lower=0> conc_beta;
+#     
+#     //3rd floor
+#     vector<lower=0,upper=1>[n_trait] mean_beta_trait;
+#     real<lower=0> conc_beta_trait;
+#     
+#     //2nd floor
+#     matrix<lower=0,upper=1>[n_tissue, n_trait] mean_beta_trait_tissue;
+#     
+#     real<lower=0> conc_beta_trait_tissue;
+#     //real conc_beta_trait_tissue_logmean;
+#     //vector[n_tissue] conc_beta_trait_tissue_tissue_eff;
+#     //real<lower=0> conc_beta_trait_tissue_tissue_eff_sd;
+#     //vector[n_trait] conc_beta_trait_tissue_trait_eff;
+#     //real<lower=0> conc_beta_trait_tissue_trait_eff_sd;
+#     
+#     //1st floor
+#     vector<lower=0,upper=1>[n] prop;
+# }
+# transformed parameters {
+#     //4th floor
+#     real<lower=0> alpha = mean_beta * (conc_beta + concentration_offset[1]);
+#     real<lower=0> beta = (1 - mean_beta) * (conc_beta + concentration_offset[1]);
+#     
+#     //3rd floor
+#     vector[n_trait] alpha_trait = mean_beta_trait * (conc_beta_trait + concentration_offset[2]);
+#     vector[n_trait] beta_trait = (1 - mean_beta_trait) * (conc_beta_trait + concentration_offset[2]);
+#     
+#     //2nd floor
+#     matrix<lower=0>[n_tissue, n_trait] alpha_trait_tissue = mean_beta_trait_tissue * (conc_beta_trait_tissue + concentration_offset[2]);
+#     matrix<lower=0>[n_tissue, n_trait] beta_trait_tissue = (1 - mean_beta_trait_tissue) * (conc_beta_trait_tissue + concentration_offset[2]);
+#     //real<lower=0> conc_beta_trait_tissue;
+#     //matrix<lower=0>[n_tissue, n_trait]  conc_beta_trait_tissue = exp(conc_beta_trait_tissue_logmean + 
+#     //                                                                 rep_matrix(conc_beta_trait_tissue_tissue_eff, n_trait) + 
+#     //                                                                 rep_matrix(conc_beta_trait_tissue_trait_eff\', n_tissue));
+#     //matrix<lower=0>[n_tissue, n_trait] alpha_trait_tissue = mean_beta_trait_tissue .* (conc_beta_trait_tissue + concentration_offset[3]);
+#     //matrix<lower=0>[n_tissue, n_trait] beta_trait_tissue = (1 - mean_beta_trait_tissue) .* (conc_beta_trait_tissue + concentration_offset[3]);
+# }
+# model {
+#     //priors
+#     mean_beta ~ beta(1,1);
+#     conc_beta ~ exponential(0.01);
+#     
+#     mean_beta_trait ~ beta(alpha, beta);
+#     conc_beta_trait ~ exponential(0.01);
+# 
+#     for(tr_i in 1:n_trait){
+#       mean_beta_trait_tissue[,tr_i] ~ beta(alpha_trait[tr_i], beta_trait[tr_i]);
+#     }
+#     conc_beta_trait_tissue ~ exponential(0.01);
+#     //conc_beta_trait_tissue_logmean ~ normal(0, 5);
+#     //conc_beta_trait_tissue_tissue_eff ~ normal(0, conc_beta_trait_tissue_tissue_eff_sd);
+#     //conc_beta_trait_tissue_tissue_eff_sd ~ exponential(0.5);
+#     //conc_beta_trait_tissue_trait_eff ~ normal(0, conc_beta_trait_tissue_trait_eff_sd);
+#     //conc_beta_trait_tissue_trait_eff_sd ~ exponential(0.5);
+#     
+#     //for(i in 1:n){
+#     //    prop[i] ~ beta(alpha_trait_tissue[tissue[i], trait[i]], beta_trait_tissue[tissue[i], trait[i]]);
+#     //}
+#     prop[1:(n%/%n_cond)] ~ beta(to_vector(alpha_trait_tissue), to_vector(beta_trait_tissue));
+#     prop[(n%/%n_cond+1):n] ~ beta(to_vector(alpha_trait_tissue), to_vector(beta_trait_tissue));
+#     //prop ~ beta(alpha_trait_tissue[tissue, trait], beta_trait_tissue[tissue, trait]);
+#     
+#     //likelihood for obs
+#     count ~ binomial(total, prop);
+#     
+# }
+# generated quantities {
+#   vector[n%/%n_cond] difference_in_props = prop[1:(n%/%n_cond)] - prop[(n%/%n_cond+1):n];
+# }
+# '
+# 
+# 
+# # STAN model with logit-normal 
+# stan_program <- '
+# data {
+#     int<lower=1> n;
+#     int<lower=1> n_cond;
+#     int<lower=1> n_trait;
+#     int<lower=1> n_tissue;
+#     int<lower=0> count[n];
+#     int<lower=0> total[n];
+#     int<lower=1> trait[n];
+#     int<lower=1> tissue[n];
+#     int<lower=1> TWAS_hit[n];
+# }
+# parameters {
+#     //4th floor
+#     real mean_all_traits;
+#     real<lower=0> sd_all_traits;
+#     real mean_log_sd_each_trait;
+#     real<lower=0> sd_log_sd_each_trait;
+#     
+#     //3rd floor
+#     vector[n_trait] mean_each_trait;
+#     vector[n_trait] log_sd_each_trait;
+#     
+#     //1st floor
+#     vector<lower=0,upper=1>[n] prop;
+# }
+# transformed parameters {
+#     vector[n] logit_prop = logit(prop);
+#     vector<lower=0>[n_trait] sd_each_trait = exp(log_sd_each_trait);
+# }
+# model {
+#     //priors
+#     mean_all_traits ~ normal(0,5);
+#     sd_all_traits ~ normal(0,2);
+#     
+#     //hiearchical model
+#     mean_each_trait ~ normal(mean_all_traits, sd_all_traits);
+#     sd_each_trait ~ normal(0,2);
+#     
+#     logit_prop ~ normal(mean_each_trait[trait], sd_each_trait[trait]);
+#     
+#     //likelihood for obs
+#     count ~ binomial(total, prop);
+#     
+# }
+# generated quantities {
+#   vector[n%/%n_cond] difference_in_props = prop[1:(n%/%n_cond)] - prop[(n%/%n_cond+1):n];
+# }
+# '
+
+# STAN model with logit-normal, alternate + non-centered parameterization
+# stan_program <- '
+# data {
+#     int<lower=1> n;
+#     int<lower=1> n_trait;
+#     int<lower=1> n_tissue;
+#     int<lower=0> count_1[n];
+#     int<lower=0> total_1[n];
+#     int<lower=0> count_2[n];
+#     int<lower=0> total_2[n];
+#     int<lower=1> trait[n];
+#     int<lower=1> tissue[n];
+# }
+# parameters {
+#     //3rd floor
+#     real mean_all_traits;
+#     real<lower=0> sd_all_traits;
+#     
+#     //2nd floor
+#     vector[n_trait] raw_mean_each_trait;
+#     real<lower=0> sd_each_trait;
+#     vector[n_trait] raw_sd_each_trait_log_multiplier;
+#     real<lower=0> sd_each_trait_log_multipler_sd; 
+#     
+#     //1st floor
+#     vector[n] raw_logit_prop_2;
+#     vector[n] raw_logit_prop_21;
+#     real<lower=0> logit_prop_21_sd;
+# }
+# transformed parameters {
+#     //noncentered parameters
+#     vector[n_trait] sd_each_trait_log_multiplier = raw_sd_each_trait_log_multiplier * sd_each_trait_log_multipler_sd;
+#     vector<lower=0>[n_trait] sd_each_trait_multiplier = exp(sd_each_trait_log_multiplier);
+#     vector[n_trait] mean_each_trait = raw_mean_each_trait * sd_all_traits + mean_all_traits;
+#     vector[n] logit_prop_2 = raw_logit_prop_2 .* sd_each_trait_multiplier[trait] * sd_each_trait + mean_each_trait[trait];
+#     vector[n] logit_prop_21 = raw_logit_prop_21 * logit_prop_21_sd;
+#     
+#     //other transformations
+#     vector[n] logit_prop_1 = logit_prop_2 + logit_prop_21;
+#     vector<lower=0,upper=1>[n] prop_2 = inv_logit(logit_prop_2);
+#     vector<lower=0,upper=1>[n] prop_1 = inv_logit(logit_prop_1);
+# 
+# }
+# model {
+#     //priors
+#     mean_all_traits ~ normal(0,2);
+#     sd_all_traits ~ normal(0,1);
+#     
+#     raw_mean_each_trait ~ std_normal();
+#     raw_sd_each_trait_log_multiplier ~ std_normal();
+#     sd_each_trait_log_multipler_sd ~ exponential(1);
+#     sd_each_trait ~ exponential(1);
+#     
+#     logit_prop_21_sd ~ normal(0,1);
+#     raw_logit_prop_21 ~ std_normal();
+#     raw_logit_prop_2 ~ std_normal();
+#     
+#     //likelihood for obs
+#     count_1 ~ binomial(total_1, prop_1);
+#     count_2 ~ binomial(total_2, prop_2);
+# }
+# '
+
+# STAN model with logit-normal, non-centered parameterization
+# stan_program <- '
+# data {
+#     int<lower=1> n; //total # cells
+#     int<lower=1> n_trait;
+#     int<lower=1> n_tissue;
+#     int<lower=0> count_1[n];
+#     int<lower=0> total_1[n];
+#     int<lower=0> count_2[n];
+#     int<lower=0> total_2[n];
+#     int<lower=1> trait[n]; //trait index for counts
+#     int<lower=1> tissue[n]; //column index for counts
+# }
+# parameters {
+#     //3rd floor
+#     real mean_all_traits;
+#     real<lower=0> sd_all_traits;
+#     
+#     //2nd floor
+#     vector[n_trait] raw_mean_each_trait;
+#     real<lower=0> sd_each_trait; 
+#     vector[n_trait] raw_sd_each_trait_log_multiplier;
+#     real<lower=0> sd_each_trait_log_multipler_sd; 
+#     
+#     //1st floor
+#     vector[n] raw_means_tissue_x_trait;
+#     real<lower=0> sd_tissue_x_trait;
+#     
+#     //basement
+#     vector[n] raw_logit_prop_1;
+#     vector[n] raw_logit_prop_2;
+# }
+# transformed parameters {
+#     //uncentering 2nd floor
+#     vector[n_trait] sd_each_trait_log_multiplier = raw_sd_each_trait_log_multiplier * sd_each_trait_log_multipler_sd;
+#     vector<lower=0>[n_trait] sd_each_trait_multiplier = exp(sd_each_trait_log_multiplier);
+#     vector[n_trait] mean_each_trait = raw_mean_each_trait * sd_all_traits + mean_all_traits;
+#     
+#     //uncentering 1st floor
+#     vector[n] means_tissue_x_trait = raw_means_tissue_x_trait .* sd_each_trait_multiplier[trait] * sd_each_trait + mean_each_trait[trait];
+#     
+#     //uncentering & inv_logit-ing basement
+#     vector[n] logit_prop_1 = raw_logit_prop_1 * sd_tissue_x_trait + means_tissue_x_trait;
+#     vector[n] logit_prop_2 = raw_logit_prop_2 * sd_tissue_x_trait + means_tissue_x_trait;
+#     vector<lower=0,upper=1>[n] prop_1 = inv_logit(logit_prop_1);
+#     vector<lower=0,upper=1>[n] prop_2 = inv_logit(logit_prop_2);
+# }
+# model {
+#     //3rd floor
+#     mean_all_traits ~ normal(-1,2);
+#     sd_all_traits ~ normal(0,0.5);
+#     
+#     //2nd floor
+#     raw_mean_each_trait ~ std_normal();
+#     raw_sd_each_trait_log_multiplier ~ std_normal();
+#     sd_each_trait_log_multipler_sd ~ normal(0,0.1);
+#     sd_each_trait ~ exponential(1);
+#     
+#     //1st floor
+#     raw_means_tissue_x_trait ~ std_normal();
+#     sd_tissue_x_trait ~ normal(0,0.5);
+#     
+#     //basement
+#     raw_logit_prop_1 ~ std_normal();
+#     raw_logit_prop_2 ~ std_normal();
+#     
+#     //likelihood for obs
+#     count_1 ~ binomial(total_1, prop_1);
+#     count_2 ~ binomial(total_2, prop_2);
+# }
+# generated quantities {
+#   vector[n] difference_in_props = prop_1 - prop_2;
+# }
+# '
+
+# STAN model with logit-normal, non-centered parameterization, Bob's model
+# d <- list(count = rbind(data1$count, data2$count),
+#           total = rbind(data1$total,data2$total),
+#           trait = as.integer(as.factor(data1$trait)),
+#           tissue = as.integer(as.factor(data1$tissue)),
+#           n = nrow(data1),
+#           n_trait = length(unique(data1$trait)),
+#           n_tissue = length(unique(data1$tissue)),
+#           n_cond = 2
+# )
+# 
+# stan_program <- '
+# data {
+#     int<lower=1> n;
+#     int<lower=1> n_trait;
+#     int<lower=1> n_tissue;
+#     int<lower=1> n_cond;
+#     int<lower=0> count[n_cond,n];
+#     int<lower=0> total[n_cond,n];
+#     int<lower=1> trait[n]; //trait index for counts
+#     int<lower=1> tissue[n]; //column index for counts
+# }
+# parameters {
+#     real grand_mean;
+# 
+#     vector[n_trait] raw_trait_mean;
+#     real<lower=0> trait_sd;
+#     
+#     vector[n_tissue] raw_tissue_mean;
+#     real<lower=0> tissue_sd;
+#    
+#     vector[n] raw_cond_mean;
+#     real<lower=0> cond_sd;
+#     
+#     array[n_cond] vector[n] raw_logodds;
+#     real<lower=0> logodds_sd;
+# }
+# transformed parameters {
+#     //recenter parameters
+#     vector[n_trait] trait_mean = raw_trait_mean * trait_sd;
+#     vector[n_tissue] tissue_mean = raw_tissue_mean * tissue_sd;
+#     vector[n] cond_mean = raw_cond_mean * cond_sd + grand_mean + trait_mean[trait] + tissue_mean[tissue];
+#     array[n_cond] vector[n] logodds;
+#     for (i in 1:n_cond){
+#       logodds[i] = raw_logodds[i] * logodds_sd + cond_mean;
+#     }
+# }
+# model {
+#     grand_mean ~ normal(0, 2);
+# 
+#     trait_sd ~ normal(0, 0.5);
+#     trait_mean ~ std_normal();
+#     
+#     tissue_sd ~ normal(0, 0.5);
+#     tissue_mean ~ std_normal();
+#     
+#     cond_sd ~ normal(0, 0.5);
+#     cond_mean ~ std_normal();
+#     
+#     logodds_sd ~ normal(0, 0.5);
+#     for (i in 1:n_cond){
+#       raw_logodds[i] ~ std_normal();
+#       count[i] ~ binomial_logit(total[i], logodds[i]);
+#     }
+#     
+# }
+# generated quantities {
+#   vector[n] difference_in_props = inv_logit(logodds[1]) - inv_logit(logodds[2]);
+# }
+# '
+
+# STAN model with logit-normal, non-centered parameterization, nest traits in tissues
+# stan_program <- '
+# data {
+#     int<lower=1> n;
+#     int<lower=1> n_trait;
+#     int<lower=1> n_tissue;
+#     int<lower=0> count_1[n];
+#     int<lower=0> total_1[n];
+#     int<lower=0> count_2[n];
+#     int<lower=0> total_2[n];
+#     int<lower=1,upper=n_trait> trait[n];
+#     int<lower=1,upper=n_tissue> tissue[n];
+# }
+# parameters {
+#     //3rd floor
+#     real mean_all_tissues;
+#     real<lower=0> sd_all_tissues;
+#     
+#     //2nd floor
+#     vector[n_tissue] raw_mean_each_tissue;
+#     real<lower=0> sd_each_tissue; 
+#     //multilevel trait effects
+#     vector[n_tissue] raw_sd_each_tissue_log_multiplier;
+#     real<lower=0> sd_each_tissue_log_multipler_sd; 
+#     
+#     //1st floor
+#     vector[n] raw_means_trait_x_tissue;
+#     real<lower=0> sd_trait_x_tissue;
+#     //multilevel trait effects
+#     vector[n_tissue] raw_sd_TxT_log_tissue_multiplier;
+#     real<lower=0> sd_TxT_log_tissue_multipler_sd; 
+#     vector[n_trait] raw_sd_TxT_log_trait_multiplier;
+#     real<lower=0> sd_TxT_log_trait_multipler_sd; 
+#     
+#     //basement
+#     vector[n] raw_logit_prop_1;
+#     vector[n] raw_logit_prop_2;
+# }
+# transformed parameters {
+#     //uncentering 2nd floor
+#     vector[n_tissue] sd_each_tissue_log_multiplier = raw_sd_each_tissue_log_multiplier * sd_each_tissue_log_multipler_sd;
+#     vector<lower=0>[n_tissue] sd_each_tissue_multiplier = exp(sd_each_tissue_log_multiplier);
+#     vector[n_tissue] mean_each_tissue = raw_mean_each_tissue * sd_all_tissues + mean_all_tissues;
+#     
+#     //uncentering 1st floor
+#     vector[n] means_trait_x_tissue = raw_means_trait_x_tissue .* sd_each_tissue_multiplier[tissue] * sd_each_tissue + mean_each_tissue[tissue];
+#     vector[n_tissue] sd_TxT_log_tissue_multiplier = raw_sd_TxT_log_tissue_multiplier * sd_TxT_log_tissue_multipler_sd;
+#     vector<lower=0>[n_tissue] sd_TxT_tissue_multiplier = exp(sd_TxT_log_tissue_multiplier);
+#     vector[n_trait] sd_TxT_log_trait_multiplier = raw_sd_TxT_log_trait_multiplier * sd_TxT_log_trait_multipler_sd;
+#     vector<lower=0>[n_trait] sd_TxT_trait_multiplier = exp(sd_TxT_log_trait_multiplier);
+#     
+#     //uncentering & inv_logit-ing basement
+#     vector[n] logit_prop_1 = raw_logit_prop_1 .* sd_TxT_tissue_multiplier[tissue] .* sd_TxT_trait_multiplier[trait] * sd_trait_x_tissue + means_trait_x_tissue;
+#     vector[n] logit_prop_2 = raw_logit_prop_2 .* sd_TxT_tissue_multiplier[tissue] .* sd_TxT_trait_multiplier[trait] * sd_trait_x_tissue + means_trait_x_tissue;
+#     vector<lower=0,upper=1>[n] prop_1 = inv_logit(logit_prop_1);
+#     vector<lower=0,upper=1>[n] prop_2 = inv_logit(logit_prop_2);
+# }
+# model {
+#     //3rd floor
+#     mean_all_tissues ~ normal(-1,2);
+#     sd_all_tissues ~ normal(0,0.5);
+#     
+#     //2nd floor
+#     raw_mean_each_tissue ~ std_normal();
+#     raw_sd_each_tissue_log_multiplier ~ std_normal();
+#     sd_each_tissue_log_multipler_sd ~ normal(0,0.5);
+#     sd_each_tissue ~ exponential(1);
+#     
+#     //1st floor
+#     raw_means_trait_x_tissue ~ std_normal();
+#     sd_trait_x_tissue ~ normal(0,0.5);
+#     raw_sd_TxT_log_tissue_multiplier ~ std_normal();
+#     raw_sd_TxT_log_trait_multiplier ~ std_normal();
+#     sd_TxT_log_tissue_multipler_sd ~ normal(0,0.5);
+#     sd_TxT_log_trait_multipler_sd ~ normal(0,0.5);
+#     
+#     //basement
+#     raw_logit_prop_1 ~ std_normal();
+#     raw_logit_prop_2 ~ std_normal();
+#     
+#     //likelihood for obs
+#     count_1 ~ binomial(total_1, prop_1);
+#     count_2 ~ binomial(total_2, prop_2);
+# }
+# generated quantities {
+#   vector[n] difference_in_props = prop_1 - prop_2;
+# }
+# '
+
+# stan_program <- '
+# data {
+#     int<lower=1> n;
+#     int<lower=1> n_trait;
+#     int<lower=1> n_tissue;
+#     int<lower=0> count_1[n];
+#     int<lower=0> total_1[n];
+#     int<lower=0> count_2[n];
+#     int<lower=0> total_2[n];
+#     int<lower=1> trait[n];
+#     int<lower=1> tissue[n];
+# }
+# parameters {
+#     //3rd floor
+#     real mean_all_traits;
+#     real<lower=0> sd_all_traits;
+#     real mean_log_sd_each_trait;
+#     real<lower=0> sd_log_sd_each_trait;
+#     
+#     //2nd floor
+#     vector[n_trait] mean_each_trait;
+#     vector[n_trait] log_sd_each_trait;
+#     
+#     //1st floor
+#     vector[n] logit_prop_2;
+#     vector[n] logit_prop_21;
+#     real<lower=0> logit_prop_21_sd;
+# }
+# transformed parameters {
+#     vector[n] logit_prop_1 = logit_prop_2 + logit_prop_21;
+#     vector<lower=0,upper=1>[n] prop_2 = inv_logit(logit_prop_2);
+#     vector<lower=0,upper=1>[n] prop_1 = inv_logit(logit_prop_1);
+#     vector<lower=0>[n_trait] sd_each_trait = exp(log_sd_each_trait);
+# }
+# model {
+#     //priors
+#     mean_all_traits ~ normal(0,2);
+#     sd_all_traits ~ normal(0,1);
+#     mean_log_sd_each_trait ~ normal(0,0.5);
+#     sd_log_sd_each_trait ~ normal(0,0.25);
+#     
+#     mean_each_trait ~ normal(mean_all_traits, sd_all_traits);
+#     log_sd_each_trait ~ normal(mean_log_sd_each_trait,sd_log_sd_each_trait);
+#     
+#     logit_prop_21_sd ~ normal(0,1);
+#     logit_prop_21 ~ normal(0,logit_prop_21_sd);
+#     logit_prop_2 ~ normal(mean_each_trait[trait], sd_each_trait[trait]);
+#     
+#     //likelihood for obs
+#     count_1 ~ binomial(total_1, prop_1);
+#     count_2 ~ binomial(total_2, prop_2);
+# }
+# '
+
+#reparameterizing according to joint probability
+# d <- list(intersect_count = data1$count,
+#           total = total_number_of_possible_hits,
+#           trait_count = sig_twas_by_trait_genes[levels(as.factor(data1$trait))],
+#           tissue_count = n_genes_in_nodes[levels(as.factor(data1$tissue))],
+#           trait = as.integer(as.factor(data1$trait)),
+#           tissue = as.integer(as.factor(data1$tissue)),
+#           n_trait = length(unique(data1$trait)),
+#           n_tissue = length(unique(data1$tissue))
+# )
+# 
+# stan_program <- '
+# data {
+#     int<lower=1> n_trait;
+#     int<lower=1> n_tissue;
+#     int<lower=0> total;
+#     int<lower=1,upper=n_trait> trait[n_trait * n_tissue];
+#     int<lower=1,upper=n_tissue> tissue[n_trait * n_tissue];
+#     int<lower=0> trait_count[n_trait];
+#     int<lower=0> tissue_count[n_tissue];
+#     int<lower=0> intersect_count[n_trait * n_tissue];
+# }
+# transformed data {
+#     int<lower=1> n = n_trait * n_tissue;
+# }
+# parameters {
+#     //main parameters
+#     real trait_mean;
+#     real<lower=0> trait_sd;
+#     vector[n_trait] raw_trait_logodds;
+# 
+#     real tissue_mean;
+#     real<lower=0> tissue_sd;
+#     vector[n_tissue] raw_tissue_logodds;
+#     
+#     vector[n] raw_intersect_logodds;
+#     real<lower=0> intersect_sd;
+#     
+#     //biases in deviations terms
+#     vector[n_tissue] tissue_bias_mean;
+#     vector[n_tissue] tissue_bias_log_sd;
+#     vector[n_trait] trait_bias_mean;
+#     vector[n_trait] trait_bias_log_sd;
+#     
+#     //multilevel deviation term params
+#     real<lower=0> tissue_bias_mean_sd;
+#     real<lower=0> trait_bias_mean_sd;
+# }
+# transformed parameters {
+#     //recenter params
+#     vector[n_trait] trait_logodds = raw_trait_logodds * trait_sd + trait_mean;
+#     vector[n_tissue] tissue_logodds = raw_tissue_logodds * tissue_sd + tissue_mean;
+#     vector[n] intersect_mean = logit(inv_logit(trait_logodds[trait]) .* inv_logit(tissue_logodds[tissue]));
+#     vector[n] intersect_logodds = raw_intersect_logodds * intersect_sd .* exp(tissue_bias_log_sd[tissue]) .* exp(trait_bias_log_sd[trait]) +
+#                                   intersect_mean + tissue_bias_mean[tissue] * tissue_bias_mean_sd + 
+#                                   trait_bias_mean[trait] * trait_bias_mean_sd;
+# }
+# model {
+#     //priors / hyperpriors
+#     raw_trait_logodds ~ std_normal();
+#     trait_mean ~ normal(0,2);
+#     trait_sd ~ normal(0,2);
+#     
+#     raw_tissue_logodds ~ std_normal();
+#     tissue_mean ~ normal(0,2);
+#     tissue_sd ~ normal(0,2);
+#     
+#     raw_intersect_logodds ~ std_normal();
+#     intersect_sd ~ normal(0,2);
+#     
+#     tissue_bias_mean ~ std_normal();
+#     tissue_bias_log_sd ~ std_normal();
+#     trait_bias_mean ~ std_normal();
+#     trait_bias_log_sd ~ std_normal();
+#     tissue_bias_mean_sd ~ std_normal();
+#     trait_bias_mean_sd ~ std_normal();
+#     
+#     //likelihood
+#     trait_count ~ binomial_logit(total, trait_logodds);
+#     tissue_count ~ binomial_logit(total, tissue_logodds);
+#     intersect_count ~ binomial_logit(total, intersect_logodds);
+# }
+# generated quantities {
+#     vector[n] difference_in_props = inv_logit(intersect_logodds) - inv_logit(intersect_mean);
+# }
+# '
+
+# d <- list(intersect_count = data1$count,
+#           total = total_number_of_possible_hits,
+#           trait_count = sig_twas_by_trait_genes[levels(as.factor(data1$trait))],
+#           tissue_count = n_genes_in_nodes[levels(as.factor(data1$tissue))],
+#           trait = as.integer(as.factor(data1$trait)),
+#           tissue = as.integer(as.factor(data1$tissue)),
+#           n_trait = length(unique(data1$trait)),
+#           n_tissue = length(unique(data1$tissue))
+# )
+
+#subbing in other joint probability model
+# traits <- unique(data1$trait)
+# tissues <- unique(data1$tissue)
+# d <- list(cell_count = data1$count,
+#           total = total_number_of_possible_hits,
+#           row_count = sapply(1:nrow(data1), function(i) n_genes_in_nodes_matrix[data1$tissue[i], data1$trait[i]]),
+#           col_count = sapply(1:nrow(data1), function(i) sig_twas_by_trait_genes_matrix[data1$tissue[i], data1$trait[i]]),
+#           row_index = match(data1$tissue, tissues),
+#           col_index = match(data1$trait, traits),
+#           row_n = length(unique(data1$tissue)),
+#           col_n = length(unique(data1$trait)))
+
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=0> total;
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=0> row_count[row_n * col_n];
+#     int<lower=0> col_count[row_n * col_n];
+#     int<lower=0> cell_count[row_n * col_n];
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+#     int<lower=0,upper=1> smaller_margin[n]; //0 if row, 1 if col
+#     int<lower=0> marginal_total[n];
+#     for(i in 1:n){
+#       //smaller_margin[i] = 1;
+#       smaller_margin[i] = row_count[i] > col_count[i];
+#       marginal_total[i] = smaller_margin[i] * col_count[i] + (1-smaller_margin[i]) * row_count[i];
+#     }
+#     vector[n] smaller_margin_vec = to_vector(smaller_margin);
+# }
+# parameters {
+#     //main parameters
+#     real col_mean;
+#     real<lower=0> col_sd;
+#     vector[col_n] raw_col_logodds;
+#     real<lower=0> col_indiv_sd;
+#     vector[n] raw_col_indiv_logodds;
+# 
+#     real row_mean;
+#     real<lower=0> row_sd;
+#     vector[row_n] raw_row_logodds;
+#     real<lower=0> row_indiv_sd;
+#     vector[n] raw_row_indiv_logodds;
+#     
+#     vector[n] raw_cell_logodds;
+#     real<lower=0> cell_sd;
+#     
+#     //biases in deviations terms
+#     vector[row_n] raw_row_bias;
+#     vector[col_n] raw_col_bias;
+# 
+#     //multilevel deviation term params
+#     real<lower=0> row_bias_sd;
+#     real<lower=0> col_bias_sd;
+# }
+# transformed parameters {
+#     //recenter params
+#     vector[col_n] col_logodds = raw_col_logodds * col_sd + col_mean;
+#     vector[n] col_indiv_logodds = raw_col_indiv_logodds * col_indiv_sd + col_logodds[col_index];
+#     vector[row_n] row_logodds = raw_row_logodds * row_sd + row_mean;
+#     vector[n] row_indiv_logodds = raw_row_indiv_logodds * row_indiv_sd + row_logodds[row_index];
+#     vector[n] cell_mean = smaller_margin_vec .* row_indiv_logodds + (1-smaller_margin_vec) .* col_indiv_logodds;
+#     vector[n] cell_logodds = raw_cell_logodds * cell_sd + cell_mean + 
+#                              raw_row_bias[row_index] * row_bias_sd + 
+#                              raw_col_bias[col_index] * col_bias_sd;
+# }
+# model {
+#     //priors and hyperpriors
+#     
+#     //marginal params
+#     raw_col_logodds ~ std_normal();
+#     raw_col_indiv_logodds ~ std_normal();
+#     col_mean ~ normal(0,2);
+#     col_sd ~ std_normal();
+#     col_indiv_sd ~ std_normal();
+#     
+#     raw_row_logodds ~ std_normal();
+#     raw_row_indiv_logodds ~ std_normal();
+#     row_mean ~ normal(0,2);
+#     row_sd ~ std_normal();
+#     row_indiv_sd ~ std_normal();
+#     
+#     //bias params
+#     raw_row_bias ~ std_normal();
+#     raw_col_bias ~ std_normal();
+#     row_bias_sd ~ std_normal();
+#     col_bias_sd ~ std_normal();
+#     
+#     //cell params
+#     raw_cell_logodds ~ std_normal();
+#     cell_sd ~ std_normal();
+#     
+#     //likelihood
+#     col_count ~ binomial_logit(total, col_indiv_logodds);
+#     row_count ~ binomial_logit(total, row_indiv_logodds);
+#     cell_count ~ binomial_logit(marginal_total, cell_logodds);
+# }
+# generated quantities {
+#     vector[n] cell_bias = cell_logodds - (cell_mean + 
+#                              raw_row_bias[row_index] * row_bias_sd + 
+#                              raw_col_bias[col_index] * col_bias_sd);
+#     vector[n] cell_total_prob_bias = inv_logit(cell_logodds) - inv_logit(cell_mean);
+#     vector[row_n] row_bias = raw_row_bias * row_bias_sd;
+#     vector[col_n] col_bias = raw_col_bias * col_bias_sd;
+# }
+# '
+
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=0> total;
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=0> row_count[row_n * col_n];
+#     int<lower=0> col_count[row_n * col_n];
+#     int<lower=0> cell_count[row_n * col_n];
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+#     int<lower=0,upper=1> smaller_margin[n]; //0 if row, 1 if col
+#     int<lower=0> marginal_total[n];
+#     for(i in 1:n){
+#       //smaller_margin[i] = 1;
+#       smaller_margin[i] = row_count[i] > col_count[i];
+#       marginal_total[i] = smaller_margin[i] * col_count[i] + (1-smaller_margin[i]) * row_count[i];
+#     }
+#     vector[n] smaller_margin_vec = to_vector(smaller_margin);
+# }
+# parameters {
+#     //main parameters
+#     real col_mean;
+#     real<lower=0> col_sd;
+#     vector[col_n] raw_col_logodds;
+#     real<lower=0> col_indiv_sd;
+#     vector[n] raw_col_indiv_logodds;
+# 
+#     real row_mean;
+#     real<lower=0> row_sd;
+#     vector[row_n] raw_row_logodds;
+#     real<lower=0> row_indiv_sd;
+#     vector[n] raw_row_indiv_logodds;
+#     
+#     vector[n] raw_cell_logodds;
+#     real<lower=0> cell_sd;
+#     
+#     //biases in deviations terms
+#     real overall_bias;
+#     vector[row_n] raw_row_bias;
+#     vector[col_n] raw_col_bias;
+#     real<lower=0> row_bias_sd;
+#     real<lower=0> col_bias_sd;
+# }
+# transformed parameters {
+#     //recenter params
+#     vector[col_n] col_logodds = raw_col_logodds * col_sd + col_mean;
+#     vector[n] col_indiv_logodds = raw_col_indiv_logodds * col_indiv_sd + col_logodds[col_index];
+#     vector[row_n] row_logodds = raw_row_logodds * row_sd + row_mean;
+#     vector[n] row_indiv_logodds = raw_row_indiv_logodds * row_indiv_sd + row_logodds[row_index];
+#     vector[n] cell_mean = smaller_margin_vec .* row_indiv_logodds + (1-smaller_margin_vec) .* col_indiv_logodds;
+#     vector[n] cell_logodds = raw_cell_logodds * cell_sd + cell_mean + 
+#                              overall_bias +
+#                              raw_row_bias[row_index] * row_bias_sd + 
+#                              raw_col_bias[col_index] * col_bias_sd;
+# }
+# model {
+#     //priors and hyperpriors
+#     
+#     //marginal params
+#     raw_col_logodds ~ std_normal();
+#     raw_col_indiv_logodds ~ std_normal();
+#     col_mean ~ normal(0,2);
+#     col_sd ~ std_normal();
+#     col_indiv_sd ~ std_normal();
+#     
+#     raw_row_logodds ~ std_normal();
+#     raw_row_indiv_logodds ~ std_normal();
+#     row_mean ~ normal(0,2);
+#     row_sd ~ std_normal();
+#     row_indiv_sd ~ std_normal();
+#     
+#     //bias params
+#     overall_bias ~ std_normal();
+#     raw_row_bias ~ std_normal();
+#     raw_col_bias ~ std_normal();
+#     row_bias_sd ~ std_normal();
+#     col_bias_sd ~ std_normal();
+#     
+#     //cell params
+#     raw_cell_logodds ~ std_normal();
+#     cell_sd ~ std_normal();
+#     
+#     //likelihood
+#     col_count ~ binomial_logit(total, col_indiv_logodds);
+#     row_count ~ binomial_logit(total, row_indiv_logodds);
+#     cell_count ~ binomial_logit(marginal_total, cell_logodds);
+# }
+# generated quantities {
+#     vector[n] cell_bias = cell_logodds - (cell_mean + overall_bias +
+#                              raw_row_bias[row_index] * row_bias_sd + 
+#                              raw_col_bias[col_index] * col_bias_sd);
+#     vector[n] cell_total_prob_bias = inv_logit(cell_logodds) - inv_logit(cell_mean);
+#     vector[n] cell_total_prob_bias_logodds = cell_logodds - cell_mean;
+#     vector[row_n] row_bias = raw_row_bias * row_bias_sd;
+#     vector[col_n] col_bias = raw_col_bias * col_bias_sd;
+# }
+# '
+
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=0> total;
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=0> row_count[row_n * col_n];
+#     int<lower=0> col_count[row_n * col_n];
+#     int<lower=0> cell_count[row_n * col_n];
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+#     int<lower=0,upper=1> smaller_margin[n]; //0 if row, 1 if col
+#     int<lower=0> marginal_total[n];
+#     for(i in 1:n){
+#       //smaller_margin[i] = 1;
+#       smaller_margin[i] = row_count[i] > col_count[i];
+#       marginal_total[i] = smaller_margin[i] * col_count[i] + (1-smaller_margin[i]) * row_count[i];
+#     }
+#     vector[n] smaller_margin_vec = to_vector(smaller_margin);
+# }
+# parameters {
+#     //main parameters
+#     real col_mean;
+#     real<lower=0> col_sd;
+#     vector[col_n] raw_col_logodds;
+#     real<lower=0> col_indiv_sd;
+#     vector[n] raw_col_indiv_logodds;
+# 
+#     real row_mean;
+#     real<lower=0> row_sd;
+#     vector[row_n] raw_row_logodds;
+#     real<lower=0> row_indiv_sd;
+#     vector[n] raw_row_indiv_logodds;
+#     
+#     vector[n] raw_cell_logodds;
+#     real<lower=0> cell_sd;
+#     
+#     //biases in deviations terms
+#     vector[row_n] raw_row_bias;
+#     vector[col_n] raw_col_bias;
+# 
+#     //multilevel deviation term params
+#     real<lower=0> row_bias_sd;
+#     real<lower=0> col_bias_sd;
+#     
+#     //cell bias sd params
+#     vector[row_n] cell_sd_row;
+#     real<lower=0> cell_sd_row_sd;
+#     vector[col_n] cell_sd_col;
+#     real<lower=0> cell_sd_col_sd;
+# }
+# transformed parameters {
+#     //recenter params
+#     vector[col_n] col_logodds = raw_col_logodds * col_sd + col_mean;
+#     vector[n] col_indiv_logodds = raw_col_indiv_logodds * col_indiv_sd + col_logodds[col_index];
+#     vector[row_n] row_logodds = raw_row_logodds * row_sd + row_mean;
+#     vector[n] row_indiv_logodds = raw_row_indiv_logodds * row_indiv_sd + row_logodds[row_index];
+#     vector[n] cell_mean = smaller_margin_vec .* row_indiv_logodds + (1-smaller_margin_vec) .* col_indiv_logodds;
+#     vector[n] cell_logodds = raw_cell_logodds .*
+#                              (cell_sd * exp(cell_sd_row[row_index] * cell_sd_row_sd) .* exp(cell_sd_col[col_index] * cell_sd_col_sd)) +
+#                              cell_mean +
+#                              raw_row_bias[row_index] * row_bias_sd +
+#                              raw_col_bias[col_index] * col_bias_sd;
+# }
+# model {
+#     //priors and hyperpriors
+#     
+#     //marginal params
+#     raw_col_logodds ~ std_normal();
+#     raw_col_indiv_logodds ~ std_normal();
+#     col_mean ~ normal(0,2);
+#     col_sd ~ std_normal();
+#     col_indiv_sd ~ std_normal();
+#     
+#     raw_row_logodds ~ std_normal();
+#     raw_row_indiv_logodds ~ std_normal();
+#     row_mean ~ normal(0,2);
+#     row_sd ~ std_normal();
+#     row_indiv_sd ~ std_normal();
+#     
+#     //bias params
+#     raw_row_bias ~ std_normal();
+#     raw_col_bias ~ std_normal();
+#     row_bias_sd ~ std_normal();
+#     col_bias_sd ~ std_normal();
+#   
+#     //cell params
+#     raw_cell_logodds ~ std_normal();
+#     cell_sd ~ std_normal();
+#     cell_sd_row ~ std_normal();
+#     cell_sd_col ~ std_normal();
+#     cell_sd_row_sd ~ std_normal();
+#     cell_sd_col_sd ~ std_normal();
+#     
+#     //likelihood
+#     col_count ~ binomial_logit(total, col_indiv_logodds);
+#     row_count ~ binomial_logit(total, row_indiv_logodds);
+#     cell_count ~ binomial_logit(marginal_total, cell_logodds);
+# }
+# generated quantities {
+#     vector[n] cell_bias = cell_logodds - (cell_mean + 
+#                              raw_row_bias[row_index] * row_bias_sd + 
+#                              raw_col_bias[col_index] * col_bias_sd);
+#     vector[n] cell_total_prob_bias = inv_logit(cell_logodds) - inv_logit(cell_mean);
+#     vector[row_n] row_bias = raw_row_bias * row_bias_sd;
+#     vector[col_n] col_bias = raw_col_bias * col_bias_sd;
+# }
+# '
+
+# traits <- unique(data1$trait)
+# tissues <- unique(data1$tissue)
+# d <- list(cell_count = data1$count,
+#           total = sapply(1:nrow(data1), function(i) total_number_of_possible_hits_matrix[data1$tissue[i], data1$trait[i]]),
+#           row_count = sapply(1:nrow(data1), function(i) n_genes_in_nodes_matrix[data1$tissue[i], data1$trait[i]]),
+#           col_count = sapply(1:nrow(data1), function(i) sig_twas_by_trait_genes_matrix[data1$tissue[i], data1$trait[i]]),
+#           row_index = match(data1$tissue, tissues),
+#           col_index = match(data1$trait, traits),
+#           row_n = length(unique(data1$tissue)),
+#           col_n = length(unique(data1$trait)))
+# 
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=0> total[row_n * col_n];
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=0> row_count[row_n * col_n];
+#     int<lower=0> col_count[row_n * col_n];
+#     int<lower=0> cell_count[row_n * col_n];
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+#     int<lower=0,upper=1> smaller_margin[n]; //0 if row, 1 if col
+#     int<lower=0> marginal_total[n];
+#     for(i in 1:n){
+#       //smaller_margin[i] = 1;
+#       smaller_margin[i] = row_count[i] > col_count[i];
+#       marginal_total[i] = smaller_margin[i] * col_count[i] + (1-smaller_margin[i]) * row_count[i];
+#     }
+#     vector[n] smaller_margin_vec = to_vector(smaller_margin);
+# }
+# parameters {
+#     //main parameters
+#     real col_mean;
+#     real<lower=0> col_sd;
+#     vector[col_n] raw_col_logodds;
+#     real<lower=0> col_indiv_sd;
+#     vector[n] raw_col_indiv_logodds;
+# 
+#     real row_mean;
+#     real<lower=0> row_sd;
+#     vector[row_n] raw_row_logodds;
+#     real<lower=0> row_indiv_sd;
+#     vector[n] raw_row_indiv_logodds;
+#     
+#     vector[n] raw_cell_logodds;
+#     real<lower=0> cell_sd;
+#     
+#     //biases in deviations terms
+#     real overall_bias;
+#     vector[row_n] raw_row_bias;
+#     vector[col_n] raw_col_bias;
+#     real<lower=0> row_bias_sd;
+#     real<lower=0> col_bias_sd;
+# }
+# transformed parameters {
+#     //recenter params
+#     vector[col_n] col_logodds = raw_col_logodds * col_sd + col_mean;
+#     vector[n] col_indiv_logodds = raw_col_indiv_logodds * col_indiv_sd + col_logodds[col_index];
+#     vector[row_n] row_logodds = raw_row_logodds * row_sd + row_mean;
+#     vector[n] row_indiv_logodds = raw_row_indiv_logodds * row_indiv_sd + row_logodds[row_index];
+#     vector[n] cell_mean = smaller_margin_vec .* row_indiv_logodds + (1-smaller_margin_vec) .* col_indiv_logodds;
+#     vector[n] cell_logodds = raw_cell_logodds * cell_sd + cell_mean + 
+#                              overall_bias +
+#                              raw_row_bias[row_index] * row_bias_sd + 
+#                              raw_col_bias[col_index] * col_bias_sd;
+# }
+# model {
+#     //priors and hyperpriors
+#     
+#     //marginal params
+#     raw_col_logodds ~ std_normal();
+#     raw_col_indiv_logodds ~ std_normal();
+#     col_mean ~ normal(0,2);
+#     col_sd ~ std_normal();
+#     col_indiv_sd ~ std_normal();
+#     
+#     raw_row_logodds ~ std_normal();
+#     raw_row_indiv_logodds ~ std_normal();
+#     row_mean ~ normal(0,2);
+#     row_sd ~ std_normal();
+#     row_indiv_sd ~ std_normal();
+#     
+#     //bias params
+#     overall_bias ~ std_normal();
+#     raw_row_bias ~ std_normal();
+#     raw_col_bias ~ std_normal();
+#     row_bias_sd ~ std_normal();
+#     col_bias_sd ~ std_normal();
+#     
+#     //cell params
+#     raw_cell_logodds ~ std_normal();
+#     cell_sd ~ std_normal();
+#     
+#     //likelihood
+#     col_count ~ binomial_logit(total, col_indiv_logodds);
+#     row_count ~ binomial_logit(total, row_indiv_logodds);
+#     cell_count ~ binomial_logit(marginal_total, cell_logodds);
+# }
+# generated quantities {
+#     vector[n] cell_bias = cell_logodds - (cell_mean + overall_bias +
+#                              raw_row_bias[row_index] * row_bias_sd + 
+#                              raw_col_bias[col_index] * col_bias_sd);
+#     vector[n] cell_total_prob_bias = inv_logit(cell_logodds) - inv_logit(cell_mean);
+#     vector[n] cell_total_prob_bias_logodds = cell_logodds - cell_mean;
+#     vector[row_n] row_bias = raw_row_bias * row_bias_sd;
+#     vector[col_n] col_bias = raw_col_bias * col_bias_sd;
+# }
+# '
+# 
+# #incorporate a category term
+# traits <- unique(data1$trait)
+# tissues <- unique(data1$tissue)
+# trait_cats <- salient.categories
+# d <- list(cell_count = data1$count,
+#           total = sapply(1:nrow(data1), function(i) total_number_of_possible_hits_matrix[data1$tissue[i], data1$trait[i]]),
+#           row_count = sapply(1:nrow(data1), function(i) n_genes_in_nodes_matrix[data1$tissue[i], data1$trait[i]]),
+#           col_count = sapply(1:nrow(data1), function(i) sig_twas_by_trait_genes_matrix[data1$tissue[i], data1$trait[i]]),
+#           row_index = match(data1$tissue, tissues),
+#           col_index = match(data1$trait, traits),
+#           colcat_index = match(traitwise_partitions$Category[match(traits, traitwise_partitions$Tag)] , trait_cats),
+#           row_n = length(tissues),
+#           col_n = length(traits),
+#           colcat_n = length(trait_cats))
+# 
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1> colcat_n;
+#     int<lower=0> total[row_n * col_n];
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=1,upper=colcat_n> colcat_index[col_n];
+#     int<lower=0> row_count[row_n * col_n];
+#     int<lower=0> col_count[row_n * col_n];
+#     int<lower=0> cell_count[row_n * col_n];
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+#     int<lower=0,upper=1> smaller_margin[n]; //0 if row, 1 if col
+#     int<lower=0> marginal_total[n];
+#     for(i in 1:n){
+#       //smaller_margin[i] = 1;
+#       smaller_margin[i] = row_count[i] > col_count[i];
+#       marginal_total[i] = smaller_margin[i] * col_count[i] + (1-smaller_margin[i]) * row_count[i];
+#     }
+#     vector[n] smaller_margin_vec = to_vector(smaller_margin);
+# }
+# parameters {
+#     //col params
+#     real col_mean;
+#     real<lower=0> col_sd;
+#     vector[colcat_n] raw_colcat_logodds;
+#     real<lower=0> colcat_sd;
+#     vector[col_n] raw_col_logodds;
+#     real<lower=0> col_indiv_sd;
+#     vector[n] raw_col_indiv_logodds;
+#     
+#     //row params
+#     real row_mean;
+#     real<lower=0> row_sd;
+#     vector[row_n] raw_row_logodds;
+#     real<lower=0> row_indiv_sd;
+#     vector[n] raw_row_indiv_logodds;
+#     
+#     //cell params
+#     vector[n] raw_cell_logodds;
+#     real<lower=0> cell_sd;
+#     
+#     //biases in deviations terms
+#     real overall_bias;
+#     vector[row_n] raw_row_bias;
+#     vector[col_n] raw_col_bias;
+#     vector[colcat_n] raw_colcat_bias;
+#     real<lower=0> row_bias_sd;
+#     real<lower=0> col_bias_sd;
+#     real<lower=0> colcat_bias_sd;
+# }
+# transformed parameters {
+#     //recenter params
+#     
+#     vector[colcat_n] colcat_logodds = raw_colcat_logodds * col_sd + col_mean;
+#     vector[col_n] col_logodds = raw_col_logodds * colcat_sd + colcat_logodds[colcat_index];
+#     vector[n] col_indiv_logodds = raw_col_indiv_logodds * col_indiv_sd + col_logodds[col_index];
+#     vector[row_n] row_logodds = raw_row_logodds * row_sd + row_mean;
+#     vector[n] row_indiv_logodds = raw_row_indiv_logodds * row_indiv_sd + row_logodds[row_index];
+#     vector[n] cell_mean = smaller_margin_vec .* row_indiv_logodds + (1-smaller_margin_vec) .* col_indiv_logodds;
+#     
+#     //incorporate bias
+#     vector[colcat_n] colcat_bias = raw_colcat_bias * colcat_bias_sd;
+#     vector[col_n] col_bias = raw_col_bias * col_bias_sd + colcat_bias[colcat_index];
+#     vector[row_n] row_bias = raw_row_bias * row_bias_sd;
+#     vector[n] cell_logodds = raw_cell_logodds * cell_sd + cell_mean + 
+#                              overall_bias + row_bias[row_index] + col_bias[col_index];
+# }
+# model {
+#     //priors and hyperpriors
+#     
+#     //marginal params
+#     col_mean ~ normal(0,2);
+#     col_sd ~ std_normal();
+#     raw_colcat_logodds ~ std_normal();
+#     colcat_sd ~ std_normal();
+#     raw_col_logodds ~ std_normal();
+#     raw_col_indiv_logodds ~ std_normal();
+#     col_indiv_sd ~ std_normal();
+#     
+#     raw_row_logodds ~ std_normal();
+#     raw_row_indiv_logodds ~ std_normal();
+#     row_mean ~ normal(0,2);
+#     row_sd ~ std_normal();
+#     row_indiv_sd ~ std_normal();
+#     
+#     //bias params
+#     overall_bias ~ std_normal();
+#     raw_row_bias ~ std_normal();
+#     raw_col_bias ~ std_normal();
+#     raw_colcat_bias ~ std_normal();
+#     row_bias_sd ~ std_normal();
+#     col_bias_sd ~ std_normal();
+#     colcat_bias_sd ~ std_normal();
+#     
+#     //cell params
+#     raw_cell_logodds ~ std_normal();
+#     cell_sd ~ std_normal();
+#     
+#     //likelihood
+#     col_count ~ binomial_logit(total, col_indiv_logodds);
+#     row_count ~ binomial_logit(total, row_indiv_logodds);
+#     cell_count ~ binomial_logit(marginal_total, cell_logodds);
+# }
+# generated quantities {
+#     vector[n] cell_bias = cell_logodds - (cell_mean + overall_bias + row_bias[row_index] + col_bias[col_index]);
+#     vector[n] cell_total_prob_bias = inv_logit(cell_logodds) - inv_logit(cell_mean);
+#     //vector[n] cell_total_prob_bias_logodds = cell_logodds - cell_mean;
+# }
+# '
+
+# #incorporate two category terms
+# traits <- unique(data1$trait)
+# tissues <- unique(data1$tissue)
+# trait_cats <- salient.categories
+# tissue_categories <- list(circulation = c("BLOOD", "HEART", "SPLEEN"),
+#                     skeletal_muscle = c("SKM-GN", "SKM-VL"),
+#                     adipose = c("WAT-SC"),
+#                     other = rev(c("ADRNL", "KIDNEY", "LUNG", "LIVER")),
+#                     brain = c("CORTEX", "HYPOTH", "HIPPOC"),
+#                     GI = c("SMLINT", "COLON"))
+# tissue_categories <- list(circulation = c("BLOOD", "HEART", "SPLEEN"),
+#                           skeletal_muscle = c("SKM-GN", "SKM-VL"),
+#                           adipose = "WAT-SC",
+#                           adrenal = "ADRNL",
+#                           kidney =  "KIDNEY",
+#                           lung =  "LUNG",
+#                           liver = "LIVER",
+#                           brain = c("CORTEX", "HYPOTH", "HIPPOC"),
+#                           GI = c("SMLINT", "COLON"))
+# tissue_cats <- names(tissue_categories)
+# tissue_cats_vec <- setNames(unlist(sapply(1:length(tissue_categories), function(i)
+#   rep(names(tissue_categories)[i], length(tissue_categories[[i]])))), unlist(tissue_categories))
+# 
+# 
+# d <- list(cell_count = data1$count,
+#           total = sapply(1:nrow(data1), function(i) total_number_of_possible_hits_matrix[data1$tissue[i], data1$trait[i]]),
+#           row_count = sapply(1:nrow(data1), function(i) n_genes_in_nodes_matrix[data1$tissue[i], data1$trait[i]]),
+#           col_count = sapply(1:nrow(data1), function(i) sig_twas_by_trait_genes_matrix[data1$tissue[i], data1$trait[i]]),
+#           row_index = match(data1$tissue, tissues),
+#           col_index = match(data1$trait, traits),
+#           colcat_index = match(traitwise_partitions$Category[match(traits, traitwise_partitions$Tag)] , trait_cats),
+#           rowcat_index = match(tissue_cats_vec[tissues], tissue_cats),
+#           row_n = length(tissues),
+#           col_n = length(traits),
+#           colcat_n = length(trait_cats),
+#           rowcat_n = length(tissue_cats))
+# 
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1> colcat_n;
+#     int<lower=1> rowcat_n;
+#     int<lower=0> total[row_n * col_n];
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=1,upper=colcat_n> colcat_index[col_n];
+#     int<lower=1,upper=rowcat_n> rowcat_index[row_n];
+#     int<lower=0> row_count[row_n * col_n];
+#     int<lower=0> col_count[row_n * col_n];
+#     int<lower=0> cell_count[row_n * col_n];
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+#     int<lower=0,upper=1> smaller_margin[n]; //0 if row, 1 if col
+#     int<lower=0> marginal_total[n];
+#     for(i in 1:n){
+#       //smaller_margin[i] = 1;
+#       smaller_margin[i] = row_count[i] > col_count[i];
+#       marginal_total[i] = smaller_margin[i] * col_count[i] + (1-smaller_margin[i]) * row_count[i];
+#     }
+#     vector[n] smaller_margin_vec = to_vector(smaller_margin);
+# }
+# parameters {
+#     //col params
+#     real col_mean;
+#     real<lower=0> col_sd;
+#     vector[colcat_n] raw_colcat_logodds;
+#     real<lower=0> colcat_sd;
+#     vector[col_n] raw_col_logodds;
+#     real<lower=0> col_indiv_sd;
+#     vector[n] raw_col_indiv_logodds;
+# 
+#     //row params
+#     real row_mean;
+#     real<lower=0> row_sd;
+#     vector[rowcat_n] raw_rowcat_logodds;
+#     real<lower=0> rowcat_sd;
+#     vector[row_n] raw_row_logodds;
+#     real<lower=0> row_indiv_sd;
+#     vector[n] raw_row_indiv_logodds;
+# 
+#     //cell params
+#     vector[n] raw_cell_logodds;
+#     real<lower=0> cell_sd;
+# 
+#     //biases in deviations terms
+#     real overall_bias;
+# 
+#     vector[row_n] raw_row_bias;
+#     vector[col_n] raw_col_bias;
+#     real<lower=0> row_bias_sd;
+#     real<lower=0> col_bias_sd;
+# 
+#     vector[colcat_n] raw_colcat_bias;
+#     vector[rowcat_n] raw_rowcat_bias;
+#     real<lower=0> colcat_bias_sd;
+#     real<lower=0> rowcat_bias_sd;
+# }
+# transformed parameters {
+#     //recenter params
+# 
+#     vector[colcat_n] colcat_logodds = raw_colcat_logodds * col_sd + col_mean;
+#     vector[col_n] col_logodds = raw_col_logodds * colcat_sd + colcat_logodds[colcat_index];
+#     vector[n] col_indiv_logodds = raw_col_indiv_logodds * col_indiv_sd + col_logodds[col_index];
+# 
+#     vector[rowcat_n] rowcat_logodds = raw_rowcat_logodds * row_sd + row_mean;
+#     vector[row_n] row_logodds = raw_row_logodds * rowcat_sd + rowcat_logodds[rowcat_index];
+#     vector[n] row_indiv_logodds = raw_row_indiv_logodds * row_indiv_sd + row_logodds[row_index];
+# 
+#     vector[n] cell_mean = smaller_margin_vec .* row_indiv_logodds + (1-smaller_margin_vec) .* col_indiv_logodds;
+# 
+#     //incorporate bias
+#     vector[colcat_n] colcat_bias = raw_colcat_bias * colcat_bias_sd;
+#     vector[col_n] col_bias = raw_col_bias * col_bias_sd + colcat_bias[colcat_index];
+# 
+#     vector[rowcat_n] rowcat_bias = raw_rowcat_bias * rowcat_bias_sd;
+#     vector[row_n] row_bias = raw_row_bias * row_bias_sd + rowcat_bias[rowcat_index];
+# 
+#     vector[n] cell_logodds = raw_cell_logodds * cell_sd + cell_mean +
+#                              overall_bias + row_bias[row_index] + col_bias[col_index];
+# }
+# model {
+#     //priors and hyperpriors
+# 
+#     //marginal params
+#     col_mean ~ normal(0,2);
+#     col_sd ~ std_normal();
+#     raw_colcat_logodds ~ std_normal();
+#     colcat_sd ~ std_normal();
+#     raw_col_logodds ~ std_normal();
+#     raw_col_indiv_logodds ~ std_normal();
+#     col_indiv_sd ~ std_normal();
+# 
+#     row_mean ~ normal(0,2);
+#     row_sd ~ std_normal();
+#     raw_rowcat_logodds ~ std_normal();
+#     rowcat_sd ~ std_normal();
+#     raw_row_logodds ~ std_normal();
+#     raw_row_indiv_logodds ~ std_normal();
+#     row_indiv_sd ~ std_normal();
+# 
+#     //bias params
+#     overall_bias ~ std_normal();
+# 
+#     raw_row_bias ~ std_normal();
+#     raw_rowcat_bias ~ std_normal();
+# 
+#     raw_col_bias ~ std_normal();
+#     raw_colcat_bias ~ std_normal();
+# 
+#     row_bias_sd ~ std_normal();
+#     col_bias_sd ~ std_normal();
+#     colcat_bias_sd ~ std_normal();
+#     rowcat_bias_sd ~ std_normal();
+# 
+#     //cell params
+#     raw_cell_logodds ~ std_normal();
+#     cell_sd ~ std_normal();
+# 
+#     //likelihood
+#     col_count ~ binomial_logit(total, col_indiv_logodds);
+#     row_count ~ binomial_logit(total, row_indiv_logodds);
+#     cell_count ~ binomial_logit(marginal_total, cell_logodds);
+# }
+# generated quantities {
+#     vector[n] cell_bias = cell_logodds - (cell_mean + overall_bias + row_bias[row_index] + col_bias[col_index]);
+#     vector[n] cell_total_prob_bias = inv_logit(cell_logodds) - inv_logit(cell_mean);
+#     //vector[n] cell_total_prob_bias_logodds = cell_logodds - cell_mean;
+# }
+# '
+
+#incorporate a category term and use a simpler, one-way enrichment model, splitting the difference
+data_subset <- data1
+data_subset <- data_subset[data_subset$tissue != "HYPOTH",]
+traits <- unique(data_subset$trait)
+tissues <- tissues_intersect.model <- unique(data_subset$tissue)
+trait_cats <- salient.categories
+d <- list(cell_count = data_subset$count,
+          total = sapply(1:nrow(data_subset), function(i) total_number_of_possible_hits_matrix[data_subset$tissue[i], data_subset$trait[i]]),
+          row_count = sapply(1:nrow(data_subset), function(i) n_genes_in_nodes_matrix[data_subset$tissue[i], data_subset$trait[i]]),
+          col_count = sapply(1:nrow(data_subset), function(i) sig_twas_by_trait_genes_matrix[data_subset$tissue[i], data_subset$trait[i]]),
+          row_index = match(data_subset$tissue, tissues),
+          col_index = match(data_subset$trait, traits),
+          colcat_index = match(traitwise_partitions$Category[match(traits, traitwise_partitions$Tag)] , trait_cats),
+          row_n = length(tissues),
+          col_n = length(traits),
+          colcat_n = length(trait_cats))
+
+base = "deviation_from_expected_logodds_split_the_difference"
+stan_program <- '
+data {
+    int<lower=1> row_n;
+    int<lower=1> col_n;
+    int<lower=1> colcat_n;
+    int<lower=0> total[row_n * col_n];
+    int<lower=1,upper=row_n> row_index[row_n * col_n];
+    int<lower=1,upper=col_n> col_index[row_n * col_n];
+    int<lower=1,upper=colcat_n> colcat_index[col_n];
+    int<lower=0> row_count[row_n * col_n];
+    int<lower=0> col_count[row_n * col_n];
+    int<lower=0> cell_count[row_n * col_n];
+}
+transformed data {
+    int<lower=1> n = row_n * col_n;
+    int<lower=0> cell_count_compl[n];
+    int<lower=0> row_count_compl[n];
+    for(i in 1:n){
+      cell_count_compl[i] = col_count[i] - cell_count[i];
+      row_count_compl[i] = total[i] - row_count[i];
+    }
+}
+parameters {
+    //col params
+    real col_mean;
+    real<lower=0> col_sd;
+    vector[colcat_n] raw_colcat_logodds;
+    real<lower=0> colcat_sd;
+    vector[col_n] raw_col_logodds;
+    real<lower=0> cell_sd;
+    vector[n] raw_cell_logodds;
+    
+    //biases in deviations terms
+    real overall_bias;
+    vector[row_n] raw_row_bias;
+    vector[col_n] raw_col_bias;
+    vector[colcat_n] raw_colcat_bias;
+    vector[n] raw_cell_bias;
+    real<lower=0> row_bias_sd;
+    real<lower=0> col_bias_sd;
+    real<lower=0> colcat_bias_sd;
+    real<lower=0> cell_bias_sd;
+}
+transformed parameters {
+    //recenter params
+    vector[colcat_n] colcat_logodds = raw_colcat_logodds * colcat_sd + col_mean;
+    vector[col_n] col_logodds = raw_col_logodds * col_sd + colcat_logodds[colcat_index];
+    vector[n] cell_logodds = raw_cell_logodds * cell_sd + col_logodds[col_index];
+    
+    //incorporate bias
+    vector[colcat_n] colcat_bias = raw_colcat_bias * colcat_bias_sd;
+    vector[col_n] col_bias = raw_col_bias * col_bias_sd + colcat_bias[colcat_index];
+    vector[row_n] row_bias = raw_row_bias * row_bias_sd;
+    vector[n] cell_bias = raw_cell_bias * cell_bias_sd;
+    vector[n] cell_logodds_focal = cell_logodds + 
+              (overall_bias + row_bias[row_index] + col_bias[col_index] + cell_bias) / 2;
+    vector[n] cell_logodds_compl = cell_logodds - 
+              (overall_bias + row_bias[row_index] + col_bias[col_index] + cell_bias) / 2;
+}
+model {
+    //priors and hyperpriors
+    
+    //marginal params
+    col_mean ~ normal(0,2);
+    col_sd ~ std_normal();
+    raw_colcat_logodds ~ std_normal();
+    colcat_sd ~ std_normal();
+    raw_col_logodds ~ std_normal();
+    raw_cell_logodds ~ std_normal();
+    cell_sd ~ std_normal();
+    
+    //bias params
+    overall_bias ~ std_normal();
+    
+    raw_colcat_bias ~ std_normal();
+    colcat_bias_sd ~ std_normal();
+    
+    raw_col_bias ~ std_normal();
+    col_bias_sd ~ std_normal();
+    
+    raw_row_bias ~ std_normal();
+    row_bias_sd ~ std_normal();
+    
+    raw_cell_bias ~ std_normal();
+    cell_bias_sd ~ std_normal();
+    
+    //likelihood
+    cell_count ~ binomial_logit(row_count, cell_logodds_focal);
+    cell_count_compl ~ binomial_logit(row_count_compl, cell_logodds_compl);
+    
+}
+generated quantities {
+    vector[n] cell_total_prob_bias = inv_logit(cell_logodds_focal) - inv_logit(cell_logodds_compl);
+}
+'
+
+# #incorporate a category term and use a simpler, one-way enrichment model, splitting the difference + tissue categories
+# #incorporate two category terms
+# traits <- unique(data1$trait)
+# tissues <- unique(data1$tissue)
+# trait_cats <- salient.categories
+# tissue_categories <- list(circulation = c("BLOOD", "HEART", "SPLEEN"),
+#                           skeletal_muscle = c("SKM-GN", "SKM-VL"),
+#                           adipose = c("WAT-SC"),
+#                           other = rev(c("ADRNL", "KIDNEY", "LUNG", "LIVER")),
+#                           brain = c("CORTEX", "HYPOTH", "HIPPOC"),
+#                           GI = c("SMLINT", "COLON"))
+# tissue_categories <- list(circulation = c("BLOOD", "HEART", "SPLEEN"),
+#                           skeletal_muscle = c("SKM-GN", "SKM-VL"),
+#                           adipose = "WAT-SC",
+#                           adrenal = "ADRNL",
+#                           kidney =  "KIDNEY",
+#                           lung =  "LUNG",
+#                           liver = "LIVER",
+#                           brain = c("CORTEX", "HYPOTH", "HIPPOC"),
+#                           GI = c("SMLINT", "COLON"))
+# tissue_cats <- names(tissue_categories)
+# tissue_cats_vec <- setNames(unlist(sapply(1:length(tissue_categories), function(i)
+#   rep(names(tissue_categories)[i], length(tissue_categories[[i]])))), unlist(tissue_categories))
+# 
+# 
+# d <- list(cell_count = data1$count,
+#           total = sapply(1:nrow(data1), function(i) total_number_of_possible_hits_matrix[data1$tissue[i], data1$trait[i]]),
+#           row_count = sapply(1:nrow(data1), function(i) n_genes_in_nodes_matrix[data1$tissue[i], data1$trait[i]]),
+#           col_count = sapply(1:nrow(data1), function(i) sig_twas_by_trait_genes_matrix[data1$tissue[i], data1$trait[i]]),
+#           row_index = match(data1$tissue, tissues),
+#           col_index = match(data1$trait, traits),
+#           colcat_index = match(traitwise_partitions$Category[match(traits, traitwise_partitions$Tag)] , trait_cats),
+#           rowcat_index = match(tissue_cats_vec[tissues], tissue_cats),
+#           row_n = length(tissues),
+#           col_n = length(traits),
+#           colcat_n = length(trait_cats),
+#           rowcat_n = length(tissue_cats))
+# 
+# base = "deviation_from_expected_logodds_split_the_difference_tissuecats"
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1> colcat_n;
+#     int<lower=1> rowcat_n;
+#     int<lower=0> total[row_n * col_n];
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=1,upper=colcat_n> colcat_index[col_n];
+#     int<lower=1,upper=rowcat_n> rowcat_index[row_n];
+#     int<lower=0> row_count[row_n * col_n];
+#     int<lower=0> col_count[row_n * col_n];
+#     int<lower=0> cell_count[row_n * col_n];
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+#     int<lower=0> cell_count_compl[n];
+#     int<lower=0> row_count_compl[n];
+#     for(i in 1:n){
+#       cell_count_compl[i] = col_count[i] - cell_count[i];
+#       row_count_compl[i] = total[i] - row_count[i];
+#     }
+# }
+# parameters {
+#     //col params
+#     real col_mean;
+#     real<lower=0> col_sd;
+#     vector[colcat_n] raw_colcat_logodds;
+#     real<lower=0> colcat_sd;
+#     vector[col_n] raw_col_logodds;
+#     real<lower=0> col_indiv_sd;
+#     vector[n] raw_col_indiv_logodds;
+#     
+#     //biases in deviations terms
+#     real overall_bias;
+#     
+#     vector[colcat_n] raw_colcat_bias;
+#     vector[rowcat_n] raw_rowcat_bias;
+#     
+#     vector[row_n] raw_row_bias;
+#     vector[col_n] raw_col_bias;
+#     
+#     vector[n] raw_cell_bias;
+#     
+#     real<lower=0> colcat_bias_sd;
+#     real<lower=0> rowcat_bias_sd;
+#     real<lower=0> row_bias_sd;
+#     real<lower=0> col_bias_sd;
+#     real<lower=0> cell_bias_sd;
+# }
+# transformed parameters {
+#     //recenter params
+#     vector[colcat_n] colcat_logodds = raw_colcat_logodds * col_sd + col_mean;
+#     vector[col_n] col_logodds = raw_col_logodds * colcat_sd + colcat_logodds[colcat_index];
+#     vector[n] col_indiv_logodds = raw_col_indiv_logodds * col_indiv_sd + col_logodds[col_index];
+#     
+#     //incorporate bias
+#     vector[colcat_n] colcat_bias = raw_colcat_bias * colcat_bias_sd;
+#     vector[rowcat_n] rowcat_bias = raw_rowcat_bias * rowcat_bias_sd;
+#     vector[col_n] col_bias = raw_col_bias * col_bias_sd + colcat_bias[colcat_index];
+#     vector[row_n] row_bias = raw_row_bias * row_bias_sd + rowcat_bias[rowcat_index];
+#     vector[n] cell_bias = raw_cell_bias * cell_bias_sd;
+#     vector[n] cell_logodds_focal = col_indiv_logodds + 
+#               (overall_bias + row_bias[row_index] + col_bias[col_index] + cell_bias) / 2;
+#     vector[n] cell_logodds_compl = col_indiv_logodds - 
+#               (overall_bias + row_bias[row_index] + col_bias[col_index] + cell_bias) / 2;
+# }
+# model {
+#     //priors and hyperpriors
+#     
+#     //marginal params
+#     col_mean ~ normal(0,1.8);
+#     col_sd ~ std_normal();
+#     raw_colcat_logodds ~ std_normal();
+#     colcat_sd ~ std_normal();
+#     raw_col_logodds ~ std_normal();
+#     raw_col_indiv_logodds ~ std_normal();
+#     col_indiv_sd ~ std_normal();
+#     
+#     //bias params
+#     overall_bias ~ std_normal();
+#     
+#     raw_colcat_bias ~ std_normal();
+#     colcat_bias_sd ~ std_normal();
+#     raw_rowcat_bias ~ std_normal();
+#     rowcat_bias_sd ~ std_normal();
+#     
+#     raw_col_bias ~ std_normal();
+#     col_bias_sd ~ std_normal();
+#     
+#     raw_row_bias ~ std_normal();
+#     row_bias_sd ~ std_normal();
+#     
+#     raw_cell_bias ~ std_normal();
+#     cell_bias_sd ~ std_normal();
+#     
+#     //likelihood
+#     cell_count ~ binomial_logit(row_count, cell_logodds_focal);
+#     cell_count_compl ~ binomial_logit(row_count_compl, cell_logodds_compl);
+#     
+# }
+# generated quantities {
+#     vector[n] cell_total_prob_bias = inv_logit(cell_logodds_focal) - inv_logit(cell_logodds_compl);
+# }
+# '
+
+fit_model <- F
+if(fit_model){
+  
+  #compile model
+  if(!exists("curr_stan_program") || stan_program != curr_stan_program){
+    curr_stan_program <- stan_program
+    f <- write_stan_file(stan_program)
+  }
+  mod <- cmdstan_model(f)
+  
+  #write model
+  write_stan_file(stan_program, dir = "~/Desktop/", basename = paste0(base, ifelse(use_all_cats, "_allCats", "")))
+  write_stan_json(d, paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".json"))
+  
+  #fit model
+  out <- mod$sample(chains = 4, iter_sampling = 2.5E3, iter_warmup = 2.5E3, data = d, parallel_chains = 4, 
+                    adapt_delta = 0.99, refresh = 50, init = 0.1, max_treedepth = 20, thin = 2)
+  summ <- out$summary()
+  summ[order(summ$ess_bulk),]
+  summ[order(summ$rhat, decreasing = T),]
+  save(out, file = paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
+} else {
+  load(paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
+}
+# out <- mod$sample(chains = 4, iter_sampling = 1E3, iter_warmup = 1E3, data = d, parallel_chains = 4, adapt_delta = 0.9, refresh = 10, init = 0.1, max_treedepth = 15)
+
+samps <- data.frame(as_draws_df(out$draws()))
+
+
+# #look at pathology
+# par(mfrow = c(5,3), mar = c(4,4,2,1))
+# for(trait_i in 1:12){
+#   plot(c((data1$count / data1$total)[data1$trait == unique(data1$trait)[trait_i]], 
+#          (data2$count / data2$total)[data1$trait == unique(data1$trait)[trait_i]]),
+#        col = c(rep("blue", length((data1$count / data1$total)[data1$trait == unique(data1$trait)[trait_i]])),
+#                rep("red", length((data1$count / data1$total)[data1$trait == unique(data1$trait)[trait_i]]))),
+#        pch = 19, cex = 1.5, ylab = "sample proportion", main = trait_categories$new_Phenotype[match(unique(data1$trait)[trait_i], trait_categories$Tag)])
+#   legend(x = "bottomright", pt.cex = 1.5, cex = 1, col = c("blue", "red"), legend = c("focal proportion", "complement proportion"), pch = 19)
+# }
+# 
+# par(mfrow = c(5,3), mar = c(4,4,2,1))
+# for(tissue_i in 1:15){
+#   plot(c((data1$count / data1$total)[data1$tissue == unique(data1$tissue)[tissue_i]], 
+#          (data2$count / data2$total)[data1$tissue == unique(data1$tissue)[tissue_i]]),
+#        col = c(rep("blue", length((data1$count / data1$total)[data1$tissue == unique(data1$tissue)[tissue_i]])),
+#                rep("red", length((data1$count / data1$total)[data1$tissue == unique(data1$tissue)[tissue_i]]))),
+#        pch = 19, cex = 1.5, ylab = "sample proportion", main = unique(data1$tissue)[tissue_i])
+#   legend(x = "topright", pt.cex = 1.5, cex = 0.75, col = c("blue", "red"), legend = c("focal", "comp."), pch = 19)
+# }
+# 
+# hist(cbind(data1$count / data1$total, data2$count / data2$total)[data1$trait == unique(data1$trait)[trait_i],])
+
+#examine posterior output
+# 
+# par(mfrow = c(4,2))
+# hist(invlogit(samps$mean_all_traits), 
+#      main = "invlogit(mean_all_traits)", xlab = "value")
+# hist((samps$sd_all_traits), 
+#      main = "sd_all_traits", xlab = "value")
+# hist(apply(invlogit(samps[,setdiff(grep("mean_each_trait", colnames(samps)), 
+#                                    grep("raw_mean_each_trait", colnames(samps)))]), 2, mean), 
+#      main = "posterior means of invlogit(mean_each_trait)", xlab = "value")
+# hist((samps$sd_each_trait), 
+#      main = "sd_each_trait", xlab = "value")
+# hist((samps$sd_each_trait_log_multipler_sd), 
+#      main = "sd_each_trait_log_multipler_sd", xlab = "value")
+# hist((samps$sd_tissue_x_trait), 
+#      main = "sd_tissue_x_trait", xlab = "value")
+# hist(apply(samps[,grep("difference_in_props", colnames(samps))], 2, mean), 
+#      main = "posterior means of difference_in_props", xlab = "value")
+
+# samps[,grep("logit_prop_21\\.", colnames(samps))]
+# sum(apply(samps[,grep("logit_prop_21\\.", colnames(samps))], 2, prop_greater_than_0) > 0.95)
+# sum(apply(samps[,grep("logit_prop_21\\.", colnames(samps))], 2, prop_greater_than_0) < 0.05)
+
+dev.off()
+hist(samps$overall_bias)
+
+prop_greater_than_0 <- function(x) mean(x>0)
+
+cellbias <- apply(subset_samps("cell_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+sum(cellbias > 0.9)
+sum(cellbias < 0.1)
+hist(cellbias, breaks = 100)
+
+celltotalbias <- apply(subset_samps("cell_total_prob_bias", c("raw", "sd", "logodds"), samps = samps), 2, prop_greater_than_0)
+sum(celltotalbias > 0.9)
+sum(celltotalbias < 0.1)
+hist(celltotalbias, breaks = 100)
+cbind(data1$tissue, data1$trait, celltotalbias)[celltotalbias > 0.95 | celltotalbias < 0.05,]
+
+rowbias <- apply(subset_samps("row_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+sum(rowbias > 0.9)
+sum(rowbias < 0.1)
+cbind(tissues[order(rowbias)], sort(rowbias))
+
+colbias <- apply(subset_samps("col_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+sum(colbias > 0.9)
+sum(colbias < 0.1)
+trait_key <- setNames(trait_categories$new_Phenotype, trait_categories$Tag)
+cbind(trait_key[traits[order(colbias)]], sort(colbias))
+
+colcatbias <- apply(subset_samps("colcat_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+sum(colcatbias > 0.9)
+sum(colcatbias < 0.1)
+cbind(trait_cats[order(colcatbias)], sort(colcatbias))
+
+# rowcatbias <- apply(subset_samps("rowcat_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+# sum(rowcatbias > 0.95)
+# sum(rowcatbias < 0.05)
+# cbind(tissue_cats[order(rowcatbias)], sort(rowcatbias))
+
+
+#generate a "significance" matrix
+signif_threshold <- 0.05
+signif_df <- data_subset[1:(nrow(data_subset)), c("tissue", "trait")]
+signif_df$prob_diff_is_positive <- apply(subset_samps("cell_total_prob_bias", c("raw", "sd", "logodds"), samps = samps), 2, prop_greater_than_0)
+signif_df$signif <- 0
+signif_df$signif[signif_df$prob_diff_is_positive > (1-signif_threshold)] <- 1
+signif_df$signif[signif_df$prob_diff_is_positive < signif_threshold] <- -1
+
+signif_df[signif_df$signif != 0,]
+
+signif_matrix <- reshape(signif_df[,-match("prob_diff_is_positive", colnames(signif_df))], idvar = "tissue", timevar = "trait", direction = "wide")
+rownames(signif_matrix) <- signif_matrix$tissue
+signif_matrix <- signif_matrix[,-match("tissue", colnames(signif_matrix))]
+colnames(signif_matrix) <- gsub(colnames(signif_matrix), pattern = "signif.", replacement = "")
+
+#add back in the HYPOTHALAMUS if we removed it
+if(nrow(signif_matrix) != nrow(n_deg_sigtwas_intersect)){
+  signif_matrix <- signif_matrix[rownames(n_deg_sigtwas_intersect),]
+  rownames(signif_matrix) <- rownames(n_deg_sigtwas_intersect)
+  signif_matrix[is.na(signif_matrix)] <- 0
+}
+
+if(!all(colnames(signif_matrix) == colnames(n_deg_sigtwas_intersect)) & all(rownames(signif_matrix) == rownames(n_deg_sigtwas_intersect))){
+  stop("something's wrong with the significance matrix")
+}
+
+#trait proportion matrix
+# prop_twas_are_degs <- prop_twas_are_degs[,colnames(n_deg_sigtwas_intersect)[order(apply(samps[,grep("mean_beta_trait\\.", colnames(samps))], 2, mean), decreasing = T)]]
+# par(mfrow = c(2,1))
+# hist((data$count / data$total)[data$TWAS_Hit == "YES"], breaks = 0:100/100)
+# 
+# 
+# hist(samps[,grep("mean_all", colnames(samps))])
+# hist(samps[,grep("sd_all", colnames(samps))])
+# hist(apply(invlogit(samps[,grep("mean_each_trait", colnames(samps))]), 2, mean))
+# hist(apply(invlogit(samps[,grep("mean_tiss", colnames(samps))]), 2, mean))
+# hist(samps[,grep("sd_tiss", colnames(samps))])
+# hist(apply(invlogit(samps[,grep("sd_tiss", colnames(samps))]), 2, mean))
+
+#### try doing just the frequentist test ####
+FET_pvals <- sapply(1:nrow(data1), function(i){
+  two_by_two <- matrix(0,2,2, dimnames = list(c("DEG", "nDEG"), c("TWAS", "nTWAS")))
+  two_by_two["DEG", "TWAS"] <-  data1$count[i]
+  two_by_two["nDEG", "TWAS"] <-  sig_twas_by_trait_genes_matrix[data1$tissue[i], data1$trait[i]] - data1$count[i]
+  two_by_two["DEG", "nTWAS"] <-  n_genes_in_nodes_matrix[data1$tissue[i], data1$trait[i]] - data1$count[i]
+  two_by_two["nDEG", "nTWAS"] <-  total_number_of_possible_hits_matrix[data1$tissue[i], data1$trait[i]] - sum(two_by_two)
+  fisher.test(two_by_two)$p.value
+})
+hist(FET_pvals, breaks = 20, main = "nominal pvals")
+
+data1$FET_pval <- FET_pvals
+data_ihw <- data1
+# data_ihw <- data_ihw[data1$count != 0,]
+# data_ihw <- data_ihw[!(data_ihw$trait %in% names(which(table(data_ihw$trait) < 3))),]
+data_ihw$trait <- as.factor(as.character(data_ihw$trait))
+ihw_results_FET <- IHW::ihw(FET_pval ~ trait, data = data_ihw, alpha = 0.05)
+
+par(mfrow = c(2,1))
+hist(data_ihw$FET_pval, breaks = 20, main = "nominal pvals")
+hist(ihw_results_FET@df$adj_pvalue)
+sum(ihw_results_FET@df$adj_pvalue < 0.05)
+data_ihw$TWAS_total <- as.numeric(sapply(1:nrow(data_ihw),function(i){sig_twas_by_trait_genes_matrix[data_ihw$tissue[i], data_ihw$trait[i]]}))
+ihw_results_FET <- IHW::ihw(FET_pval ~ TWAS_total, data = data_ihw, alpha = 0.05, nbins = 2)  
+sum(ihw_results_FET@df$adj_pvalue < 0.05)
+
+sapply(1:20, function(n_bins) sum(IHW::ihw(FET_pval ~ TWAS_total, data = data_ihw, alpha = 0.05, nbins = n_bins)@df$adj_pvalue < 0.05))
+
+#### quick plot of exp vs obs freqs ####
+use_focal_vs_compl <- T
+
+traits <- unique(data1$trait)
+tissues <- unique(data1$tissue)
+d <- list(cell_count = data1$count,
+          total = sapply(1:nrow(data1), function(i) total_number_of_possible_hits_matrix[data1$tissue[i], data1$trait[i]]),
+          row_count = sapply(1:nrow(data1), function(i) n_genes_in_nodes_matrix[data1$tissue[i], data1$trait[i]]),
+          col_count = sapply(1:nrow(data1), function(i) sig_twas_by_trait_genes_matrix[data1$tissue[i], data1$trait[i]]),
+          row_index = match(data1$tissue, tissues),
+          col_index = match(data1$trait, traits),
+          row_n = length(unique(data1$tissue)),
+          col_n = length(unique(data1$trait)))
+
+
+
+
+cairo_pdf(paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/pass1b_fig8_DEG-TWAS_logodds.pdf"), 
+          width = 1000 / 72, height = 950 / 72, family="Arial Unicode MS", pointsize = 25)
+
+category_shapes <- setNames(15:19, salient.categories)
+category_shapes <- setNames(15:19, c("Cardiometabolic", "Aging", "Anthropometric", 
+                                     "Immune", "Psychiatric-neurologic")
+)
+
+par(mar = c(5,4,3,4))
+#first plot
+
+
+sapply(1:nrow(signif_df), function(i) adjustcolor(tissue_cols[tissues[d$row_index[i]]], as.numeric(signif_df$signif[i] != 0) * 0.625 + 0.125))
+if(use_focal_vs_compl){
+  xvals <- (d$col_count - d$cell_count) / (d$total - d$row_count)
+  yvals <- d$cell_count / d$row_count
+} else {
+  xvals <- d$row_count / d$total * d$col_count / d$total  
+  yvals <- d$cell_count / d$total
+}
+
+
+
+
+plot(logit(xvals), logit(yvals), xlim = ifelse2(use_focal_vs_compl, c(-14,-1), c(-15,-4.25)), 
+     ylim = ifelse2(use_focal_vs_compl, c(-6, -1), c(-9.5,-4.25)),
+     pch = category_shapes[traitwise_partitions$Category[match(traits[d$col_index], traitwise_partitions$Tag)]], 
+     col = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), 
+     cex = 1.5,
+     xlab = "", ylab = "", yaxt = 'n', xaxt = "n")
+box(which = "plot", lwd = 2)
+#axes
+text(labels = "observed logit(frequency)", x = par("usr")[2] + diff(par("usr")[1:2])/8, srt = 270, pos = 1, 
+     y = mean(par("usr")[3:4]), xpd = NA, cex = 1.25)
+text(labels = "expected logit(frequency)", x = mean(par("usr")[1:2]), srt = 0, pos = 1, 
+     y = par("usr")[3] - diff(par("usr")[3:4])/10, xpd = NA, cex = 1.25)
+yaxlocs <- ifelse2(use_focal_vs_compl, c(-6:-1), c(-5:-9))
+segments(x0 = par("usr")[2], x1 = par("usr")[2] + diff(par("usr")[1:2])/100, y0 = yaxlocs, y1 = yaxlocs, lwd = 4, xpd = NA)
+text(labels = yaxlocs, x = par("usr")[2] + diff(par("usr")[1:2])/200, srt = 0, pos = 4, 
+     y = yaxlocs, xpd = NA, cex = 1.25)
+xaxlocs <- ifelse2(use_focal_vs_compl, -7:-1*2, -7:-3*2)
+segments(x0 = xaxlocs, x1 = xaxlocs, y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/80, lwd = 4, xpd = NA)
+text(labels = xaxlocs, x = xaxlocs, srt = 0, pos = 1, 
+     y = par("usr")[3] - diff(par("usr")[3:4])/80, xpd = NA, cex = 1.25)
+abline(0,1, lty = 2, lwd = 6, col = adjustcolor(1,0.75))
+
+#secondplot
+xl <- par("usr")[1]
+xr <- par("usr")[1] + diff(par("usr")[1:2]) / 2
+yt <- par("usr")[4]
+yb <- par("usr")[4] - diff(par("usr")[3:4]) / 2
+
+buffer <- 0.075
+bx <- (xr-xl) * buffer
+by <- (yt-yb) * buffer
+rect(xleft = xl, ybottom = yb, xright = xr, ytop = yt, lwd = 2, xpd = NA)
+
+points(x = ((xvals - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+       y = ((yvals - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
+       pch = category_shapes[traitwise_partitions$Category[match(traits[d$col_index], traitwise_partitions$Tag)]], 
+       col = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), 
+       cex = 1)
+segments(x0 = 0 * (xr - xl - 2*bx) + xl, 
+         y0 = 0 * (yt - yb - 2*by) + yb,
+         x1 = ((max(yvals, na.rm = T) - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+         y1 = ((max(yvals, na.rm = T) - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
+         lty = 2, lwd = 4, col = adjustcolor(1,0.75))
+
+#axes
+text(labels = "observed frequency", x = par("usr")[1] - diff(par("usr")[1:2])/ifelse2(use_focal_vs_compl, 8, 7), srt = 90, pos = 1, 
+     y = par("usr")[4] - diff(par("usr")[3:4])/5, xpd = NA, cex = 1)
+text(labels = "expected frequency", x = par("usr")[1] + diff(par("usr")[1:2])/4, srt = 0, pos = 1, 
+     y = par("usr")[4] + diff(par("usr")[3:4])/8, xpd = NA, cex = 1)
+xaxlocs <- ifelse2(use_focal_vs_compl, c(0:4/20), c(0:6/500))
+yaxlocs <- ifelse2(use_focal_vs_compl, c(0:6/20), c(0:6/500))
+
+segments(x0 = par("usr")[1], x1 = par("usr")[1] - diff(par("usr")[1:2])/100, 
+         y0 = ((yaxlocs - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
+         y1 = ((yaxlocs - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
+         lwd = 4, xpd = NA)
+segments(y0 = par("usr")[4], y1 = par("usr")[4] + diff(par("usr")[3:4])/100, 
+         x0 = ((xaxlocs - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+         x1 = ((xaxlocs - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+         lwd = 4, xpd = NA)
+text(labels = xaxlocs, x = ((xaxlocs - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+     srt = 0, pos = 3, 
+     y = par("usr")[4], xpd = NA, cex = 0.75)
+text(labels = yaxlocs, x = par("usr")[1], 
+     srt = 0, pos = 2, 
+     y = ((yaxlocs - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, xpd = NA, cex = 0.75)
+# text(labels = 0:6/500, x = -7:-3*2, srt = 0, pos = 1, 
+#      y = par("usr")[3] - diff(par("usr")[3:4])/80, xpd = NA, cex = 1.25)
+abline(0,1, lty = 2, lwd = 6, col = adjustcolor(1,0.75))
+
+#legends
+legend(x = xl, y = yb, legend = names(category_shapes), pch = category_shapes, col = adjustcolor(1, 0.5), cex = 0.75, pt.cex = 1.4)
+legend(x = xr, y = yt, legend = tissues, pch = 19, col = adjustcolor(tissue_cols[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
+segments(x0 = par("usr")[1] + diff(par("usr")[1:2]) / 1.55, 
+         y0 = par("usr")[4] - diff(par("usr")[3:4])/50,
+         x1 = par("usr")[1] + diff(par("usr")[1:2]) / 1.45, 
+         y1 = par("usr")[4] - diff(par("usr")[3:4])/50, 
+         lty = 2, lwd = 4, col = adjustcolor(1,0.75))
+text(x = par("usr")[1] + diff(par("usr")[1:2]) / 1.45, 
+     y = par("usr")[4] - diff(par("usr")[3:4])/45, 
+     pos = 4, cex = 0.75, labels = "1-to-1 line")
+
+# plot(d$row_count / d$total * d$col_count / d$total, d$cell_count / d$total)
+
+dev.off()
+
+
+#### plot rowbias as a boxplot ####
+if(length(salient.categories) < 9){
+  category_colors <- RColorBrewer::brewer.pal(length(salient.categories), "Dark2")
+  names(category_colors) <- sort(salient.categories)  
+} else {
+  category_colors <- RColorBrewer::brewer.pal(5, "Dark2")
+  names(category_colors) <- sort(c("Cardiometabolic", "Aging", "Anthropometric", 
+                                   "Immune", "Psychiatric-neurologic"))
+  cats_leftover <- setdiff(salient.categories, names(category_colors))
+  cols_leftover <- setdiff(RColorBrewer::brewer.pal(8, "Dark2"), category_colors)
+  n_cols_needed <- length(cats_leftover) - length(cols_leftover)
+  if(n_cols_needed > 0){
+    extra_cols <- c(cols_leftover, RColorBrewer::brewer.pal(n_cols_needed, "Set2"))
+  } else {
+    extra_cols <- cols_leftover
+  }
+  names(extra_cols) <- cats_leftover
+  category_colors <- c(category_colors, extra_cols)
+}
+cols$category <- category_colors
+
+
+grDevices::cairo_pdf(filename = paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/figure_intersect_enrichment_posterior_summary.pdf"), 
+                     width = 1400 / 72, height = 800 / 72, family="Arial Unicode MS", pointsize = 20)
+layout(rbind(c(1,1,1,1,2,2,2), c(3,3,3,3,3,3,3)))
+
+par(mar = c(5,4.5,2,2))
+tord <- order(apply(subset_samps("row_bias", c("raw", "sd"), samps = samps), 2, mean))
+qi_95 <- apply(subset_samps("row_bias", c("raw", "sd"), samps = samps) + samps$overall_bias, 2, quantile, probs = c(0.05, 0.95))[,tord]
+qi_100 <- apply(subset_samps("row_bias", c("raw", "sd"), samps = samps) + samps$overall_bias, 2, quantile, probs = c(0.0, 1.0))[,tord]
+posterior_means <- apply(subset_samps("row_bias", c("raw", "sd"), samps = samps) + samps$overall_bias, 2, mean)[tord]
+inside_cols <- rep("black", length(tord))
+inside_cols[overlaps_with_zero(qi_95)] <- "white"
+tmp <- vioplot::vioplot(x = as.matrix(subset_samps("row_bias", c("raw", "sd"), samps = samps) + samps$overall_bias)[,tord], T, 
+                        col = tissue_cols[tissues][tord], outline=FALSE, xaxt = "n",
+                        names = tissues[tord], srt = 90, range = 0, xlab = "", lineCol = tissue_cols[tissues][tord],
+                        ylab = "multilevel tissue enrichment (logodds-scale)", cex.lab = 1, plotCentre = "point", 
+                        colMed = tissue_cols[tissues][tord])
+tick <- seq_along(tissues)
+axis(1, at = tick, labels = F)
+for(i in 1:length(tissues)){
+  segments(x0 = i, x1 = i, y0 = qi_95[1,i], y1 = qi_95[2,i], lwd = 4, col = inside_cols[i])
+  points(x = i, y = posterior_means[i], col = inside_cols[i], pch = 19, cex = 1.5)
+  #guiding lines
+  segments(x0 = i, x1 = i, y0 = min(qi_100) - diff(range(qi_100)) / 30, y1 = qi_100[1,i], lwd = 1, col = "black", xpd = T, lty = 3)
+  segments(x0 = i, x1 = i, y0 = qi_100[2,i], y1 = max(qi_100) * 0.93 + 1 * 0.07, lwd = 1, col = "black", xpd = T, lty = 3)
+}
+text(tick + 0.2, par("usr")[3] - 0.05, tissues[tord], srt = 45, xpd = T, pos = 2)
+fig_label("a)", cex = 2, shrinkX = 0.4)
+abline(h=0,lwd=3,lty=2, col = adjustcolor(1,0.5))
+
+
+#### plot colcatbias as a boxplot ###
+
+par(mar = c(7,5.5,2,2))
+tord <- order(apply(subset_samps("colcat_bias", c("raw", "sd"), samps = samps), 2, mean))
+qi_95 <- apply(subset_samps("colcat_bias", c("raw", "sd"), samps = samps) + samps$overall_bias, 2, quantile, probs = c(0.05, 0.95))[,tord]
+qi_100 <- apply(subset_samps("colcat_bias", c("raw", "sd"), samps = samps) + samps$overall_bias, 2, quantile, probs = c(0.0, 1.0))[,tord]
+posterior_means <- apply(subset_samps("colcat_bias", c("raw", "sd"), samps = samps) + samps$overall_bias, 2, mean)[tord]
+inside_cols <- rep("black", length(tord))
+inside_cols[overlaps_with_zero(qi_95)] <- "white"
+vioplot::vioplot(x = as.matrix(subset_samps("colcat_bias", c("raw", "sd"), samps = samps) + samps$overall_bias)[,tord], T, 
+                 col = category_colors[trait_cats][tord], outline=FALSE, xaxt = "n",
+                 names = trait_cats[tord], srt = 90, range = 0, xlab = "", lineCol = category_colors[trait_cats][tord],
+                 ylab = "multilevel category enrichment\n(logodds-scale)", cex.lab = 1, plotCentre = "point", 
+                 colMed = category_colors[trait_cats][tord])
+tick <- seq_along(trait_cats)
+axis(1, at = tick, labels = F)
+for(i in 1:length(trait_cats)){
+  segments(x0 = i, x1 = i, y0 = qi_95[1,i], y1 = qi_95[2,i], lwd = 4, col = inside_cols[i])
+  points(x = i, y = posterior_means[i], col = inside_cols[i], pch = 19, cex = 1.5)
+  #guiding lines
+  segments(x0 = i, x1 = i, y0 = min(qi_100) - diff(range(qi_100)) / 30, y1 = qi_100[1,i], lwd = 1, col = "black", xpd = T, lty = 3)
+  segments(x0 = i, x1 = i, y0 = qi_100[2,i], y1 = max(qi_100) * 0.8 + 1 * 0.2, lwd = 1, col = "black", xpd = T, lty = 3)
+}
+text(tick + 0.35, par("usr")[3] - 0.1, trait_cats[tord], srt = 45, xpd = T, pos = 2, xpd = NA)
+abline(h=0,lwd=3,lty=2, col = adjustcolor(1,0.5))
+
+
+#### plot colbias as a boxplot ###
+par(mar = c(12,5.5,2,2))
+trait_subset_bool <- traitwise_partitions$Category[match(traits, traitwise_partitions$Tag)] %in% c("Cardiometabolic")
+trait_subset_bool <- traitwise_partitions$Category[match(traits, traitwise_partitions$Tag)] %in% salient.categories
+tord <- order(apply(subset_samps("col_bias", c("raw", "sd"), samps = samps), 2, mean)[trait_subset_bool])
+qi_95 <- apply((subset_samps("col_bias", c("raw", "sd"), samps = samps) + samps$overall_bias)[,trait_subset_bool], 2, quantile, probs = c(0.05, 0.95))[,tord]
+qi_100 <- apply((subset_samps("col_bias", c("raw", "sd"), samps = samps) + samps$overall_bias)[,trait_subset_bool], 2, quantile, probs = c(0.00, 1.00))[,tord]
+posterior_means <- apply(subset_samps("col_bias", c("raw", "sd"), samps = samps)[,trait_subset_bool] + samps$overall_bias, 2, mean)[tord]
+inside_cols <- rep("black", length(tord))
+inside_cols[overlaps_with_zero(qi_95)] <- "white"
+tmp <- vioplot::vioplot(x = as.matrix((subset_samps("col_bias", c("raw", "sd"), samps = samps) + samps$overall_bias)[,trait_subset_bool])[,tord], T, 
+                        col = category_colors[traitwise_partitions$Category[match(traits[trait_subset_bool], traitwise_partitions$Tag)]][tord], 
+                        outline=FALSE, xaxt = "n", xlim = c(4,sum(trait_subset_bool)-3),
+                        names = tissues[tord], srt = 90, range = 0, xlab = "", 
+                        lineCol = category_colors[traitwise_partitions$Category[match(traits[trait_subset_bool], traitwise_partitions$Tag)]][tord],
+                        ylab = "multilevel trait enrichment\n(logodds-scale)", cex.lab = 1, plotCentre = "point", 
+                        colMed = category_colors[traitwise_partitions$Category[match(traits[trait_subset_bool], traitwise_partitions$Tag)]][tord])
+tick <- seq_along(traits[trait_subset_bool])
+axis(1, at = tick, labels = F)
+for(i in 1:length(traits[trait_subset_bool])){
+  segments(x0 = i, x1 = i, y0 = qi_95[1,i], y1 = qi_95[2,i], lwd = 2, col = inside_cols[i])
+  points(x = i, y = posterior_means[i], col = inside_cols[i], pch = 19)
+  #guiding lines
+  segments(x0 = i, x1 = i, y0 = min(qi_100) - diff(range(qi_100)) / 30, y1 = qi_100[1,i], lwd = 1, col = "black", xpd = T, lty = 3)
+  segments(x0 = i, x1 = i, y0 = qi_100[2,i], y1 = max(qi_100) * 0.75 + 1 * 0.25, lwd = 1, col = "black", xpd = T, lty = 3)
+}
+text(tick + 0.55, par("usr")[3] - 0.125, cex = 0.7,
+     trait_categories$new_Phenotype[match(traits[trait_subset_bool][tord], trait_categories$Tag)], srt = 45, xpd = T, pos = 2)
+fig_label("c)", cex = 2, shrinkX = 0.3)
+abline(h=0,lwd=3,lty=2, col = adjustcolor(1,0.5))
+
+dev.off()
+
+#### plot rowcatbias as a boxplot ####
+
+par(mar = c(8,5.5,2,2))
+tissue_category_colors <- setNames(RColorBrewer::brewer.pal(length(tissue_cats), "Set1"), tissue_cats)
+tord <- order(apply(subset_samps("rowcat_bias", c("raw", "sd"), samps = samps), 2, mean))
+qi_95 <- apply(subset_samps("rowcat_bias", c("raw", "sd"), samps = samps) + samps$overall_bias, 2, quantile, probs = c(0.05, 0.95))[,tord]
+posterior_means <- apply(subset_samps("row_bias", c("raw", "sd"), samps = samps) + samps$overall_bias, 2, mean)[tord]
+inside_cols <- rep("black", length(tord))
+inside_cols[overlaps_with_zero(qi_95)] <- "white"
+vioplot::vioplot(x = as.matrix(subset_samps("rowcat_bias", c("raw", "sd"), samps = samps) + samps$overall_bias)[,tord], T,
+                 col = tissue_category_colors[tissue_cats][tord], outline=FALSE, xaxt = "n",
+                 names = tissue_cats[tord], srt = 90, range = 0, xlab = "", lineCol = tissue_category_colors[tissue_cats][tord],
+                 ylab = "multilevel category enrichment\n(logodds-scale)", cex.lab = 1, plotCentre = "point", colMed = 1)
+tick <- seq_along(tissue_cats)
+axis(1, at = tick, labels = F)
+for(i in 1:length(tissue_cats)){
+  segments(x0 = i, x1 = i, y0 = qi_95[1,i], y1 = qi_95[2,i], lwd = 4)
+}
+text(tick + 0.2, par("usr")[3] - 0.075, tissue_cats[tord], srt = 90, xpd = T, pos = 2)
+
+abline(h=0,lwd=3,lty=2, col = adjustcolor(1,0.5))
+
+#### now plot the intersect of DEGs & TWAS hits ####
+
+#counts or props?
+incl_significance <- T
+incl_cell_totals <- F
+trait_category_legend_below = T
+use_tissue_cols_for_cols <- T
+opacity_power_scaler <- 0.25
+opacity_white_threshold <- 1
+use_counts <- T
+prop_TWAS <- T
+order_by_counts <- F
+order_by_posterior_enrichment <- T
+group_by_tissue_type <- T
+use_range_for_maginal_labels <- F
+
+subset_to_traits <- T
+if(subset_to_traits){
+  trait_subset <- colnames(n_deg_sigtwas_intersect)[
+    traitwise_partitions$Category[match(colnames(n_deg_sigtwas_intersect), traitwise_partitions$Tag)] %in% 
+      c("Cardiometabolic", "Psychiatric-neurologic")]
+  categories_represented <- unique(traitwise_partitions$Category[match(trait_subset, traitwise_partitions$Tag)])
+} else {
+  trait_subset <- colnames(n_deg_sigtwas_intersect)
+}
+categories_represented <- unique(traitwise_partitions$Category[match(trait_subset, traitwise_partitions$Tag)])
+
+if(use_counts){
+  table_to_use <- n_deg_sigtwas_intersect  
+} else {
+  if(prop_TWAS){
+    table_to_use <- round(prop_twas_are_degs * 1000)  
+  } else{
+    table_to_use <- round(prop_degs_are_twas * 1000)  
+  }
+}
+
+if(subset_to_traits){
+  table_to_use <- table_to_use[,trait_subset]
+  signif_matrix_to_use <- signif_matrix_to_use[,trait_subset]
+}
+
+
+if(order_by_counts){
+  table_to_use <- table_to_use[,colnames(n_deg_sigtwas_intersect)]
+  signif_matrix_to_use <- signif_matrix[,colnames(n_deg_sigtwas_intersect)]
+} else if(order_by_posterior_enrichment) {
+  trait_order <- traits[order(colbias, decreasing = T)]
+  trait_order <- trait_order[trait_order %in% colnames(table_to_use)]
+  table_to_use <- table_to_use[,trait_order]
+  signif_matrix_to_use <- signif_matrix[,match(trait_order, colnames(signif_matrix))]
+} else {
+  table_to_use <- table_to_use[,colnames(prop_twas_are_degs)]
+  signif_matrix_to_use <- signif_matrix[,colnames(prop_twas_are_degs)]
+}
+
+if(group_by_tissue_type){
+  tissue_cats <- list(circulation = c("BLOOD", "HEART", "SPLEEN"),
+                      skeletal_muscle = c("SKM-GN", "SKM-VL"),
+                      adipose = c("WAT−SC"),
+                      other = rev(c("ADRNL", "KIDNEY", "LUNG", "LIVER")),
+                      brain = c("CORTEX", "HYPOTH", "HIPPOC"),
+                      GI = c("SMLINT", "COLON"))
+  tissue_cats <- rev(tissue_cats)
+  disp_amount <- 0.5
+  tissue_disps <- unlist(lapply(1:length(tissue_cats), function(tci) rep(disp_amount * (tci), length(tissue_cats[[tci]]))))
+  tissue_cats_bars_ylocs <- cbind(start = (c(0, cumsum(unlist(lapply(tissue_cats, function(tc) length(tc))) + disp_amount)) + 2 * disp_amount)[-(length(tissue_cats)+1)], 
+                                  end = cumsum(unlist(lapply(tissue_cats, function(tc) length(tc))) + disp_amount) + disp_amount)
+  
+}
+
+if(use_range_for_maginal_labels){
+  n_genes_in_nodes_label <- apply(apply(n_genes_in_nodes_matrix, 1, range), 2, paste0, collapse = " - ")
+  sig_twas_by_trait_genes_label <- apply(apply(sig_twas_by_trait_genes_matrix, 2, range), 2, paste0, collapse = " - ")
+} else {
+  n_genes_in_nodes_label <- apply(n_genes_in_nodes_matrix, 1, max)
+  sig_twas_by_trait_genes_label <- apply(sig_twas_by_trait_genes_matrix, 2, max)
+}
+
+
+
+if(length(salient.categories) < 9){
+  category_colors <- RColorBrewer::brewer.pal(length(salient.categories), "Dark2")
+  names(category_colors) <- sort(salient.categories)  
+} else {
+  category_colors <- RColorBrewer::brewer.pal(5, "Dark2")
+  names(category_colors) <- sort(c("Cardiometabolic", "Aging", "Anthropometric", 
+                                   "Immune", "Psychiatric-neurologic"))
+  cats_leftover <- setdiff(salient.categories, names(category_colors))
+  cols_leftover <- setdiff(RColorBrewer::brewer.pal(8, "Dark2"), category_colors)
+  n_cols_needed <- length(cats_leftover) - length(cols_leftover)
+  if(n_cols_needed > 0){
+    extra_cols <- c(cols_leftover, RColorBrewer::brewer.pal(n_cols_needed, "Set2"))
+  } else {
+    extra_cols <- cols_leftover
+  }
+  names(extra_cols) <- cats_leftover
+  category_colors <- c(category_colors, extra_cols)
+}
+cols$category <- category_colors
+
+cairo_pdf(paste0("~/Documents/Documents - nikolai/pass1b_fig8_DEG-TWAS_Intersect", 
+                 ifelse(use_counts, "_counts", "_permille"), 
+                 ifelse(subset_to_traits, "_subset-traits", "_all-traits"),".pdf"), 
+          width = 2100 / 72 * ncol(table_to_use) / 80, 
+          height = 500 / 72 + ifelse(group_by_tissue_type, disp_amount * 0.75, 0), 
+          family="Arial Unicode MS")
+par(xpd = T, 
+    mar = c(6,
+            0 + ifelse(subset_to_traits, 4, 0),
+            6 + ifelse(group_by_tissue_type, disp_amount * 4.5, 0),
+            5.5 + ifelse(subset_to_traits, 1, 0)))
+plot(1, xaxt="n",yaxt="n",bty="n",pch="",ylab="",xlab="", main="", sub="", xlim= c(-5,ncol(table_to_use)), ylim = c(-5,nrow(table_to_use)))
+
+if(group_by_tissue_type){
+  tissue_cats_bars_xlocs <- sapply(tissue_cats, function(tc) max(strwidth(tc, units = "user"))) + 0.2
+  tissue_cats_bars_xlocs <- rep(max(tissue_cats_bars_xlocs), length(tissue_cats_bars_xlocs))
+}
+
+
+if(use_tissue_cols_for_cols){
+  heatmap_cols <- sapply((1:max(table_to_use) / max(table_to_use))^opacity_power_scaler, function(opcty) 
+    adjustcolor("black", opcty))
+} else {
+  heatmap_cols <- viridisLite::viridis(n = max(table_to_use, na.rm = T)*100+1)
+  heatmap_cols <- heatmap_cols[round(log(1:max(table_to_use, na.rm = T)) / log(max(table_to_use, na.rm = T)) * max(table_to_use, na.rm = T) * 100 + 1)]
+}
+for(ri in 1:nrow(table_to_use)){
+  text(x = 0.5, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0), pos = 2, labels = rownames(table_to_use)[ri])
+  for(ci in 1:ncol(table_to_use)){
+    if(ri == 1){
+      text(x = ci+0.5, y = -0.9, pos = 2, srt = 45,
+           labels = gsub("_Scatter", "", trait_categories$new_Phenotype[match(colnames(table_to_use)[ci], trait_categories$Tag)]))
+      rect(xleft = ci + 1/2,
+           xright = ci - 1/2,
+           ybottom = ri - 1/2 - 1,
+           ytop =  ri + 1/2 - 1,
+           col = category_colors[trait_categories$Category[match(colnames(table_to_use)[ci], trait_categories$Tag)]])
+    }
+    
+    #vertical total # options
+    if(ri == nrow(table_to_use)){
+      text(x = ci-0.5, y = ri+1 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), pos = 4, srt = 45,
+           labels = sig_twas_by_trait_genes_label[colnames(table_to_use)[ci]])
+    }
+    
+    #horiz total # of options
+    if(ci == ncol(table_to_use)){
+      text(x = ci+0.45, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0), pos = 4,
+           labels = n_genes_in_nodes_label[rownames(table_to_use)[ri]])
+    }
+    
+    #the actual cells
+    if(use_tissue_cols_for_cols){
+      rect(xleft = ci + 1/2,
+           xright = ci - 1/2,
+           ybottom = ri - 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0),
+           ytop =  ri + 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0),
+           col = adjustcolor(MotrpacBicQC::tissue_cols[rownames(table_to_use)[ri]], (table_to_use[ri, ci] / max(table_to_use, na.rm = T))^opacity_power_scaler ))  
+    } else {
+      rect(xleft = ci + 1/2,
+           xright = ci - 1/2,
+           ybottom = ri - 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0),
+           ytop =  ri + 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0),
+           col = heatmap_cols[table_to_use[ri, ci]])
+    }
+    
+    
+    
+    # rect(xleft = ci + 1/2,
+    #      xright = ci - 1/2,
+    #      ybottom = ri - 0.475,
+    #      ytop =  ri + 0.475,
+    #      col = heatmap_cols[table_to_use[ri, ci]],
+    #      border = MotrpacBicQC::tissue_cols[rownames(table_to_use)[ri]])
+    
+    #text inside of cells
+    if(table_to_use[ri, ci] != 0){
+      text_in_cell <- table_to_use[ri, ci]
+      if(incl_significance){
+        signif_dir <- c("₋", "","⁺")[match(signif_matrix_to_use[ri, ci], -1:1)]
+        text_in_cell <- paste0(text_in_cell, signif_dir)
+      }
+      if(use_tissue_cols_for_cols){
+        text(text_in_cell, x = ci, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0), 
+             col = ifelse((table_to_use[ri, ci] / max(table_to_use, na.rm = T))^opacity_power_scaler > opacity_white_threshold, "white", "black"), 
+             cex = 0.85 + ifelse(subset_to_traits, 0.1, 0))  
+      } else {
+        text(text_in_cell, x = ci, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0), col = "white", cex = 0.85 + ifelse(subset_to_traits, 0.5, 0))
+      }
+      if(incl_cell_totals){
+        text(sig_twas_by_trait_genes_matrix[,colnames(table_to_use)][ri, ci], 
+             x = ci - 0.7375, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0) - 0.325, 
+             col = "black", cex = 0.2, pos = 4, srt = 90)
+        text(n_genes_in_nodes_matrix[,colnames(table_to_use)][ri, ci], 
+             x = ci - 0.7, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0) - 0.4, 
+             col = "black", cex = 0.2, pos = 4, srt = 0)
+      }
+    }
+    
+  }
+}
+
+#tissue category bars
+if(group_by_tissue_type){
+  for(bi in 1:length(tissue_cats_bars_xlocs)){
+    segments(x0 = -tissue_cats_bars_xlocs[bi],
+             x1 = -tissue_cats_bars_xlocs[bi],
+             y0 = tissue_cats_bars_ylocs[bi,1],
+             y1 = tissue_cats_bars_ylocs[bi,2],
+             lwd = 3)
+    bracket_length <- 0.2
+    segments(x0 = -tissue_cats_bars_xlocs[bi],
+             x1 = -tissue_cats_bars_xlocs[bi]+bracket_length,
+             y0 = tissue_cats_bars_ylocs[bi,1],
+             y1 = tissue_cats_bars_ylocs[bi,1],
+             lwd = 3)
+    segments(x0 = -tissue_cats_bars_xlocs[bi],
+             x1 = -tissue_cats_bars_xlocs[bi]+bracket_length,
+             y0 = tissue_cats_bars_ylocs[bi,2],
+             y1 = tissue_cats_bars_ylocs[bi,2],
+             lwd = 3)
+    
+    text(x = -tissue_cats_bars_xlocs[bi], y = mean(tissue_cats_bars_ylocs[bi,]), pos = 2, 
+         labels = gsub("Gi", "GI", stringr::str_to_title(gsub("_", " ", names(tissue_cats)[bi]))), cex = 1.25)
+  }  
+}
+
+#legend for heatmap
+x_adj <- 2.25
+y_adj <- 0
+yb_adjust <- ifelse(incl_significance, 3, 0)
+n_legend_rects_to_use <- 30
+n_legend_labels_to_use <- 10
+legend_yvals <- round(seq(0, max(table_to_use), length.out = n_legend_labels_to_use))
+legend_ylocs <- seq(yb_adjust, 1 + nrow(table_to_use) + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), length.out = n_legend_rects_to_use)
+legend_ycols <- round(seq(1, max(table_to_use), length.out = n_legend_rects_to_use))
+for(i in 1:(n_legend_rects_to_use-1)){
+  yb = legend_ylocs[i]
+  yt = legend_ylocs[i+1]
+  print(paste(c(yb,yt)))
+  rect(xleft = ncol(table_to_use) + x_adj + 2 + 1/2,
+       xright = ncol(table_to_use) + x_adj + 2 - 1/2,
+       ybottom = yb,
+       ytop =  yt,
+       col = heatmap_cols[legend_ycols[i]], border = NA)
+}
+for(i in 1:n_legend_labels_to_use){
+  text(labels = legend_yvals[i], x = ncol(table_to_use) + x_adj + 2.4, pos = 4, cex = 0.75,
+       y = -0.25 + yb_adjust + legend_yvals[i] / max(table_to_use) * (1+nrow(table_to_use) - yb_adjust + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0)))
+}
+
+#overall rect for 0
+rect(xleft = ncol(table_to_use) + x_adj + 2 + 1/2,
+     xright = ncol(table_to_use) + x_adj + 2 - 1/2,
+     ybottom = min(legend_ylocs) - diff(range(legend_ylocs))/50,
+     ytop =  max(legend_ylocs))
+
+#legend for significance
+if(incl_significance){
+  text(labels = paste0("Pr(Enr.) > ", (1 - signif_threshold), " : X⁺\nPr(Dep.) > ", (1 - signif_threshold), " : X₋"),
+       x = ncol(table_to_use) + x_adj - 1.75,
+       y = yb_adjust-3.25, pos = 4, cex = 0.75)
+} else {
+  text(labels = paste0("* indicate \nIHW-adj. \np-vals < 0.05 \nfrom Fisher's Exact Test"),
+       x = ncol(table_to_use) + x_adj - 1.75,
+       y = yb_adjust-1.25, pos = 4, cex = 0.75, )
+}
+
+
+
+#legend for trait categories
+if(trait_category_legend_below){
+  x_adj2 <- 0
+  y_adj2 <- 2.5
+  for(i in 1:length(categories_represented)){
+    rect(xleft = -1/2 + i + cumsum(c(0,strwidth(categories_represented, units = "user") + 1))[i] + x_adj2,
+         xright = 1/2 + i + cumsum(c(0,strwidth(categories_represented, units = "user") + 1))[i] + x_adj2,
+         ybottom = -11,
+         ytop = -10,
+         col = category_colors[categories_represented[i]], border = 1)
+    text(labels = categories_represented[i], pos = 4, y = -10.5, x = x_adj2 + 0.35 + i + cumsum(c(0,strwidth(categories_represented, units = "user") + 1))[i])
+    #draw circle?
+    arc(t1 = 3*pi/2, t2 = pi/2, r1 = 10.5 / 2, r2 = 10.5 / 2, center = c(0,-10.5/2), lwd = 2, res = 100, adjx = ifelse(order_by_counts, 1, 1))
+    points(0, 0, pch = -9658, cex = 2)
+  }
+} else {
+  x_adj2 <- x_adj - 2.5
+  y_adj2 <- y_adj - 2.5
+  for(i in 1:length(category_colors)){
+    rect(xleft = 0 + i,
+         xright = 1 + i,
+         ybottom = -10,
+         ytop = -9,
+         col = category_colors[i], border = 1)
+    text(labels = names(category_colors)[i], pos = 4, y = i + y_adj2 - 7, x = ncol(table_to_use) - 1/2 + x_adj2 + 1/3)
+  }
+}
+
+#labels
+#horiz label for total
+segments(x0 = -2, x1 = 0.5, y0 = nrow(table_to_use) + 3 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0),
+         y1 = nrow(table_to_use) + 1 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), lwd = 2)
+segments(x0 = -2, x1 = 0.5, y0 = nrow(table_to_use) + 3 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), 
+         y1 = nrow(table_to_use) + 2.5 + ifelse(use_range_for_maginal_labels, 0, -0.5) + 
+           ifelse(order_by_counts, 0, -0.8) + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0) + 
+           ifelse(subset_to_traits, 1, 1.5), lwd = 2)
+text(x = -2, y = nrow(table_to_use) + 3 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), pos = 2, 
+     labels = paste0(ifelse(use_range_for_maginal_labels, "total", "max"), " # of\nTWAS hits"))
+
+#vertical label for total
+segments(x0 = ncol(table_to_use) + 2, x1 = ncol(table_to_use) + 0.75, 
+         y0 = nrow(table_to_use) + 3 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), 
+         y1 = nrow(table_to_use) + 0.75 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), lwd = 2)
+segments(x0 = ncol(table_to_use) + 2, x1 = ncol(table_to_use) + 1.75 + 
+           ifelse(subset_to_traits, 0, 1.25), 
+         y0 = nrow(table_to_use) + 3 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), 
+         y1 = nrow(table_to_use) + 0.75 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), lwd = 2)
+text(x = ncol(table_to_use) + 2 + ifelse(order_by_counts, 0, 2), y = nrow(table_to_use) + 3 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), pos = 3, 
+     labels = paste0(ifelse(use_range_for_maginal_labels, "total", "max"), " # of DEGs"))
+
+
+#legend and title labels
+text(labels = ifelse(use_counts, latex2exp::TeX("$n_{intersect}$"), latex2exp::TeX("‰_{ intersect}")), pos = 3, font = 2, cex = 1.25,
+     x = ncol(table_to_use) + x_adj + 2, y = nrow(table_to_use) + y_adj + 0.875 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0))
+if(use_counts){
+  text(latex2exp::TeX(paste0("number of genes in 8w - F↓M↓+ 8w - F↑M↑ with IHW significant TWAS at $\\alpha$ = 0.05")), 
+       x = 2 + ifelse(subset_to_traits, 0, 20), 
+       y = nrow(table_to_use) + 3.25 + 
+         ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0) + 
+         ifelse(subset_to_traits, 0, 1), pos = 4, cex = 1.5, font = 2)
+} else {
+  text(latex2exp::TeX(paste0("proportion (‰) of IHW significant TWAS hits at $\\alpha$ = 0.05 in 8w - F↓M↓ or 8w - F↑M↑")), 
+       x = 0, y = nrow(table_to_use) + 4.25 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), pos = 4, cex = 2.35, font = 2)
+}
+dev.off()
+
+
+
+
+
+#### plot a few Beta distributions ####
+
+xr <- 0:1000/1000
+dens <- dbeta(xr, 5,15)
+par(mfrow = c(1,1))
+plot(xr, dens, type = "l", lwd = 2, frame = F, yaxt = "n", xlab = "", ylab = "", cex.axis = 1.25)
+polygon(xr, dens, lwd = 2, col = adjustcolor(1,0.2))
+
+par(mfrow = c(3,5), mar = c(2,1,0,1))
+for(i in 1:15){
+  dens <- dbeta(xr, sample(5:15, 1), sample(10:30, 1))
+  plot(xr, dens, type = "l", lwd = 2, frame = F, yaxt = "n", xlab = "", ylab = "", cex.axis = 1.25)
+  polygon(xr, dens, lwd = 2, col = adjustcolor(tissue_cols[rownames(table_to_use)[i]],0.2))
+  
+}
+
+par(mfrow = c(10,20), mar = c(0.1,0.1,0.1,0.1))
+for(i in 1:200){
+  dens <- dbeta(xr, sample(30:40, 1), sample(80:120, 1))
+  plot(xr, dens, type = "l", lwd = 0.5, frame = F, yaxt = "n", xaxt = "n", xlab = "", ylab = "")
+  polygon(xr, dens, lwd = 0.5, col = adjustcolor(tissue_cols[sample(rownames(table_to_use),1)],1))
+  
+}
+
+#### compute binomial model counts to test for enrichment in + hits ####
+twas_with_hits <- colnames(prop_degs_are_twas)
+tissue_code <- MotrpacBicQC::bic_animal_tissue_code
+tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
+tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
+
+#get "null hypothesis" genes for comparison group
+load('~/data/smontgom/transcript_rna_seq_20211008.RData')
+rna_dea <- transcript_rna_seq$timewise_dea
+rna_dea <- rna_dea[rna_dea$comparison_group == "8w" & rna_dea$selection_fdr > 0.05,]
+rna_dea_null <- lapply(setNames(unique(rna_dea$tissue_abbreviation), unique(rna_dea$tissue_abbreviation)), function(tiss) {
+  print(tiss)
+  subset <- rna_dea[rna_dea$tissue_abbreviation == tiss,]
+  genes_in_sub <- table(subset$feature_ID)
+  genes_in_sub <- names(genes_in_sub)[genes_in_sub == 2]
+  if(length(genes_in_sub) == 0){return(NULL)}
+  subset <- subset[subset$feature_ID %in% genes_in_sub,c("feature_ID", "sex", "logFC")]
+  subset <- tidyr::spread(subset, key = "sex", value = "logFC")
+  subset <- subset[(sign(subset$female) * sign(subset$male)) == 1,]
+  x <- sign(subset$female)
+  names(x) <- subset$feature_ID
+  return(x)
+})
+do.call(rbind, lapply(rna_dea_null, function(x) table(x)))
+rm(transcript_rna_seq)
+
+
+data <- list()
+for(tissue_abbrev in names(twas_intersect)){
+  
+  tissue_i <- tissue_code$tissue_name_release[tissue_code$abbreviation == tissue_abbrev]
+  
+  print(tissue_i)
+  
+  sig_twas_by_trait <- lapply(setNames(twas_with_hits, twas_with_hits), 
+                              function(trait_i) sig_twas_by_tissue[[tissue_i]][sig_twas_by_tissue[[tissue_i]]$trait == trait_i,])
+  sig_twas_by_trait_genes <- lapply(setNames(twas_with_hits, twas_with_hits), 
+                                    function(trait_i) sig_twas_by_trait[[trait_i]]$gene_name)
+  sig_twas_by_trait_signs <- lapply(setNames(twas_with_hits, twas_with_hits), 
+                                    function(trait_i){
+                                      signs <- sign(sig_twas_by_trait[[trait_i]]$zscore)
+                                      names(signs) <- sig_twas_by_trait_genes[[trait_i]]
+                                      signs
+                                    })
+  
+  timepoint = "8w"
+  sex = "male"
+  
+  DE_genes_in_Nodes <- node_metadata_list[[timepoint]]$human_gene_symbol[
+    node_metadata_list[[timepoint]]$tissue == tissue_code$abbreviation[tissue_code$tissue_name_release == tissue_i]]
+  
+  if(length(DE_genes_in_Nodes) == 0){next()}
+  
+  DE_genes_in_Nodes_sign <- cbind(as.data.frame(do.call(rbind, strsplit(node_metadata_list[[timepoint]]$node[
+    node_metadata_list[[timepoint]]$tissue == tissue_code$abbreviation[tissue_code$tissue_name_release == tissue_i]], split = "_"))),
+    gene = DE_genes_in_Nodes)
+  
+  colnames(DE_genes_in_Nodes_sign) <- c("time", "female", "male", "gene")
+  DE_genes_in_Nodes_sign$female[grep(pattern = "F1", DE_genes_in_Nodes_sign$female)] <- 1
+  DE_genes_in_Nodes_sign$female[grep(pattern = "F-1", DE_genes_in_Nodes_sign$female)] <- -1
+  DE_genes_in_Nodes_sign$male[grep(pattern = "M1", DE_genes_in_Nodes_sign$male)] <- 1
+  DE_genes_in_Nodes_sign$male[grep(pattern = "M-1", DE_genes_in_Nodes_sign$male)] <- -1
+  DE_genes_in_Nodes_sign <- DE_genes_in_Nodes_sign[!is.na(DE_genes_in_Nodes_sign$gene),]
+  
+  DE_genes_signs <- as.integer(DE_genes_in_Nodes_sign[,sex])
+  names(DE_genes_signs) <- DE_genes_in_Nodes_sign$gene
+  
+  nDE_genes_signs <- rna_dea_null[[tissue_abbrev]]
+  names(nDE_genes_signs) <- gene_map$HUMAN_ORTHOLOG_SYMBOL[match(names(nDE_genes_signs), gene_map$RAT_ENSEMBL_ID)]
+  nDE_genes_signs <- nDE_genes_signs[!is.na(names(nDE_genes_signs))]
+  nDE_genes_signs <- nDE_genes_signs[!is.na(nDE_genes_signs)]
+  
+  results_1 <- as.data.frame(t(sapply(setNames(twas_with_hits, twas_with_hits), function(trait_i) {
+    twas_signs <- sig_twas_by_trait_signs[[trait_i]]
+    shared_genes <- intersect(names(DE_genes_signs), names(twas_signs))
+    if(length(shared_genes) != 0){
+      shared_genes_signs <- twas_signs[shared_genes] * DE_genes_signs[shared_genes]
+      output <- c(count = sum(shared_genes_signs > 0), total = length(shared_genes_signs))
+      return(output)
+    } else {return(c(0,0))}
+  })))
+  
+  results_2 <- as.data.frame(t(sapply(setNames(twas_with_hits, twas_with_hits), function(trait_i) {
+    twas_signs <- sig_twas_by_trait_signs[[trait_i]]
+    shared_genes <- intersect(names(nDE_genes_signs), names(twas_signs))
+    if(length(shared_genes) != 0){
+      shared_genes_signs <- twas_signs[shared_genes] * nDE_genes_signs[shared_genes]
+      output <- c(count = sum(shared_genes_signs > 0), total = length(shared_genes_signs))
+      return(output)
+    } else {return(c(0,0))}
+  })))
+  
+  results_1$tissue <- tissue_abbrev
+  results_1$trait <- rownames(results_1)
+  results_1$group <- "focal"
+  
+  results_2$tissue <- tissue_abbrev
+  results_2$trait <- rownames(results_2)
+  results_2$group <- "compl"
+  
+  data[[tissue_abbrev]] <- rbind(results_1, results_2)
+  
+}
+
+hist(log2(unlist(lapply(data, function(x) (x$count / x$total)[x$group == "focal"] / (x$count / x$total)[x$group == "compl"]))), breaks = c(-3,0, 3))
+x <- log2(unlist(lapply(data, function(x) (x$count / x$total)[x$group == "focal"] / (x$count / x$total)[x$group == "compl"])))
+x <- x[x != Inf & x != -Inf & !is.na(x)]
+hist(x, breaks = c(-max(abs(x)),0,max(abs(x))))
+mean(x > 0)
+
+#### compute binomial model counts to test for enrichment in + hits, alternate version ####
+twas_with_hits <- colnames(prop_degs_are_twas)
+tissue_code <- MotrpacBicQC::bic_animal_tissue_code
+tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
+tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
+possible_genes <- intersect(all_orthologs_tested, all_twas_genes_tested)
+compatible_twas_genes <- some.twas$gene_name %in% possible_genes
+twas_by_tissue <- lapply(setNames(unique(some.twas$tissue), tissue_abbr[unique(some.twas$tissue)]), function(tiss) {
+  print(tiss)
+  some.twas[some.twas$tissue == tiss & compatible_twas_genes,]
+})
+
+#get "null hypothesis" genes for overall probabilities
+load('~/data/smontgom/transcript_rna_seq_20211008.RData')
+rna_dea <- transcript_rna_seq$timewise_dea
+rna_dea <- rna_dea[rna_dea$comparison_group == "8w",]
+rna_dea_null <- lapply(setNames(unique(rna_dea$tissue_abbreviation), unique(rna_dea$tissue_abbreviation)), function(tiss) {
+  print(tiss)
+  subset <- rna_dea[rna_dea$tissue_abbreviation == tiss,]
+  subset$gene <- gene_map$HUMAN_ORTHOLOG_SYMBOL[match(subset$feature_ID, gene_map$RAT_ENSEMBL_ID)]
+  subset <-subset[subset$gene %in% possible_genes,]
+  genes_in_sub <- table(subset$feature_ID)
+  genes_in_sub <- names(genes_in_sub)[genes_in_sub == 2]
+  if(length(genes_in_sub) == 0){return(NULL)}
+  subset <- subset[subset$feature_ID %in% genes_in_sub,c("feature_ID", "sex", "logFC")]
+  subset <- tidyr::spread(subset, key = "sex", value = "logFC")
+  subset <- subset[(sign(subset$female) * sign(subset$male)) == 1,]
+  x <- sign(subset$female)
+  names(x) <- gene_map$HUMAN_ORTHOLOG_SYMBOL[match(subset$feature_ID, gene_map$RAT_ENSEMBL_ID)]
+  return(x)
+})
+do.call(rbind, lapply(rna_dea_null, function(x) table(x)))
+rm(transcript_rna_seq)
+
+tissues <- tissue_code$abbreviation[match(names(motrpac_gtex_map), tissue_code$tissue_name_release)]
+tissues <- setdiff(tissues, c("HYPOTH", "TESTES", "OVARY"))
+data_null <- lapply(setNames(tissues, tissues), function(tiss){
+  print(tiss)
+  tws <- twas_by_tissue[[tiss]]
+  motr <- rna_dea_null[[tiss]]
+  if(is.null(motr) | is.null(tws)){
+    return(NULL)
+  }
+  compatible_genes <- intersect(names(motr), tws$gene_name)
+  motr <- motr[compatible_genes]
+  tws <- tws[tws$gene_name %in% compatible_genes,]
+  tws$motrpac_sign <- motr[tws$gene_name]
+  tws$twas_sign <- sign(tws$zscore)
+  tws <- tws[tws$twas_sign != 0,]
+  output <- as.data.frame(t(sapply(setNames(twas_with_hits, twas_with_hits), function(trait_i) {
+    trait_subset <- tws[tws$trait == trait_i, c("motrpac_sign", "twas_sign")]
+    c(count_twas = sum(trait_subset$twas_sign > 0), count_motr = sum(trait_subset$motrpac_sign > 0), total = nrow(trait_subset))
+  })))
+  output$trait <- rownames(output)
+  output$tissue <- tiss
+  rownames(output) <- NULL
+  output
+})
+data_null <- do.call(rbind, data_null)
+hist(data_null$count_twas / data_null$total)
+hist(data_null$count_motr / data_null$total)
+
+adj_pvalue_alpha <- 0.05
+sig_twas_by_tissue <- lapply(setNames(names(motrpac_gtex_map), names(motrpac_gtex_map)), function(tissue){
+                               inds <- which(some.twas$tissue == tissue & some.twas$adj_pvalue < adj_pvalue_alpha)
+                               some.twas[inds,]
+  })
+data_not_null <- lapply(setNames(tissues, tissues), function(tissue_abbrev){
+  tissue_i <- tissue_code$tissue_name_release[tissue_code$abbreviation == tissue_abbrev]
+  
+  print(tissue_i)
+  
+  sig_twas_by_trait <- lapply(setNames(twas_with_hits, twas_with_hits), 
+                              function(trait_i) sig_twas_by_tissue[[tissue_i]][sig_twas_by_tissue[[tissue_i]]$trait == trait_i,])
+  sig_twas_by_trait_genes <- lapply(setNames(twas_with_hits, twas_with_hits), 
+                                    function(trait_i) sig_twas_by_trait[[trait_i]]$gene_name)
+  sig_twas_by_trait_signs <- lapply(setNames(twas_with_hits, twas_with_hits), 
+                                    function(trait_i){
+                                      signs <- sign(sig_twas_by_trait[[trait_i]]$zscore)
+                                      names(signs) <- sig_twas_by_trait_genes[[trait_i]]
+                                      signs
+                                    })
+  
+  timepoint = "8w"
+  sex = "male"
+  
+  DE_genes_in_Nodes <- node_metadata_list[[timepoint]]$human_gene_symbol[
+    node_metadata_list[[timepoint]]$tissue == tissue_code$abbreviation[tissue_code$tissue_name_release == tissue_i]]
+  
+  if(length(DE_genes_in_Nodes) == 0){return(NULL)}
+  
+  DE_genes_in_Nodes_sign <- cbind(as.data.frame(do.call(rbind, strsplit(node_metadata_list[[timepoint]]$node[
+    node_metadata_list[[timepoint]]$tissue == tissue_code$abbreviation[tissue_code$tissue_name_release == tissue_i]], split = "_"))),
+    gene = DE_genes_in_Nodes)
+  
+  colnames(DE_genes_in_Nodes_sign) <- c("time", "female", "male", "gene")
+  DE_genes_in_Nodes_sign$female[grep(pattern = "F1", DE_genes_in_Nodes_sign$female)] <- 1
+  DE_genes_in_Nodes_sign$female[grep(pattern = "F-1", DE_genes_in_Nodes_sign$female)] <- -1
+  DE_genes_in_Nodes_sign$male[grep(pattern = "M1", DE_genes_in_Nodes_sign$male)] <- 1
+  DE_genes_in_Nodes_sign$male[grep(pattern = "M-1", DE_genes_in_Nodes_sign$male)] <- -1
+  DE_genes_in_Nodes_sign <- DE_genes_in_Nodes_sign[!is.na(DE_genes_in_Nodes_sign$gene),]
+  
+  DE_genes_signs <- as.integer(DE_genes_in_Nodes_sign[,sex])
+  names(DE_genes_signs) <- DE_genes_in_Nodes_sign$gene
+  
+  output <- as.data.frame(t(sapply(setNames(twas_with_hits, twas_with_hits), function(trait_i) {
+    twas_signs <- sig_twas_by_trait_signs[[trait_i]]
+    shared_genes <- intersect(names(DE_genes_signs), names(twas_signs))
+    if(length(shared_genes) != 0){
+      shared_genes_signs <- twas_signs[shared_genes] * DE_genes_signs[shared_genes]
+      output <- c(count = sum(shared_genes_signs > 0), total = length(shared_genes_signs))
+      return(output)
+    } else {return(c(0,0))}
+  })))
+  
+  output$trait <- rownames(output)
+  output$tissue <- tissue_abbrev
+  rownames(output) <- NULL
+  output
+})
+data_not_null <- do.call(rbind, data_not_null)
+
+#confirm matchup
+all(paste0(data_null$trait, "~", data_null$tissue) == paste0(data_not_null$trait, "~", data_not_null$tissue))
+
+#some quick eda
+plot(data_null$count_twas / data_null$total * data_null$count_motr / data_null$total + 
+       (1-data_null$count_twas / data_null$total) * (1-data_null$count_motr / data_null$total),
+     (data_not_null$count+1) / (data_not_null$total+2), pch = 19, col = adjustcolor(1, 0.5),
+     cex = data_not_null$total / max(data_not_null$total) * 5,
+     xlab = "expected proportion positives under null",
+     ylab = "posterior mean proportion updated from Beta(1,1)")
+# points((data_null$count_twas / data_null$total * data_null$count_motr / data_null$total + 
+#        (1-data_null$count_twas / data_null$total) * (1-data_null$count_motr / data_null$total))[c(3, 403, 563, 803)],
+#      (data_not_null$count / data_not_null$total)[c(3, 403, 563, 803)], pch = 19, col = adjustcolor(3, 0.5),
+#      cex = (data_not_null$total / max(data_not_null$total) * 5)[c(3, 403, 563, 803)])
+abline(h = 0.5, lty = 2, col = adjustcolor(2, 0.75), lwd = 2)
+abline(v = 0.5, lty = 2, col = adjustcolor(2, 0.75), lwd = 2)
+
+#check iid flat beta model
+basic_posteriors_masses <- 1 - pbeta(q = data_null$count_twas / data_null$total * data_null$count_motr / data_null$total + 
+                                       (1-data_null$count_twas / data_null$total) * (1-data_null$count_motr / data_null$total),
+                                     shape1 = 1 + data_not_null$count, shape2 = 1 + data_not_null$total - data_not_null$count)
+sum(basic_posteriors_masses > 0.95)
+sum(basic_posteriors_masses < 0.05)
+head(data_not_null[order(abs(basic_posteriors_masses - 0.5), decreasing = T),], 20)
+table(data_not_null[which(basic_posteriors_masses > 0.95),"trait"])
+table(data_not_null[which(basic_posteriors_masses < 0.05),"trait"])
+
+hist(sapply(tissues, function(tiss) diff(range(data_null$count_twas[data_null$tissue == tiss] / data_null$total[data_null$tissue == tiss]))))
+hist(sapply(traits, function(trait) diff(range(data_null$count_twas[data_null$trait == trait] / data_null$total[data_null$trait == trait]))))
+hist(sapply(tissues, function(tiss) diff(range(data_null$count_motr[data_null$tissue == tiss] / data_null$total[data_null$tissue == tiss]))))
+hist(sapply(traits, function(trait) diff(range(data_null$count_motr[data_null$trait == trait] / data_null$total[data_null$trait == trait]))))
+trait
+data_null$count_motr[data_null$trait == trait] / data_null$total[data_null$trait == trait]
+data_null[data_null$trait == trait,]$count_motr / data_null[data_null$trait == trait,]$total
+#potential source of heterogeneity here! 
+
+
+#bayesian model
+traits <- unique(data_null$trait)
+tissues <- unique(data_null$tissue)
+d <- list(intersect_count = data_not_null$count,
+          intersect_total = data_not_null$total,
+          twas_count = data_null$count_twas,
+          motr_count = data_null$count_motr,
+          twas_motr_total = data_null$total,
+          trait = match(data_null$trait, traits),
+          tissue = match(data_null$tissue, tissues),
+          n_trait = length(traits),
+          n_tissue = length(tissues)
+)
+
+# stan_program <- '
+# data {
+#     int<lower=1> n_trait;
+#     int<lower=1> n_tissue;
+#     int<lower=1,upper=n_trait> trait[n_trait * n_tissue];
+#     int<lower=1,upper=n_tissue> tissue[n_trait * n_tissue];
+#     int<lower=0> intersect_count[n_trait * n_tissue];
+#     int<lower=0> intersect_total[n_trait * n_tissue];
+#     int<lower=0> twas_count[n_trait * n_tissue];
+#     int<lower=0> motr_count[n_trait * n_tissue];
+#     int<lower=0> twas_motr_total[n_trait * n_tissue];
+# }
+# transformed data {
+#     int<lower=1> n = n_trait * n_tissue;
+# }
+# parameters {
+#     //main parameters
+#     real trait_mean;
+#     real<lower=0> trait_sd;
+#     vector[n_trait] raw_trait_logodds;
+# 
+#     real tissue_mean;
+#     real<lower=0> tissue_sd;
+#     vector[n_tissue] raw_tissue_logodds;
+#     
+#     vector[n] raw_intersect_logodds;
+#     real<lower=0> intersect_sd;
+#     
+#     //biases in deviations terms
+#     vector[n_tissue] tissue_bias_mean;
+#     vector<lower=0>[n_tissue] tissue_bias_sd;
+#     vector[n_trait] trait_bias_mean;
+#     vector<lower=0>[n_trait] trait_bias_sd;
+#     
+#     //multilevel deviation term params
+#     real<lower=0> tissue_bias_mean_sd;
+#     real<lower=0> trait_bias_mean_sd;
+# }
+# transformed parameters {
+#     //recenter params
+#     vector[n_trait] trait_logodds = raw_trait_logodds * trait_sd + trait_mean;
+#     vector[n_tissue] tissue_logodds = raw_tissue_logodds * tissue_sd + tissue_mean;
+#     
+#     vector[n_trait] neg_trait_logodds = logit(1 - inv_logit(trait_logodds));
+#     vector[n_tissue] neg_tissue_logodds = logit(1 - inv_logit(tissue_logodds));
+#     
+#     vector[n] intersect_mean = logit(inv_logit(trait_logodds[trait]) .* inv_logit(tissue_logodds[tissue]) +
+#                                      inv_logit(neg_trait_logodds[trait]) .* inv_logit(neg_tissue_logodds[tissue]));
+#     vector[n] intersect_logodds = raw_intersect_logodds * intersect_sd .* tissue_bias_sd[tissue] .* trait_bias_sd[trait] +
+#                                   intersect_mean + tissue_bias_mean[tissue] * tissue_bias_mean_sd + 
+#                                   trait_bias_mean[trait] * trait_bias_mean_sd;
+# }
+# model {
+#     //priors / hyperpriors
+#     raw_trait_logodds ~ std_normal();
+#     trait_mean ~ normal(0,2);
+#     trait_sd ~ normal(0,2);
+#     
+#     raw_tissue_logodds ~ std_normal();
+#     tissue_mean ~ normal(0,2);
+#     tissue_sd ~ normal(0,2);
+#     
+#     raw_intersect_logodds ~ std_normal();
+#     intersect_sd ~ normal(0,2);
+#     
+#     tissue_bias_mean ~ std_normal();
+#     tissue_bias_sd ~ std_normal();
+#     trait_bias_mean ~ std_normal();
+#     trait_bias_sd ~ std_normal();
+#     tissue_bias_mean_sd ~ std_normal();
+#     trait_bias_mean_sd ~ std_normal();
+#     
+#     //likelihood
+#     twas_count ~ binomial_logit(twas_motr_total, trait_logodds[trait]);
+#     motr_count ~ binomial_logit(twas_motr_total, tissue_logodds[tissue]);
+#     intersect_count ~ binomial_logit(intersect_total, intersect_logodds);
+# }
+# generated quantities {
+#     vector[n] difference_in_props = inv_logit(intersect_logodds) - inv_logit(intersect_mean);
+# }
+# '
+
+# stan_program <- '
+# data {
+#     int<lower=1> n_trait;
+#     int<lower=1> n_tissue;
+#     int<lower=1,upper=n_trait> trait[n_trait * n_tissue];
+#     int<lower=1,upper=n_tissue> tissue[n_trait * n_tissue];
+#     int<lower=0> intersect_count[n_trait * n_tissue];
+#     int<lower=0> intersect_total[n_trait * n_tissue];
+#     int<lower=0> twas_count[n_trait * n_tissue];
+#     int<lower=0> motr_count[n_trait * n_tissue];
+#     int<lower=0> twas_motr_total[n_trait * n_tissue];
+# }
+# transformed data {
+#     int<lower=1> n = n_trait * n_tissue;
+# }
+# parameters {
+#     vector[n] raw_intersect_logodds;
+#     real intersect_logodds_log_sd;
+# }
+# transformed parameters {
+#     vector[n] intersect_logodds = raw_intersect_logodds * exp(intersect_logodds_log_sd);
+# 
+# }
+# model {
+#     raw_intersect_logodds ~ std_normal();
+#     intersect_logodds_log_sd ~ normal(0,2);
+#     intersect_count ~ binomial_logit(intersect_total, intersect_logodds);
+# }
+# generated quantities {
+#     vector[n] difference_in_props = inv_logit(intersect_logodds) - 0.5;
+# }
+# '
+
+stan_program <- '
+data {
+    int<lower=1> n_trait;
+    int<lower=1> n_tissue;
+    int<lower=1,upper=n_trait> trait[n_trait * n_tissue];
+    int<lower=1,upper=n_tissue> tissue[n_trait * n_tissue];
+    int<lower=0> intersect_count[n_trait * n_tissue];
+    int<lower=0> intersect_total[n_trait * n_tissue];
+    int<lower=0> twas_count[n_trait * n_tissue];
+    int<lower=0> motr_count[n_trait * n_tissue];
+    int<lower=0> twas_motr_total[n_trait * n_tissue];
+}
+transformed data {
+    int<lower=1> n = n_trait * n_tissue;
+}
+parameters {
+    //main parameters
+    real trait_mean;
+    real<lower=0> trait_sd;
+    vector[n_trait] raw_trait_logodds;
+    real<lower=0> within_trait_sd;
+    vector[n] raw_within_trait_logodds;
+
+    real tissue_mean;
+    real<lower=0> tissue_sd;
+    vector[n_tissue] raw_tissue_logodds;
+    real<lower=0> within_tissue_sd;
+    vector[n] raw_within_tissue_logodds;
+
+    vector[n] raw_intersect_logodds;
+    real<lower=0> intersect_sd;
+    
+    //biases in deviations terms
+    vector[n_tissue] tissue_bias_mean;
+    vector[n_tissue] tissue_bias_log_sd;
+    vector[n_trait] trait_bias_mean;
+    vector[n_trait] trait_bias_log_sd;
+    
+    //multilevel deviation term params
+    real<lower=0> tissue_bias_log_sd_sd;
+    real<lower=0> trait_bias_log_sd_sd;
+    real<lower=0> tissue_bias_mean_sd;
+    real<lower=0> trait_bias_mean_sd;
+}
+transformed parameters {
+    //recenter params
+    vector[n_trait] trait_logodds = raw_trait_logodds * trait_sd + trait_mean;
+    vector[n_tissue] tissue_logodds = raw_tissue_logodds * tissue_sd + tissue_mean;
+    
+    vector[n] within_trait_logodds = raw_within_trait_logodds * within_trait_sd + trait_logodds[trait];
+    vector[n] within_tissue_logodds = raw_within_tissue_logodds * within_tissue_sd + tissue_logodds[tissue];
+    
+    vector<lower=0, upper=1>[n] within_trait_prob = inv_logit(within_trait_logodds);
+    vector<lower=0, upper=1>[n] within_tissue_prob = inv_logit(within_tissue_logodds);
+    
+    vector[n] intersect_mean = logit(within_trait_prob .* within_tissue_prob +
+                                     (1-within_trait_prob) .* (1-within_tissue_prob));
+    vector[n] intersect_logodds = raw_intersect_logodds * intersect_sd .* exp(tissue_bias_log_sd[tissue] * tissue_bias_log_sd_sd) .* 
+                                  exp(trait_bias_log_sd[trait] * trait_bias_log_sd_sd) +
+                                  intersect_mean + tissue_bias_mean[tissue] * tissue_bias_mean_sd + 
+                                  trait_bias_mean[trait] * trait_bias_mean_sd;
+}
+model {
+    //priors and hyperpriors
+    raw_trait_logodds ~ std_normal();
+    trait_mean ~ normal(0,2);
+    trait_sd ~ normal(0,2);
+    raw_within_trait_logodds ~ std_normal();
+    within_trait_sd ~ normal(0,2);
+    
+    raw_tissue_logodds ~ std_normal();
+    tissue_mean ~ normal(0,2);
+    tissue_sd ~ normal(0,2);
+    raw_within_tissue_logodds ~ std_normal();
+    within_tissue_sd ~ normal(0,2);
+    
+    raw_intersect_logodds ~ std_normal();
+    intersect_sd ~ normal(0,2);
+    
+    tissue_bias_mean ~ std_normal();
+    tissue_bias_log_sd ~ std_normal();
+    tissue_bias_log_sd_sd ~ std_normal();
+    trait_bias_mean ~ std_normal();
+    trait_bias_log_sd ~ std_normal();
+    trait_bias_log_sd_sd ~ std_normal();
+    tissue_bias_mean_sd ~ std_normal();
+    trait_bias_mean_sd ~ std_normal();
+    
+    //likelihood
+    twas_count ~ binomial_logit(twas_motr_total, within_trait_logodds);
+    motr_count ~ binomial_logit(twas_motr_total, within_tissue_logodds);
+    intersect_count ~ binomial_logit(intersect_total, intersect_logodds);
+}
+generated quantities {
+    vector[n] difference_in_props = inv_logit(intersect_logodds) - inv_logit(intersect_mean);
+}
+'
+
+fit_model <- F
+if(fit_model){
+  
+  #compile model
+  if(!exists("curr_stan_program") || stan_program != curr_stan_program){
+    curr_stan_program <- stan_program
+    f <- write_stan_file(stan_program)
+  }
+  mod <- cmdstan_model(f)
+  
+  #write model
+  write_stan_file(stan_program, dir = "~/Desktop/", basename = paste0(base, ifelse(use_all_cats, "_allCats", "")))
+  write_stan_json(d, paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".json"))
+  
+  #fit model
+  out <- mod$sample(chains = 4, iter_sampling = 1E3, iter_warmup = 1E3, data = d, parallel_chains = 4, 
+                    adapt_delta = 0.9, refresh = 50, init = 0.1, max_treedepth = 20, thin = 5)
+  # out <- mod$sample(chains = 4, iter_sampling = 1E3, iter_warmup = 1E3, data = d, parallel_chains = 4, adapt_delta = 0.9, refresh = 10, init = 0.1, max_treedepth = 15)
+  summ <- out$summary()
+  summ[order(summ$ess_bulk),]
+  summ[order(summ$rhat, decreasing = T),]
+  save(out, file = paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
+} else {
+  load(paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
+}
+
+samps <- data.frame(as_draws_df(out$draws()))
+
+#take a look at output
+hist(apply(samps[,grep("difference_in_props", colnames(samps))], 2, mean))
+prop_greater_than_0 <- function(x) mean(x>0)
+sum((apply(samps[,grep("difference_in_props", colnames(samps))], 2, prop_greater_than_0)) > 0.95)
+sum((apply(samps[,grep("difference_in_props", colnames(samps))], 2, prop_greater_than_0)) < 0.05)
+hist(invlogit(samps$intersect_logodds.2.) - invlogit(samps$intersect_mean.2.))
+data_not_null[which((apply(samps[,grep("difference_in_props", colnames(samps))], 2, prop_greater_than_0)) > 0.95),]
+hist(invlogit(samps$intersect_mean.1.))
+hist(invlogit(samps$intersect_logodds.1.))
+
+#compare estimated mean probs t
+
+sum((apply(samps[,grep("tissue_bias_mean\\.", colnames(samps))], 2, prop_greater_than_0)) > 0.95)
+traits[which((apply(samps[,grep("trait_bias_mean\\.", colnames(samps))], 2, prop_greater_than_0)) > 0.95)]
+
+plot(data_null$count_twas / data_null$total,
+     apply(invlogit(samps[,setdiff(grep("within_trait_logodds", colnames(samps)), grep("raw", colnames(samps)))]), 2, mean),
+     pch = 19, col = adjustcolor(match(data_null$trait, traits), 0.75))
+abline(0,1,col=2,lty=2)
+
+plot(data_null$count_motr / data_null$total,
+     apply(invlogit(samps[,setdiff(grep("within_tissue_logodds", colnames(samps)), grep("raw", colnames(samps)))]), 2, mean))
+abline(0,1,col=2,lty=2)
+
+plot((data_not_null$count + 1) / (data_not_null$total + 2), 
+     apply(invlogit(samps[,setdiff(grep("intersect_logodds", colnames(samps)), grep("raw", colnames(samps)))]), 2, mean),
+     col = adjustcolor(1, 0.25), pch = 19)
+points((data_not_null$count / data_not_null$total)[which((apply(samps[,grep("difference_in_props", colnames(samps))], 2, prop_greater_than_0)) > 0.95)], 
+       (apply(invlogit(samps[,setdiff(grep("intersect_logodds", colnames(samps)), grep("raw", colnames(samps)))]), 2, mean))[which((apply(samps[,grep("difference_in_props", colnames(samps))], 2, prop_greater_than_0)) > 0.95)],
+       col = adjustcolor(3, 1), pch = 19)
+abline(0,1,col=2,lty=2)
+
+hist(apply(invlogit(samps[,setdiff(grep("intersect_logodds", colnames(samps)), grep("raw", colnames(samps)))]), 2, mean))
+hist(apply(invlogit(samps[,setdiff(grep("intersect_logodds", colnames(samps)), grep("raw", colnames(samps)))]), 2, mean))
+data_not_null[which(abs(apply(invlogit(samps[,setdiff(grep("intersect_logodds", colnames(samps)), grep("raw", colnames(samps)))]), 2, mean)-0.5) > 0.1),]
+
+hist(apply(invlogit(samps[,setdiff(grep("intersect_mean", colnames(samps)), grep("raw", colnames(samps)))]), 2, mean))
+
+#### FINAL-ish prop pos hits bayesian model ####
+twas_with_hits <- colnames(prop_degs_are_twas)
+tissue_code <- MotrpacBicQC::bic_animal_tissue_code
+tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
+tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
+tissue_code_vec <- setNames(tissue_code$tissue_name_release, tissue_code$abbreviation)
+possible_genes <- intersect(all_orthologs_tested, all_twas_genes_tested)
+compatible_twas_genes <- some.twas$gene_name %in% possible_genes
+twas_by_tissue <- lapply(setNames(unique(some.twas$tissue), tissue_abbr[unique(some.twas$tissue)]), function(tiss) {
+  print(tiss)
+  some.twas[some.twas$tissue == tiss & compatible_twas_genes,]
+})
+
+#calculate which traits are good and which are bad
+trait_goodness <- list("Standing_Height_UKB" = 0,
+                       "BMI_UKB" = -1,
+                       "Height" = 0,
+                       "Body_Fat_Percentage_UKB" = -1,
+                       "Hypertension_UKBS" = -1,
+                       "Hayfever_UKB" = -1,
+                       "Birth_Weight_UKB" = 1,
+                       "Neuroticism_UKB" = -1,
+                       "Asthma_UKB" = -1,
+                       "Asthma_UKBS" = -1,
+                       "Schizophrenia" = -1,
+                       "Chronotype_UKB" = 0,
+                       "Fluid_Intelligence_Score_UKB" = 1,
+                       "Rheumatoid_Arthritis" = -1,
+                       "Education_Years" = 1,
+                       "Inflammatory_Bowel_Disease" = -1,
+                       "HDL_Cholesterol" = 1,
+                       "High_Cholesterol_UKBS" = -1,
+                       "Crohns_Disease" = -1,
+                       "Sleep_Duration_UKB" = 0,
+                       "Triglycerides" = -1,
+                       "Insomnia_UKB" = -1,
+                       "Birth_Weight" = 1,
+                       "Hip_Circumference_EUR" = -1,
+                       "LDL_Cholesterol" = -1,
+                       "Waist_Circumference_EUR" = -1,
+                       "Ulcerative_Colitis" = -1,
+                       "Mothers_Age_At_Death_UKB" = -1,
+                       "Heart_Attack_UKB" = -1,
+                       "Multiple_Sclerosis" = -1,
+                       "BMI_Active_Inds" = 0,
+                       "Fathers_Age_At_Death_UKB" = -1,
+                       "Systemic_Lupus_Erythematosus" = -1,
+                       "BMI_EUR" = 1,
+                       "Psoriasis_UKBS" = -1,
+                       "Deep_Venous_Thrombosis_UKBS" = -1,
+                       "Coronary_Artery_Disease" = -1,
+                       "Waist-to-Hip_Ratio_EUR" = -1,
+                       "Alzheimers_Disease" = -1,
+                       "Heart_Rate" = -1,
+                       "Multiple_Sclerosis_UKBS" = -1,
+                       "Rheumatoid_Arthritis_UKBS" = -1,
+                       "HDL_Cholesterol_NMR" = 1,
+                       "Depressive_Symptoms" = -1,
+                       "Ankylosing_Spondylitis_UKBS" = -1,
+                       "Type_1_Diabetes_UKBS" = -1,
+                       "Adiponectin" = 1,
+                       "BMI_Childhood" = -1,
+                       "Triglycerides_NMR" = -1,
+                       "CH2DB_NMR" = 0,
+                       "LDL_Cholesterol_NMR" = -1,
+                       "Diastolic_Blood_Pressure" = -1,
+                       "Chronotype" = 0,
+                       "Crohns_Disease_UKBS" = -1,
+                       "Pubertal_Height_Male" = 0,
+                       "Fasting_Glucose" = -1,
+                       "Attention_Deficit_Hyperactivity_Disorder" = -1,
+                       "Birth_Length" = 0,
+                       "Bone_Mineral_Density" = 1,
+                       "Systolic_Blood_Pressure" = -1,
+                       "Celiac_Disease" = -1,
+                       "Sleep_Duration" = 0,
+                       "Smoker" = -1,
+                       "Ulcerative_Colitis_UKBS" = -1,
+                       "Deep_Venous_Thrombosis_UKB" = -1,
+                       "Chronic_Kidney_Disease" = -1,
+                       "Insomnia_In_Both_Sexes" = -1,
+                       "Pubertal_Height_Female" = 0,
+                       "Intracraneal_Volume" = 0,
+                       "Epilepsy" = -1,
+                       "Stroke" = -1,
+                       "Migraine_UKBS" = -1,
+                       "Insomnia_UKBS" = -1,
+                       "Pulmonary_Embolism_UKB" = -1)
+trait_goodness <- setNames(as.numeric(trait_goodness), names(trait_goodness))
+mean(trait_goodness == 0)
+
+
+#get "null hypothesis" genes for overall probabilities
+load('~/data/smontgom/transcript_rna_seq_20211008.RData')
+rna_dea <- transcript_rna_seq$timewise_dea
+rna_dea <- rna_dea[rna_dea$comparison_group == "8w",]
+rna_dea_null <- lapply(setNames(unique(rna_dea$tissue_abbreviation), unique(rna_dea$tissue_abbreviation)), function(tiss) {
+  print(tiss)
+  subset <- rna_dea[rna_dea$tissue_abbreviation == tiss,]
+  subset$gene <- gene_map$HUMAN_ORTHOLOG_SYMBOL[match(subset$feature_ID, gene_map$RAT_ENSEMBL_ID)]
+  subset <-subset[subset$gene %in% possible_genes,]
+  genes_in_sub <- table(subset$feature_ID)
+  genes_in_sub <- names(genes_in_sub)[genes_in_sub == 2]
+  if(length(genes_in_sub) == 0){return(NULL)}
+  subset <- subset[subset$feature_ID %in% genes_in_sub,c("feature_ID", "sex", "logFC")]
+  subset <- tidyr::spread(subset, key = "sex", value = "logFC")
+  subset <- subset[(sign(subset$female) * sign(subset$male)) == 1,]
+  x <- sign(subset$female)
+  names(x) <- gene_map$HUMAN_ORTHOLOG_SYMBOL[match(subset$feature_ID, gene_map$RAT_ENSEMBL_ID)]
+  return(x)
+})
+do.call(rbind, lapply(rna_dea_null, function(x) table(x)))
+rm(transcript_rna_seq)
+
+tissues <- tissue_code$abbreviation[match(names(motrpac_gtex_map), tissue_code$tissue_name_release)]
+tissues <- setdiff(tissues, c("HYPOTH", "TESTES", "OVARY"))
+adj_pvalue_alpha <- 0.05
+data <- lapply(setNames(tissues, tissues), function(tiss){
+  print(tiss)
+  tws <- twas_by_tissue[[tiss]]
+  
+  #get focal genesets
+  sig_tws <- tws[tws$adj_pvalue < adj_pvalue_alpha,]
+  DE_genes_in_Nodes <- node_metadata_list[["8w"]]$human_gene_symbol[node_metadata_list[["8w"]]$tissue == tiss]
+  DE_genes_in_Nodes <- DE_genes_in_Nodes[!is.na(DE_genes_in_Nodes)]
+  DE_genes_in_Nodes <- unique(DE_genes_in_Nodes[DE_genes_in_Nodes %in% possible_genes])
+  
+  motr <- rna_dea_null[[tiss]]
+  if(is.null(motr) | is.null(tws)){
+    return(NULL)
+  }
+  compatible_genes <- intersect(names(motr), tws$gene_name)
+  motr <- motr[compatible_genes]
+  tws <- tws[tws$gene_name %in% compatible_genes,]
+  
+  tws$motrpac_sign <- motr[tws$gene_name]
+  tws$twas_sign <- sign(tws$zscore)
+  tws <- tws[tws$twas_sign != 0,]
+  tws$effect_dir <- tws$twas_sign * tws$motrpac_sign
+  output <- as.data.frame(t(sapply(setNames(twas_with_hits, twas_with_hits), function(trait_i) {
+    trait_subset <- tws[tws$trait == trait_i, c("gene_name", "effect_dir")]
+    trait_subset <- setNames(trait_subset$effect_dir, trait_subset$gene_name)
+    twas_genes <- sig_tws$gene_name[sig_tws$trait == trait_i & sig_tws$gene_name %in% all_orthologs_tested]
+    twas_genes <- twas_genes[twas_genes %in% names(trait_subset)]
+    motr_genes <- DE_genes_in_Nodes[DE_genes_in_Nodes %in% names(trait_subset)]
+    c(count_twas = sum(trait_subset[twas_genes] > 0), 
+      count_motr = sum(trait_subset[motr_genes] > 0),
+      count_inters = sum(trait_subset[intersect(twas_genes, motr_genes)] > 0),
+      count_compl = sum(trait_subset[setdiff(motr_genes, twas_genes)] > 0),
+      count_compl_all = sum(trait_subset[setdiff(names(trait_subset), intersect(twas_genes, motr_genes))] > 0),
+      count_all = sum(trait_subset > 0),
+      total_twas = length(twas_genes),
+      total_motr = length(motr_genes),
+      total_inters = length(intersect(twas_genes, motr_genes)),
+      total_compl = length(setdiff(motr_genes, twas_genes)),
+      total_compl_all = length(setdiff(names(trait_subset), intersect(twas_genes, motr_genes))),
+      total_all = length(trait_subset))
+  })))
+  output$trait <- rownames(output)
+  output$tissue <- tiss
+  rownames(output) <- NULL
+  output
+})
+data <- do.call(rbind, data)
+
+# plot((data$count_twas / data$total_twas + data$count_motr / data$total_motr)/2, data$count_inters / data$total_inters,
+#      main = paste0("prop above line = ", round(mean((data$count_twas / data$total_twas + data$count_motr / data$total_motr)/2 < 
+#                                                       (data$count_inters / data$total_inters), na.rm = T), 2)),
+#      cex = data$total_inters / max(data$total_inters) * 5, pch = 19, col = adjustcolor(1,0.5))
+plot(data$count_compl / data$total_compl, data$count_inters / data$total_inters,
+     main = paste0("prop above line = ", round(mean((data$count_inters / data$total_inters > data$count_compl / data$total_compl), na.rm = T), 2)),
+     cex = data$total_inters / max(data$total_inters) * 5, pch = 19, col = adjustcolor(1,0.5))
+abline(0,1,lwd=2,lty=2,col=adjustcolor(2,0.5))
+abline(h=0.5,lwd=2,lty=2,col=adjustcolor(1,0.5))
+plot(data$count_all / data$total_all, data$count_inters / data$total_inters,
+     main = paste0("prop above line = ", round(mean((data$count_inters / data$total_inters > data$count_all / data$total_all), na.rm = T), 2)),
+     cex = data$total_inters / max(data$total_inters) * 5, pch = 19, col = adjustcolor(1,0.5))
+abline(0,1,lwd=2,lty=2,col=adjustcolor(2,0.5))
+abline(h=0.5,lwd=2,lty=2,col=adjustcolor(1,0.5))
+
+#make slightly fancier plot
+pchs <- category_shapes[traitwise_partitions$Category[match(data$trait, traitwise_partitions$Tag)]]
+pchs[is.na(pchs)] <- 1
+plot(data$count_all / data$total_all, data$count_inters / data$total_inters,
+     main = "", 
+     pch = pchs,
+     cex = data$total_inters / max(data$total_inters) * 5, col = adjustcolor(tissue_cols[data$tissue],0.5))
+abline(h=0.5,lwd=2,lty=2,col=adjustcolor(1,0.5))
+abline(v=0.5,lwd=2,lty=2,col=adjustcolor(1,0.5))
+
+
+basic_posteriors_masses <- 1 - pbeta(q = 0.5, shape1 = 1 + data$count_inters, shape2 = 1 + data$total_inters - data$count_inters)
+sum(basic_posteriors_masses > 0.95)
+sum(basic_posteriors_masses < 0.05)
+head(cbind(data, basic_posteriors_masses)[order(abs(basic_posteriors_masses - 0.5), decreasing = T),
+                                          c("trait", "tissue", "basic_posteriors_masses", "count_inters", "total_inters")], 30)
+# table(data_not_null[which(basic_posteriors_masses > 0.95),"trait"])
+# table(data_not_null[which(basic_posteriors_masses < 0.05),"trait"])
+# 
+# hist(sapply(tissues, function(tiss) diff(range(data_null$count_twas[data_null$tissue == tiss] / data_null$total[data_null$tissue == tiss]))))
+# hist(sapply(traits, function(trait) diff(range(data_null$count_twas[data_null$trait == trait] / data_null$total[data_null$trait == trait]))))
+# hist(sapply(tissues, function(tiss) diff(range(data_null$count_motr[data_null$tissue == tiss] / data_null$total[data_null$tissue == tiss]))))
+# hist(sapply(traits, function(trait) diff(range(data_null$count_motr[data_null$trait == trait] / data_null$total[data_null$trait == trait]))))
+
+#alternative prob model
+# tissues <- tissues
+# traits <- twas_with_hits
+# d <- list(count = data$count_inters,
+#           total = data$total_inters,
+#           count_compl = data$count_compl_all,
+#           total_compl = data$total_compl_all,
+#           row_index = match(data$tissue, tissues),
+#           col_index = match(data$trait, traits),
+#           row_n = length(tissues),
+#           col_n = length(traits)
+# )
+
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=0> count[row_n * col_n];
+#     int<lower=0> total[row_n * col_n];
+#     int<lower=0> count_compl[row_n * col_n];
+#     int<lower=0> total_compl[row_n * col_n];
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+# }
+# parameters {
+#     //main parameters
+#     real col_mean;
+#     real<lower=0> col_sd;
+#     vector[col_n] raw_col_logodds;
+#     
+#     vector[n] raw_mean_logodds;
+#     real<lower=0> sd_mean_logodds;
+#     
+#     vector[n] raw_logodds;
+#     vector[n] raw_logodds_compl;
+#     real<lower=0> logodds_sd;
+#     
+#     //biases in deviations terms
+#     vector[row_n] raw_row_bias;
+#     vector[col_n] raw_col_bias;
+# 
+#     //multilevel deviation term params
+#     real<lower=0> row_bias_sd;
+#     real<lower=0> col_bias_sd;
+# }
+# transformed parameters {
+#     //recenter params
+#     vector[col_n] col_logodds = raw_col_logodds * col_sd + col_mean;
+#     vector[n] mean_logodds = raw_mean_logodds * sd_mean_logodds + col_logodds[col_index];
+#     vector[row_n] row_bias = raw_row_bias * row_bias_sd;
+#     vector[col_n] col_bias = raw_col_bias * col_bias_sd;
+#     vector[n] logodds = raw_logodds * logodds_sd + mean_logodds + 
+#                         row_bias[row_index] / 2 + col_bias[col_index] / 2;
+#     vector[n] logodds_compl = raw_logodds_compl * logodds_sd + mean_logodds - 
+#                               row_bias[row_index] / 2 - col_bias[col_index] / 2;
+#     
+# }
+# model {
+#     //high-level cell params
+#     col_mean ~ normal(0,2);
+#     col_sd ~ std_normal();
+#     raw_col_logodds ~ std_normal();
+#     raw_mean_logodds ~ std_normal();
+#     sd_mean_logodds ~ std_normal();
+#     
+#     //bias params
+#     raw_row_bias ~ std_normal();
+#     raw_col_bias ~ std_normal();
+#     row_bias_sd ~ std_normal();
+#     col_bias_sd ~ std_normal();
+#     
+#     //cell params
+#     raw_logodds ~ std_normal();
+#     raw_logodds_compl ~ std_normal();
+#     logodds_sd ~ std_normal();
+#     
+#     //likelihood
+#     count ~ binomial_logit(total, logodds);
+#     count_compl ~ binomial_logit(total_compl, logodds_compl);
+# }
+# generated quantities {
+#     vector[n] cell_total_prob_bias = inv_logit(logodds) - inv_logit(logodds_compl);
+# }
+# '
+# 
+# 
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=0> count[row_n * col_n];
+#     int<lower=0> total[row_n * col_n];
+#     int<lower=0> count_compl[row_n * col_n];
+#     int<lower=0> total_compl[row_n * col_n];
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+# }
+# parameters {
+#     //main parameters
+#     real col_mean;
+#     real<lower=0> col_sd;
+#     vector[col_n] raw_col_logodds;
+#     
+#     vector[n] raw_mean_logodds;
+#     real<lower=0> sd_mean_logodds;
+#     
+#     vector[n] raw_logodds;
+#     vector[n] raw_logodds_compl;
+#     real<lower=0> logodds_sd;
+#     
+#     //biases in deviations terms
+#     vector[col_n] raw_col_bias;
+# 
+#     //multilevel deviation term params
+#     real<lower=0> col_bias_sd;
+# }
+# transformed parameters {
+#     //recenter params
+#     vector[col_n] col_logodds = raw_col_logodds * col_sd + col_mean;
+#     vector[n] mean_logodds = raw_mean_logodds * sd_mean_logodds + col_logodds[col_index];
+#     vector[col_n] col_bias = raw_col_bias * col_bias_sd;
+#     vector[n] logodds = raw_logodds * logodds_sd + mean_logodds + col_bias[col_index] / 2;
+#     vector[n] logodds_compl = raw_logodds_compl * logodds_sd + mean_logodds - col_bias[col_index] / 2;
+#     
+# }
+# model {
+#     //high-level cell params
+#     col_mean ~ normal(0,2);
+#     col_sd ~ std_normal();
+#     raw_col_logodds ~ std_normal();
+#     raw_mean_logodds ~ std_normal();
+#     sd_mean_logodds ~ std_normal();
+#     
+#     //bias params
+#     raw_col_bias ~ std_normal();
+#     col_bias_sd ~ std_normal();
+#     
+#     //cell params
+#     raw_logodds ~ std_normal();
+#     raw_logodds_compl ~ std_normal();
+#     logodds_sd ~ std_normal();
+#     
+#     //likelihood
+#     count ~ binomial_logit(total, logodds);
+#     count_compl ~ binomial_logit(total_compl, logodds_compl);
+# }
+# generated quantities {
+#     vector[n] cell_total_prob_bias = inv_logit(logodds) - inv_logit(logodds_compl);
+# }
+# '
+# 
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=0> count[row_n * col_n];
+#     int<lower=0> total[row_n * col_n];
+#     int<lower=0> count_compl[row_n * col_n];
+#     int<lower=0> total_compl[row_n * col_n];
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+# }
+# parameters {
+#     //main parameters
+#     real col_mean;
+#     real<lower=0> col_sd;
+#     vector[col_n] raw_col_logodds;
+#     
+#     vector[n] raw_mean_logodds;
+#     real<lower=0> sd_mean_logodds;
+#     
+#     vector[n] raw_logodds;
+#     vector[n] raw_logodds_compl;
+#     real<lower=0> logodds_sd;
+#     
+#     //biases in deviations terms
+#     vector[col_n] raw_col_bias;
+# 
+#     //multilevel deviation term mean params
+#     real<lower=0> col_bias_sd;
+#     
+#     //multilevel deviation term dispersion params
+#     vector[col_n] raw_col_logodds_logsd;
+#     real<lower=0> logodds_logsd_sd;
+#     
+# }
+# transformed parameters {
+#     //recenter params
+#     vector[n] col_dispersion_bias = logodds_sd * exp(raw_col_logodds_logsd[col_index] * logodds_logsd_sd);
+#     vector[col_n] col_logodds = raw_col_logodds * col_sd + col_mean;
+#     vector[n] mean_logodds = raw_mean_logodds * sd_mean_logodds + col_logodds[col_index];
+#     vector[col_n] col_bias = raw_col_bias * col_bias_sd;
+#     vector[n] logodds = raw_logodds .* col_dispersion_bias + mean_logodds + col_bias[col_index] / 2;
+#     vector[n] logodds_compl = raw_logodds_compl .* col_dispersion_bias + mean_logodds - col_bias[col_index] / 2;
+#     
+# }
+# model {
+#     //high-level cell params
+#     col_mean ~ normal(0,2);
+#     col_sd ~ std_normal();
+#     raw_col_logodds ~ std_normal();
+#     raw_mean_logodds ~ std_normal();
+#     sd_mean_logodds ~ std_normal();
+#     
+#     //bias params
+#     raw_col_bias ~ std_normal();
+#     col_bias_sd ~ std_normal();
+#     
+#     //cell params
+#     raw_logodds ~ std_normal();
+#     raw_logodds_compl ~ std_normal();
+#     logodds_sd ~ std_normal();
+#     logodds_logsd_sd ~ std_normal();
+#     raw_col_logodds_logsd ~ std_normal();
+#     
+#     //likelihood
+#     count ~ binomial_logit(total, logodds);
+#     count_compl ~ binomial_logit(total_compl, logodds_compl);
+# }
+# generated quantities {
+#     vector[n] cell_total_prob_bias = inv_logit(logodds) - inv_logit(logodds_compl);
+# }
+# '
+# 
+# 
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=0> count[row_n * col_n];
+#     int<lower=0> total[row_n * col_n];
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+# }
+# parameters {
+#     real<lower=0> col_sd_sd;
+#     vector<lower=0>[col_n] col_sd;
+#     vector[n] raw_logodds;
+# }
+# transformed parameters {
+#     vector[n] logodds = raw_logodds .* col_sd[col_index] * col_sd_sd + 0.5;
+# }
+# model {
+#     col_sd_sd ~ std_normal();
+#     col_sd ~ std_normal();
+#     raw_logodds ~ std_normal();
+#     
+#     count ~ binomial_logit(total, logodds);
+# }
+# generated quantities {
+#     vector[n] cell_total_prob_bias = inv_logit(logodds) - 0.5;
+# }
+# '
+# 
+
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=0> count[row_n * col_n];
+#     int<lower=0> total[row_n * col_n];
+#     int<lower=0> count_compl[row_n * col_n];
+#     int<lower=0> total_compl[row_n * col_n];
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+# }
+# parameters {
+#     real<lower=0> col_sd_sd;
+#     vector<lower=0>[col_n] col_sd;
+#     vector[n] raw_logodds;
+#     vector[col_n] raw_col_bias;
+#     real<lower=0> col_bias_sd;
+#     
+#     real col_mean_compl;
+#     real<lower=0> col_sd_compl;
+#     vector[col_n] raw_col_means_compl;
+#     vector<lower=0>[col_n] col_sds_compl;
+#     real<lower=0> col_sds_compl_sd;
+#     vector[n] raw_logodds_compl;
+# }
+# transformed parameters {
+#     vector[col_n] col_means_compl = raw_col_means_compl * col_sd_compl + col_mean_compl;
+#     vector[n] logodds_compl = raw_logodds_compl .* col_sds_compl[col_index] * col_sds_compl_sd + col_means_compl[col_index];
+#     vector[col_n] col_bias = raw_col_bias * col_bias_sd;
+#     vector[n] logodds = raw_logodds .* col_sd[col_index] * col_sd_sd + logodds_compl + col_bias[col_index];
+# }
+# model {
+#     //compl params
+#     col_mean_compl ~ normal(0,2);
+#     col_sd_compl ~ std_normal();
+#     raw_col_means_compl ~ std_normal();
+#     col_sds_compl ~ std_normal();
+#     col_sds_compl_sd ~ std_normal();
+#     raw_logodds_compl ~ std_normal();
+#  
+#     col_sd_sd ~ std_normal();
+#     col_sd ~ std_normal();
+#     raw_logodds ~ std_normal();
+#     raw_col_bias ~ std_normal();
+#     col_bias_sd ~ std_normal();
+#     
+#     count ~ binomial_logit(total, logodds);
+#     count_compl ~ binomial_logit(total_compl, logodds_compl);
+# }
+# generated quantities {
+#     vector[n] cell_total_prob_bias = inv_logit(logodds) - inv_logit(logodds_compl);
+# }
+# '
+
+#incorporate a multivariate-normal bias term?
+# tissues <- tissues
+# traits <- twas_with_hits
+# trait_cats <- salient.categories
+# d <- list(count = data$count_inters,
+#           total = data$total_inters,
+#           count_compl = data$count_compl_all,
+#           total_compl = data$total_compl_all,
+#           row_index = match(data$tissue, tissues),
+#           col_index = match(data$trait, traits),
+#           colcat_index = match(traitwise_partitions$Category[match(traits, traitwise_partitions$Tag)] , trait_cats),
+#           row_n = length(tissues),
+#           col_n = length(traits),
+#           colcat_n = length(trait_cats)
+# )
+
+
+# load("~/data/smontgom/est_gcor_mat.RData")
+# tissues <- tissues
+# traits <- twas_with_hits
+# # traits <- twas_with_hits[twas_with_hits %in% trait_categories$Tag[trait_categories$Category == "Cardiometabolic"]]
+# gcor <- gcor_mat[traits, traits]
+# gcor[is.na(gcor)] <- 0
+# gcor <- as.matrix(Matrix::nearPD(gcor, corr = T)$mat)
+# L <- t(chol(gcor))
+# subdata <- data[data$trait %in% traits,]
+# d <- list(count = subdata$count_inters,
+#           total = subdata$total_inters,
+#           count_compl = subdata$count_compl_all,
+#           total_compl = subdata$total_compl_all,
+#           row_index = match(subdata$tissue, tissues),
+#           col_index = match(subdata$trait, traits),
+#           row_n = length(tissues),
+#           col_n = length(traits),
+#           L = L
+# )
+# 
+# base = "deviation_from_expected_propposhits"
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=0> count[row_n * col_n];
+#     int<lower=0> total[row_n * col_n];
+#     int<lower=0> count_compl[row_n * col_n];
+#     int<lower=0> total_compl[row_n * col_n];
+#     cholesky_factor_corr[col_n] L;
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+# }
+# parameters {
+#     real<lower=0> col_sd_sd;
+#     vector<lower=0>[col_n] raw_col_sd;
+#     vector[n] raw_logodds;
+#     vector[col_n] raw_col_bias;
+#     real<lower=0> col_bias_sd;
+# 
+#     real col_mean_compl;
+#     real<lower=0> col_sd_compl;
+#     vector[col_n] raw_col_means_compl;
+#     vector<lower=0>[col_n] col_sds_compl;
+#     real<lower=0> col_sds_compl_sd;
+#     vector[n] raw_logodds_compl;
+# }
+# transformed parameters {
+#     vector[col_n] col_means_compl = raw_col_means_compl * col_sd_compl + col_mean_compl;
+#     vector[n] logodds_compl = raw_logodds_compl .* col_sds_compl[col_index] * col_sds_compl_sd + col_means_compl[col_index];
+#     vector[col_n] col_bias = L * raw_col_bias * col_bias_sd;
+#     vector[n] logodds = raw_logodds .* raw_col_sd[col_index] * col_sd_sd + logodds_compl + col_bias[col_index];
+# }
+# model {
+#     //compl params
+#     col_mean_compl ~ normal(0,2);
+#     col_sd_compl ~ std_normal();
+#     raw_col_means_compl ~ std_normal();
+#     col_sds_compl ~ std_normal();
+#     col_sds_compl_sd ~ std_normal();
+#     raw_logodds_compl ~ std_normal();
+# 
+#     col_sd_sd ~ std_normal();
+#     raw_col_sd ~ std_normal();
+#     raw_logodds ~ std_normal();
+#     raw_col_bias ~ std_normal();
+#     col_bias_sd ~ std_normal();
+# 
+#     count ~ binomial_logit(total, logodds);
+#     count_compl ~ binomial_logit(total_compl, logodds_compl);
+# }
+# generated quantities {
+#     vector[n] cell_total_prob_bias = inv_logit(logodds) - inv_logit(logodds_compl);
+# }
+# '
+
+# # now let's try the split the difference approach again?!
+# load("~/data/smontgom/est_gcor_mat.RData")
+# tissues <- tissues
+# traits <- twas_with_hits
+# # traits <- twas_with_hits[twas_with_hits %in% trait_categories$Tag[trait_categories$Category == "Cardiometabolic"]]
+# gcor <- gcor_mat[traits, traits]
+# gcor[is.na(gcor)] <- 0
+# gcor <- as.matrix(Matrix::nearPD(gcor, corr = T)$mat)
+# L <- t(chol(gcor))
+# subdata <- data[data$trait %in% traits,]
+# d <- list(count_focal = subdata$count_inters,
+#           total_focal = subdata$total_inters,
+#           count_compl = subdata$count_compl_all,
+#           total_compl = subdata$total_compl_all,
+#           row_index = match(subdata$tissue, tissues),
+#           col_index = match(subdata$trait, traits),
+#           row_n = length(tissues),
+#           col_n = length(traits),
+#           L = L
+# )
+# 
+# base = "deviation_from_expected_propposhits_splitthediff"
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=0> count_focal[row_n * col_n];
+#     int<lower=0> total_focal[row_n * col_n];
+#     int<lower=0> count_compl[row_n * col_n];
+#     int<lower=0> total_compl[row_n * col_n];
+#     cholesky_factor_corr[col_n] L;
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+# }
+# parameters {
+#     real col_mean;
+#     real<lower=0> col_sd;
+#     vector[col_n] raw_col_means;
+#     vector<lower=0>[col_n] raw_col_sds;
+#     real<lower=0> col_sds_sd;
+#     vector[n] raw_logodds;
+# 
+#     real col_bias_mean;
+#     real<lower=0> col_bias_sd;
+#     vector[col_n] raw_col_bias_means;
+#     vector<lower=0>[col_n] raw_col_bias_sds;
+#     real<lower=0> col_bias_sds_sd;
+#     vector[n] raw_logodds_bias;
+# 
+# }
+# transformed parameters {
+#     vector[col_n] col_means = raw_col_means * col_sd + col_mean;
+#     vector[n] logodds = raw_logodds .* raw_col_sds[col_index] * col_sds_sd + col_means[col_index];
+# 
+#     vector[col_n] col_bias_means = raw_col_bias_means * col_bias_sd + col_bias_mean;
+#     vector[n] logodds_bias = raw_logodds_bias .* raw_col_bias_sds[col_index] * col_bias_sds_sd + col_bias_means[col_index];
+# 
+#     vector[n] logodds_focal = logodds + logodds_bias / 2;
+#     vector[n] logodds_compl = logodds - logodds_bias / 2;
+# }
+# model {
+#     //priors
+#     col_mean ~ normal(0,2);
+#     col_sd ~ std_normal();
+#     raw_col_means ~ std_normal();
+#     raw_col_sds ~ std_normal();
+#     col_sds_sd ~ std_normal();
+#     raw_logodds ~ std_normal();
+# 
+#     col_bias_mean ~ std_normal();
+#     col_bias_sd ~ std_normal();
+#     raw_col_bias_means ~ std_normal();
+#     raw_col_bias_sds ~ std_normal();
+#     col_bias_sds_sd ~ std_normal();
+#     raw_logodds_bias ~ std_normal();
+# 
+#     count_focal ~ binomial_logit(total_focal, logodds_focal);
+#     count_compl ~ binomial_logit(total_compl, logodds_compl);
+# }
+# generated quantities {
+#     vector[n] cell_total_prob_bias = inv_logit(logodds_focal) - inv_logit(logodds_compl);
+# }
+# '
+
+# #"split the difference" approach to comparing complement to focal
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=0> count[row_n * col_n];
+#     int<lower=0> total[row_n * col_n];
+#     int<lower=0> count_compl[row_n * col_n];
+#     int<lower=0> total_compl[row_n * col_n];
+#     cholesky_factor_corr[col_n] L;
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+# }
+# parameters {
+#     //overall and column means
+#     real col_mean;
+#     real<lower=0> col_sd;
+#     vector[col_n] raw_col_means;
+#     real<lower=0> logodds_sd;
+#     vector[n] raw_logodds;
+# 
+#     //col bias terms
+#     real col_bias_mean;
+#     real<lower=0> col_bias_sd;
+#     vector[col_n] raw_col_bias_means;
+#     vector<lower=0>[col_n] raw_logodds_bias_sd;
+#     real<lower=0> logodds_bias_sd_sd;
+#     vector[n] raw_bias_logodds;
+# 
+# }
+# transformed parameters {
+#     vector[col_n] col_means = raw_col_means * col_sd + col_mean;
+#     vector[n] logodds = raw_logodds * logodds_sd + col_means[col_index];
+# 
+#     vector[col_n] col_bias_means = L * raw_col_bias_means * col_bias_sd + col_bias_mean;
+#     vector[n] bias_logodds = raw_bias_logodds .* raw_logodds_bias_sd[col_index] * logodds_bias_sd_sd + col_bias_means[col_index];
+# 
+#     vector[n] logodds_focal = logodds + bias_logodds / 2;
+#     vector[n] logodds_compl = logodds - bias_logodds / 2;
+# }
+# model {
+#     //priors
+#     col_mean ~ normal(0,2);
+#     col_sd ~ std_normal();
+#     raw_col_means ~ std_normal();
+#     logodds_sd ~ std_normal();
+#     raw_logodds ~ std_normal();
+# 
+#     col_bias_mean ~ std_normal();
+#     col_bias_sd ~ std_normal();
+#     raw_col_bias_means ~ std_normal();
+#     raw_bias_logodds ~ std_normal();
+#     raw_logodds_bias_sd ~ std_normal();
+#     logodds_bias_sd_sd ~ std_normal();
+# 
+#     //likelihood
+#     count ~ binomial_logit(total, logodds_focal);
+#     count_compl ~ binomial_logit(total_compl, logodds_compl);
+# }
+# generated quantities {
+#     vector[n] cell_total_prob_bias = inv_logit(logodds_focal) - inv_logit(logodds_compl);
+# }
+# '
+# 
+# #a model where we try to partially pool across trait categories & incorporate goodness
+# 
+# load("~/data/smontgom/est_gcor_mat.RData")
+# tissues <- tissues
+# traits <- twas_with_hits[twas_with_hits %in% trait_categories$Tag[trait_categories$new_Phenotype %in% names(trait_goodness)[trait_goodness != 0]]]
+# gcor <- gcor_mat[traits, traits]
+# gcor[is.na(gcor)] <- 0
+# gcor <- as.matrix(Matrix::nearPD(gcor, corr = T)$mat)
+# L <- t(chol(gcor))
+# 
+# #generate subdata matrix
+# subdata <- data[data$trait %in% traits,]
+# harmful_traits <- trait_categories$Tag[trait_categories$new_Phenotype %in% names(trait_goodness)[trait_goodness == -1]]
+# subdata_harmful <- subdata[subdata$trait %in% harmful_traits,]
+# subdata_helpful <- subdata[!(subdata$trait %in% harmful_traits),]
+# subdata_harmful$count_inters <- subdata_harmful$total_inters - subdata_harmful$count_inters
+# subdata_harmful$count_compl_all <- subdata_harmful$total_compl_all - subdata_harmful$count_compl_all
+# subdata <- rbind(subdata_harmful, subdata_helpful)
+# 
+# trait_cats <- salient.categories
+# 
+# d <- list(count = subdata$count_inters,
+#           total = subdata$total_inters,
+#           count_compl = subdata$count_compl_all,
+#           total_compl = subdata$total_compl_all,
+#           row_index = match(subdata$tissue, tissues),
+#           col_index = match(subdata$trait, traits),
+#           row_n = length(tissues),
+#           col_n = length(traits),
+#           L = L,
+#           colcat_index = match(traitwise_partitions$Category[match(traits, traitwise_partitions$Tag)] , trait_cats),
+#           colcat_n = length(trait_cats)
+# )
+# 
+# 
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1> colcat_n;
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=0> count[row_n * col_n];
+#     int<lower=0> total[row_n * col_n];
+#     int<lower=0> count_compl[row_n * col_n];
+#     int<lower=0> total_compl[row_n * col_n];
+#     cholesky_factor_corr[col_n] L;
+#     int<lower=1,upper=colcat_n> colcat_index[col_n];
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+# }
+# parameters {
+#     //overall and column means
+#     real col_mean;
+#     real<lower=0> col_sd;
+#     vector[col_n] raw_col_means;
+#     real<lower=0> logodds_sd;
+#     vector[n] raw_logodds;
+# 
+#     //col bias terms
+#     real col_bias_mean;
+#     real<lower=0> col_bias_sd;
+#     vector[colcat_n] raw_colcat_bias_means;
+#     real<lower=0> colcat_bias_sd;
+#     vector[col_n] raw_col_bias_means;
+#     vector<lower=0>[col_n] raw_logodds_bias_sd;
+#     real<lower=0> logodds_bias_sd_sd;
+#     vector[n] raw_bias_logodds;
+# 
+# }
+# transformed parameters {
+#     vector[col_n] col_means = raw_col_means * col_sd + col_mean;
+#     vector[n] logodds = raw_logodds * logodds_sd + col_means[col_index];
+# 
+#     vector[colcat_n] colcat_bias_means = raw_colcat_bias_means * colcat_bias_sd + col_bias_mean;
+#     vector[col_n] col_bias_means = L * raw_col_bias_means * col_bias_sd + colcat_bias_means[colcat_index];
+#     vector[n] bias_logodds = raw_bias_logodds .* raw_logodds_bias_sd[col_index] * logodds_bias_sd_sd + col_bias_means[col_index];
+# 
+#     vector[n] logodds_focal = logodds + bias_logodds / 2;
+#     vector[n] logodds_compl = logodds - bias_logodds / 2;
+# }
+# model {
+#     //priors
+#     col_mean ~ normal(0,2);
+#     col_sd ~ std_normal();
+#     raw_col_means ~ std_normal();
+#     logodds_sd ~ std_normal();
+#     raw_logodds ~ std_normal();
+#     
+#     //bias priors
+#     col_bias_mean ~ std_normal();
+#     col_bias_sd ~ std_normal();
+#     raw_colcat_bias_means ~ std_normal();
+#     colcat_bias_sd ~ std_normal();
+#     raw_col_bias_means ~ std_normal();
+#     raw_bias_logodds ~ std_normal();
+#     raw_logodds_bias_sd ~ std_normal();
+#     logodds_bias_sd_sd ~ std_normal();
+# 
+#     //likelihood
+#     count ~ binomial_logit(total, logodds_focal);
+#     count_compl ~ binomial_logit(total_compl, logodds_compl);
+# }
+# generated quantities {
+#     vector[n] cell_total_prob_bias = inv_logit(logodds) - inv_logit(logodds_compl);
+# }
+# '
+# 
+# #also incorporate a tissue bias?
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1> colcat_n;
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=0> count[row_n * col_n];
+#     int<lower=0> total[row_n * col_n];
+#     int<lower=0> count_compl[row_n * col_n];
+#     int<lower=0> total_compl[row_n * col_n];
+#     cholesky_factor_corr[col_n] L;
+#     int<lower=1,upper=colcat_n> colcat_index[col_n];
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+# }
+# parameters {
+#     //overall and column means
+#     real col_mean;
+#     real<lower=0> col_sd;
+#     vector[col_n] raw_col_means;
+#     real<lower=0> logodds_sd;
+#     vector[n] raw_logodds;
+# 
+#     //col bias terms
+#     real col_bias_mean;
+#     real<lower=0> col_bias_sd;
+#     vector[colcat_n] raw_colcat_bias_means;
+#     real<lower=0> colcat_bias_sd;
+#     vector[col_n] raw_col_bias_means;
+#     vector<lower=0>[col_n] raw_logodds_bias_sd;
+#     real<lower=0> logodds_bias_sd_sd;
+#     vector[n] raw_bias_logodds;
+#     
+#     //tissue bias terms
+#     real<lower=0> row_bias_sd;
+#     vector[row_n] raw_row_bias_means;
+# 
+# }
+# transformed parameters {
+#     vector[col_n] col_means = raw_col_means * col_sd + col_mean;
+#     vector[n] logodds = raw_logodds * logodds_sd + col_means[col_index];
+# 
+#     vector[colcat_n] colcat_bias_means = raw_colcat_bias_means * colcat_bias_sd + col_bias_mean;
+#     vector[col_n] col_bias_means = L * raw_col_bias_means * col_bias_sd + colcat_bias_means[colcat_index];
+#     vector[row_n] row_bias_means = raw_row_bias_means * row_bias_sd;
+#     vector[n] bias_logodds = raw_bias_logodds .* raw_logodds_bias_sd[col_index] * logodds_bias_sd_sd + col_bias_means[col_index] + row_bias_means[row_index];
+# 
+#     vector[n] logodds_focal = logodds + bias_logodds / 2;
+#     vector[n] logodds_compl = logodds - bias_logodds / 2;
+# }
+# model {
+#     //priors
+#     col_mean ~ normal(0,2);
+#     col_sd ~ std_normal();
+#     raw_col_means ~ std_normal();
+#     logodds_sd ~ std_normal();
+#     raw_logodds ~ std_normal();
+#     
+#     //bias priors
+#     col_bias_mean ~ std_normal();
+#     col_bias_sd ~ std_normal();
+#     raw_colcat_bias_means ~ std_normal();
+#     colcat_bias_sd ~ std_normal();
+#     raw_col_bias_means ~ std_normal();
+#     raw_bias_logodds ~ std_normal();
+#     raw_logodds_bias_sd ~ std_normal();
+#     logodds_bias_sd_sd ~ std_normal();
+#     
+#     row_bias_sd ~ std_normal();
+#     raw_row_bias_means ~ std_normal();
+# 
+#     //likelihood
+#     count ~ binomial_logit(total, logodds_focal);
+#     count_compl ~ binomial_logit(total_compl, logodds_compl);
+# }
+# generated quantities {
+#     vector[n] cell_total_prob_bias = inv_logit(logodds) - inv_logit(logodds_compl);
+# }
+# '
+
+
+#let's try a more basic flavor of model
+# load("~/data/smontgom/est_gcor_mat.RData")
+# tissues <- tissues
+# traits <- twas_with_hits
+# trait_cats <- salient.categories
+# # traits <- twas_with_hits[twas_with_hits %in% trait_categories$Tag[trait_categories$Category == "Cardiometabolic"]]
+# gcor <- gcor_mat[traits, traits]
+# gcor[is.na(gcor)] <- 0
+# gcor <- as.matrix(Matrix::nearPD(gcor, corr = T)$mat)
+# L <- t(chol(gcor))
+# subdata <- data[data$trait %in% traits,]
+# d <- list(count = subdata$count_inters,
+#           total = subdata$total_inters,
+#           row_index = match(subdata$tissue, tissues),
+#           col_index = match(subdata$trait, traits),
+#           colcat_index = match(traitwise_partitions$Category[match(traits, traitwise_partitions$Tag)], trait_cats),
+#           row_n = length(tissues),
+#           col_n = length(traits),
+#           colcat_n = length(trait_cats),
+#           L = L
+# )
+# 
+# 
+# base = "deviation_from_half"
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1> colcat_n;
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=1,upper=colcat_n> colcat_index[col_n];
+#     int<lower=0> count[row_n * col_n];
+#     int<lower=0> total[row_n * col_n];
+#     cholesky_factor_corr[col_n] L;
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+# }
+# parameters {
+#     vector[col_n] raw_col_bias;
+#     real<lower=0> col_bias_sd;
+#     vector[colcat_n] raw_colcat_logsd;
+#     real<lower=0> colcat_logsd_sd;
+#     
+#     vector[n] raw_logodds;
+#     real<lower=0> col_sd_sd;
+#     vector[col_n] raw_col_logsd;
+#     real<lower=0> col_logsd_sd;
+# }
+# transformed parameters {
+#     vector[col_n] col_bias = raw_col_bias * col_bias_sd.* exp(raw_colcat_logsd[colcat_index] * colcat_logsd_sd);
+#     vector[n] logodds = raw_logodds * col_sd_sd .* exp(raw_col_logsd[col_index] * col_logsd_sd) + 0 + col_bias[col_index];
+# }
+# model {
+#     raw_col_bias ~ std_normal();
+#     col_bias_sd ~ std_normal();
+#     raw_colcat_logsd ~ std_normal();
+#     colcat_logsd_sd ~ std_normal();
+#     
+#     raw_logodds ~ std_normal();
+#     col_sd_sd ~ std_normal();
+#     raw_col_logsd ~ std_normal();
+#     col_logsd_sd ~ std_normal();
+# 
+#     count ~ binomial_logit(total, logodds);
+# }
+# generated quantities {
+#     vector[n] cell_total_prob_bias = inv_logit(logodds) - 0.5;
+# }
+# '
+# 
+# #incorporate non-independence via cholesky factor
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1> colcat_n;
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=1,upper=colcat_n> colcat_index[col_n];
+#     int<lower=0> count[row_n * col_n];
+#     int<lower=0> total[row_n * col_n];
+#     cholesky_factor_corr[col_n] L;
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+# }
+# parameters {
+#     vector[col_n] raw_col_bias;
+#     real<lower=0> col_bias_sd;
+#     vector[colcat_n] raw_colcat_logsd;
+#     real<lower=0> colcat_logsd_sd;
+#     
+#     vector[n] raw_logodds;
+#     real<lower=0> col_sd_sd;
+#     vector[col_n] raw_col_logsd;
+#     real<lower=0> col_logsd_sd;
+# }
+# transformed parameters {
+#     vector[col_n] col_bias = L * raw_col_bias * col_bias_sd.* exp(raw_colcat_logsd[colcat_index] * colcat_logsd_sd);
+#     vector[n] logodds = raw_logodds * col_sd_sd .* exp(raw_col_logsd[col_index] * col_logsd_sd) + 0 + col_bias[col_index];
+# }
+# model {
+#     raw_col_bias ~ std_normal();
+#     col_bias_sd ~ std_normal();
+#     raw_colcat_logsd ~ std_normal();
+#     colcat_logsd_sd ~ std_normal();
+#     
+#     raw_logodds ~ std_normal();
+#     col_sd_sd ~ std_normal();
+#     raw_col_logsd ~ std_normal();
+#     col_logsd_sd ~ std_normal();
+# 
+#     count ~ binomial_logit(total, logodds);
+# }
+# generated quantities {
+#     vector[n] cell_total_prob_bias = inv_logit(logodds) - 0.5;
+# }
+# '
+
+#incorporate non-independence, but allow for independence too
+load("~/data/smontgom/est_gcor_mat.RData")
+tissues <- tissues
+traits <- twas_with_hits
+trait_cats <- salient.categories
+# traits <- twas_with_hits[twas_with_hits %in% trait_categories$Tag[trait_categories$Category == "Cardiometabolic"]]
+gcor <- gcor_mat[traits, traits]
+gcor[is.na(gcor)] <- 0
+gcor <- as.matrix(Matrix::nearPD(gcor, corr = T)$mat)
+L <- t(chol(gcor))
+subdata <- data[data$trait %in% traits,]
+d <- list(count = subdata$count_inters,
+          total = subdata$total_inters,
+          row_index = match(subdata$tissue, tissues),
+          col_index = match(subdata$trait, traits),
+          colcat_index = match(traitwise_partitions$Category[match(traits, traitwise_partitions$Tag)], trait_cats),
+          row_n = length(tissues),
+          col_n = length(traits),
+          colcat_n = length(trait_cats),
+          gcor = gcor
+)
+
+base = "deviation_from_half"
+stan_program <- '
+data {
+    int<lower=1> row_n;
+    int<lower=1> col_n;
+    int<lower=1> colcat_n;
+    int<lower=1,upper=row_n> row_index[row_n * col_n];
+    int<lower=1,upper=col_n> col_index[row_n * col_n];
+    int<lower=1,upper=colcat_n> colcat_index[col_n];
+    int<lower=0> count[row_n * col_n];
+    int<lower=0> total[row_n * col_n];
+    corr_matrix[col_n] gcor;
+}
+transformed data {
+    int<lower=1> n = row_n * col_n;
+}
+parameters {
+    real<lower=0, upper=1> prop_gcor;
+
+    vector[col_n] raw_col_bias;
+    real<lower=0> col_bias_sd;
+    vector[colcat_n] raw_colcat_logsd;
+    real<lower=0> colcat_logsd_sd;
+    
+    vector[n] raw_logodds;
+    real<lower=0> col_sd_sd;
+    vector[col_n] raw_col_logsd;
+    real<lower=0> col_logsd_sd;
+}
+transformed parameters {
+    corr_matrix[col_n] averaged_corrmat = gcor * prop_gcor + diag_matrix(rep_vector(1.0, col_n)) * (1-prop_gcor);
+    vector[col_n] col_bias = cholesky_decompose(averaged_corrmat) * raw_col_bias * col_bias_sd.* exp(raw_colcat_logsd[colcat_index] * colcat_logsd_sd);
+    vector[n] logodds = raw_logodds * col_sd_sd .* exp(raw_col_logsd[col_index] * col_logsd_sd) + 0 + col_bias[col_index];
+}
+model {
+    raw_col_bias ~ std_normal();
+    col_bias_sd ~ normal(0,2);
+    raw_colcat_logsd ~ std_normal();
+    colcat_logsd_sd ~ std_normal();
+    
+    raw_logodds ~ std_normal();
+    col_sd_sd ~ normal(0,2);
+    raw_col_logsd ~ std_normal();
+    col_logsd_sd ~ std_normal();
+
+    count ~ binomial_logit(total, logodds);
+}
+generated quantities {
+    vector[n] cell_total_prob_bias = inv_logit(logodds) - 0.5;
+}
+'
+
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1> colcat_n;
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=1,upper=colcat_n> colcat_index[col_n];
+#     int<lower=0> count[row_n * col_n];
+#     int<lower=0> total[row_n * col_n];
+#     corr_matrix[col_n] gcor;
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+# }
+# parameters {
+#     real<lower=0, upper=1> prop_gcor;
+# 
+#     vector[col_n] raw_col_bias;
+#     vector<lower=0>[colcat_n] raw_colcat_bias_sd;
+#     real<lower=0> colcat_bias_sd2;
+#     
+#     vector[n] raw_logodds;
+#     vector<lower=0>[col_n] raw_within_col_sd;
+#     real<lower=0> within_col_sd2;
+# }
+# transformed parameters {
+#     corr_matrix[col_n] averaged_corrmat = gcor * prop_gcor + diag_matrix(rep_vector(1.0, col_n)) * (1-prop_gcor);
+#     vector[col_n] col_bias = cholesky_decompose(averaged_corrmat) * raw_col_bias .* raw_colcat_bias_sd[colcat_index] * colcat_bias_sd2;
+#     vector[n] logodds = raw_logodds .* raw_within_col_sd[col_index] * within_col_sd2;
+# }
+# model {
+# 
+#     raw_col_bias ~ std_normal();
+#     raw_colcat_bias_sd ~ std_normal();
+#     colcat_bias_sd2 ~ normal(0,2);
+#     
+#     raw_logodds ~ std_normal();
+#     raw_within_col_sd ~ std_normal();
+#     within_col_sd2 ~ normal(0,2);
+# 
+#     count ~ binomial_logit(total, logodds);
+# }
+# generated quantities {
+#     vector[n] cell_total_prob_bias = inv_logit(logodds) - 0.5;
+# }
+# '
+
+fit_model <- F
+if(fit_model){
+  
+  #compile model
+  if(!exists("curr_stan_program") || stan_program != curr_stan_program){
+    curr_stan_program <- stan_program
+    f <- write_stan_file(stan_program)
+  }
+  mod <- cmdstan_model(f)
+  
+  #write model
+  write_stan_file(stan_program, dir = "~/Desktop/", basename = paste0(base, ifelse(use_all_cats, "_allCats", "")))
+  write_stan_json(d, paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".json"))
+  
+  #fit model
+  out <- mod$sample(chains = 4, iter_sampling = 2E3, iter_warmup = 2E3, data = d, parallel_chains = 4, 
+                    adapt_delta = 0.99, refresh = 50, init = 0.1, max_treedepth = 20, thin = 2)
+  summ <- out$summary()
+  summ[order(summ$ess_bulk),]
+  summ[order(summ$rhat, decreasing = T),]
+  save(out, file = paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
+} else {
+  load(paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
+}
+
+samps <- data.frame(as_draws_df(out$draws()))
+
+
+# samps[,grep("logit_prop_21\\.", colnames(samps))]
+# sum(apply(samps[,grep("logit_prop_21\\.", colnames(samps))], 2, prop_greater_than_0) > 0.95)
+# sum(apply(samps[,grep("logit_prop_21\\.", colnames(samps))], 2, prop_greater_than_0) < 0.05)
+
+dev.off()
+hist(apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, mean))
+hist(apply(subset_samps("col_bias", c("raw", "sd"), samps = samps), 2, mean), breaks = 10)
+hist(samps$col_sd_comp)
+hist(invlogit(apply(subset_samps("col_means_compl", c("raw", "sd"), samps = samps), 2, mean)))
+hist(invlogit(apply(subset_samps("logodds_compl", c("raw", "sd"), samps = samps), 2, mean)))
+hist(invlogit(apply(subset_samps("logodds_focal", c("raw", "sd"), samps = samps), 2, mean)))
+hist(invlogit(apply(subset_samps("logodds", c("raw", "sd"), samps = samps), 2, mean)))
+
+hist(apply(subset_samps("logodds", c("raw", "compl", "sd", "mean", "bias"), samps = samps), 2, mean))
+prop_greater_than_0 <- function(x) mean(x>0)
+sum((apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)) > 0.95)
+sum((apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)) < 0.05)
+
+subdata[which((apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)) > 0.9),
+        c("count_inters", "total_inters", "tissue", "trait")]
+subdata[which((apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)) <0.1),
+        c("count_inters", "total_inters", "tissue", "trait")]
+
+
+cbind(subdata[order(((apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)))), 
+              c("count_inters", "total_inters", "tissue", "trait")], 
+      sort(apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)))
+plot(d$count / d$total, apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0))
+plot(d$count / d$total, invlogit(apply(subset_samps("logodds_focal", c("raw", "sd", "compl"), samps = samps), 2, mean)), cex = d$total / max(d$total) * 5); abline(0,1,col=2,lty=2)
+
+sum((apply(subset_samps("col_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)) > 0.9)
+sum((apply(subset_samps("col_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)) < 0.1)
+trait_key <- setNames(trait_categories$new_Phenotype, trait_categories$Tag)
+
+alpha = 0.05
+#cell enrichments
+subdata[which((apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)) > 1-alpha), 
+        c("count_inters", "total_inters", "tissue", "trait")]
+#cell depletions
+subdata[which((apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)) < alpha),
+        c("count_inters", "total_inters", "tissue", "trait")]
+#multilevel trait enrichments
+trait_key[traits[which((apply(subset_samps("col_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)) > 1-alpha)]]
+#multilevel trait depletions
+trait_key[traits[which((apply(subset_samps("col_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)) < alpha)]]
+#category enrichments
+cbind(trait_cats[which((apply(subset_samps("colcat_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)) < alpha)],
+      apply(subset_samps("colcat_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0))
+#gcor proportion
+hist(samps$prop_gcor, probability = T)
+mean(samps$prop_gcor > 0.9)
+
+
+#process this into a format for plotting
+posterior_mean_probs <- data.frame(trait = data$trait, 
+                                   tissue = data$tissue, 
+                                   prob = invlogit(apply(subset_samps("logodds", c("raw", "sd", "compl"), samps = samps), 2, mean)))
+deg_sigtwas_proportion_posterior_mean <- reshape(posterior_mean_probs, idvar = "tissue", timevar = "trait", direction = "wide")
+rownames(deg_sigtwas_proportion_posterior_mean) <- deg_sigtwas_proportion_posterior_mean$tissue
+deg_sigtwas_proportion_posterior_mean <- deg_sigtwas_proportion_posterior_mean[,-1]
+colnames(deg_sigtwas_proportion_posterior_mean) <- gsub("prob\\.", "", colnames(deg_sigtwas_proportion_posterior_mean))
+
+posterior_mean_prob_bias <- data.frame(trait = data$trait, 
+                                       tissue = data$tissue, 
+                                       prob = apply(subset_samps("cell_total_prob_bias", c("raw", "sd", "compl"), samps = samps), 2, prop_greater_than_0))
+deg_sigtwas_proportion_posterior_prob_bias <- reshape(posterior_mean_prob_bias, idvar = "tissue", timevar = "trait", direction = "wide")
+rownames(deg_sigtwas_proportion_posterior_prob_bias) <- deg_sigtwas_proportion_posterior_prob_bias$tissue
+deg_sigtwas_proportion_posterior_prob_bias <- deg_sigtwas_proportion_posterior_prob_bias[,-1]
+colnames(deg_sigtwas_proportion_posterior_prob_bias) <- gsub("prob\\.", "", colnames(deg_sigtwas_proportion_posterior_prob_bias))
+
+#check to make sure this is consistent with model
+# raw_logodds * col_sd_sd .* exp(raw_col_logsd[col_index] * col_logsd_sd) + 0 + col_bias[col_index]
+apply(subset_samps("col_bias", c("raw", "sd", "compl"), samps = samps), 2, prop_greater_than_0)
+prop_greater_than_0(subset_samps("raw_logodds\\.1\\.", c("sd", "compl"), samps = samps) * subset_samps("col_sd_sd", c("compl"), samps = samps) * 
+  exp(subset_samps("raw_col_logsd\\.1\\.", c("compl"), samps = samps) * subset_samps("col_logsd_sd", c("compl"), samps = samps)) + 
+  subset_samps("col_bias\\.1\\.", c("raw", "sd", "compl"), samps = samps))
+posterior_mean_prob_bias[1,]
+#YEP!
+
+trait_means <- invlogit(apply(subset_samps("col_bias", c("raw", "sd", "compl"), samps = samps) + 
+                                subset_samps("col_means_compl", c("raw", "sd"), samps = samps), 
+                              2, mean))
+trait_means <- invlogit(apply(subset_samps("col_bias", c("raw", "sd", "compl"), samps = samps), 
+                              2, mean))
+names(trait_means) <- traits
+trait_bias_probs <- apply(subset_samps("col_bias", c("raw", "sd", "compl"), samps = samps), 2, prop_greater_than_0)
+names(trait_bias_probs) <- traits
+
+#### make a summary table for Nicole ####
+twas_intersect <- lapply(setNames(rownames(n_deg_sigtwas_intersect), rownames(n_deg_sigtwas_intersect)), function(x) NULL)
+twas_with_hits <- colnames(prop_degs_are_twas)
+prop_pos <- lapply(setNames(rownames(n_deg_sigtwas_intersect), rownames(n_deg_sigtwas_intersect)), function(i) NULL)
+tissue_code <- MotrpacBicQC::bic_animal_tissue_code
+tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
+tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
+for(tissue_abbrev in names(twas_intersect)){
+  
+  tissue_i <- tissue_code$tissue_name_release[tissue_code$abbreviation == tissue_abbrev]
+  
+  print(tissue_i)
+  
+  sig_twas_by_trait <- lapply(setNames(twas_with_hits, twas_with_hits), 
+                              function(trait_i) sig_twas_by_tissue[[tissue_i]][sig_twas_by_tissue[[tissue_i]]$trait == trait_i,])
+  sig_twas_by_trait_genes <- lapply(setNames(twas_with_hits, twas_with_hits), 
+                                    function(trait_i) sig_twas_by_trait[[trait_i]]$gene_name)
+  sig_twas_by_trait_signs <- lapply(setNames(twas_with_hits, twas_with_hits), 
+                                    function(trait_i){
+                                      signs <- sign(sig_twas_by_trait[[trait_i]]$zscore)
+                                      names(signs) <- sig_twas_by_trait_genes[[trait_i]]
+                                      signs
+                                    })
+  
+  timepoint = "8w"
+  sex = "male"
+  
+  DE_genes_in_Nodes <- node_metadata_list[[timepoint]]$human_gene_symbol[
+    node_metadata_list[[timepoint]]$tissue == tissue_code$abbreviation[tissue_code$tissue_name_release == tissue_i]]
+  
+  if(length(DE_genes_in_Nodes) == 0){next()}
+  
+  DE_genes_in_Nodes_sign <- cbind(as.data.frame(do.call(rbind, strsplit(node_metadata_list[[timepoint]]$node[
+    node_metadata_list[[timepoint]]$tissue == tissue_code$abbreviation[tissue_code$tissue_name_release == tissue_i]], split = "_"))),
+    gene = DE_genes_in_Nodes)
+  
+  colnames(DE_genes_in_Nodes_sign) <- c("time", "female", "male", "gene")
+  DE_genes_in_Nodes_sign$female[grep(pattern = "F1", DE_genes_in_Nodes_sign$female)] <- 1
+  DE_genes_in_Nodes_sign$female[grep(pattern = "F-1", DE_genes_in_Nodes_sign$female)] <- -1
+  DE_genes_in_Nodes_sign$male[grep(pattern = "M1", DE_genes_in_Nodes_sign$male)] <- 1
+  DE_genes_in_Nodes_sign$male[grep(pattern = "M-1", DE_genes_in_Nodes_sign$male)] <- -1
+  DE_genes_in_Nodes_sign <- DE_genes_in_Nodes_sign[!is.na(DE_genes_in_Nodes_sign$gene),]
+  
+  DE_genes_signs <- as.integer(DE_genes_in_Nodes_sign[,sex])
+  names(DE_genes_signs) <- DE_genes_in_Nodes_sign$gene
+  
+  results <- lapply(setNames(twas_with_hits, twas_with_hits), function(trait_i) {
+    twas_signs <- sig_twas_by_trait_signs[[trait_i]]
+    shared_genes <- intersect(names(DE_genes_signs), names(twas_signs))
+    if(length(shared_genes) != 0){
+      shared_genes_signs <- twas_signs[shared_genes] * DE_genes_signs[shared_genes]
+      shared_genes_rat <- gene_map$RAT_SYMBOL[match(shared_genes, gene_map$HUMAN_ORTHOLOG_SYMBOL)]
+      shared_genes_rat_ensembl_id <- gene_map$RAT_ENSEMBL_ID[match(shared_genes, gene_map$HUMAN_ORTHOLOG_SYMBOL)]
+      
+      enrichment_test <- signif_df[which(signif_df$tissue == tissue_abbrev & signif_df$trait == trait_i),]
+      
+      output <- data.frame(tissue = tissue_abbrev,
+                           trait = trait_i,
+                           human_ortholog_symbol = shared_genes,
+                           rat_symbol = shared_genes_rat,
+                           rat_ensembl_ID = shared_genes_rat_ensembl_id,
+                           direction_of_DE_on_trait = shared_genes_signs,
+                           Pr_Geneset_DiffProp_is_Pos = enrichment_test$prob_diff_is_positive,
+                           geneset_enrichment = enrichment_test$signif)
+      return(output)
+    } else {return(NULL)}
+  })
+  
+  results <- do.call(rbind, results)
+  
+  twas_intersect[[tissue_abbrev]] <- results
+  
+}
+
+twas_intersect <- do.call(rbind, twas_intersect)
+rownames(twas_intersect) <- NULL
+twas_intersect <- as.data.table(twas_intersect)
+fwrite(x = twas_intersect, file = "~/data/twas_intersect_table_uncalibrated_Pr.txt")
+fread(file = "~/data/twas_intersect_table_uncalibrated_Pr.txt")
+
+#### proportion of DEGs & TWAS hits in + & - directions ####
+twas_with_hits <- colnames(prop_degs_are_twas)
+deg_sigtwas_proportion <- array(NA, dim = c(length(motrpac_gtex_map), length(twas_with_hits), 4, 3, 2), 
+                                dimnames = list(names(motrpac_gtex_map), twas_with_hits, paste0(2^(0:3), "w"), c("p", "n", "genes"), c("male", "female")))
+nuniq <- function(x) length(unique(x))
+tissue_code <- MotrpacBicQC::bic_animal_tissue_code
+tissue_abbr <- MotrpacBicQC::tissue_abbr[startsWith(names(MotrpacBicQC::tissue_abbr), "t")]
+tissue_abbr <- tissue_abbr[grep("-", x = names(tissue_abbr))]
+tissue_abbr_rev <- setNames(names(tissue_abbr), tissue_abbr)
+
+load("~/data/smontgom/relative_effect_sizes_deg_eqtl_list.RData")
+trace_8w_backwards <- T
+paths <- data.table::fread("~/data/smontgom/feature_repfdr_states_20220117.tsv")
+paths <- paths[paths$ome == "TRNSCRPT",]
+paths <- lapply(setNames(unique(paths$tissue),unique(paths$tissue)), function(tiss) paths[paths$tissue == tiss,])
+
+for(tissue_i in names(motrpac_gtex_map)){
+  
+  print(tissue_i)
+  
+  sig_twas_by_trait <- lapply(setNames(twas_with_hits, twas_with_hits), 
+                              function(trait_i) sig_twas_by_tissue[[tissue_i]][sig_twas_by_tissue[[tissue_i]]$trait == trait_i,])
+  sig_twas_by_trait_genes <- lapply(setNames(twas_with_hits, twas_with_hits), 
+                                    function(trait_i) sig_twas_by_trait[[trait_i]]$gene_name)
+  sig_twas_by_trait_signs <- lapply(setNames(twas_with_hits, twas_with_hits), 
+                                    function(trait_i){
+                                      signs <- sign(sig_twas_by_trait[[trait_i]]$zscore)
+                                      names(signs) <- sig_twas_by_trait_genes[[trait_i]]
+                                      signs
+                                    })
+  
+  paths_tiss <- as.data.frame(paths[[tissue_abbr[tissue_i]]])
+  
+  for(timepoint in paste0(2^(0:3), "w")){
+    
+    for(sex in c("male", "female")){
+      
+      if(trace_8w_backwards){
+        timepoint_to_use <- "8w"
+      } else {
+        timepoint_to_use <- timepoint
+      }
+      
+      #get human gene symbols
+      DE_genes_in_Nodes <- node_metadata_list[[timepoint_to_use]]$human_gene_symbol[
+        node_metadata_list[[timepoint_to_use]]$tissue == tissue_code$abbreviation[tissue_code$tissue_name_release == tissue_i]]
+      #get rat ensembl genes
+      DE_genes_in_Nodes_ensembl <- node_metadata_list[[timepoint_to_use]]$ensembl_gene[
+        node_metadata_list[[timepoint_to_use]]$tissue == tissue_code$abbreviation[tissue_code$tissue_name_release == tissue_i]]
+      if(length(DE_genes_in_Nodes) == 0){next()}
+      
+      #snag signs
+      DE_genes_in_Nodes_sign <- cbind(as.data.frame(do.call(rbind, strsplit(node_metadata_list[[timepoint_to_use]]$node[
+        node_metadata_list[[timepoint_to_use]]$tissue == tissue_code$abbreviation[tissue_code$tissue_name_release == tissue_i]], split = "_"))),
+        gene = DE_genes_in_Nodes)
+      colnames(DE_genes_in_Nodes_sign) <- c("time", "female", "male", "gene")
+      DE_genes_in_Nodes_sign$female[grep(pattern = "F1", DE_genes_in_Nodes_sign$female)] <- 1
+      DE_genes_in_Nodes_sign$female[grep(pattern = "F-1", DE_genes_in_Nodes_sign$female)] <- -1
+      DE_genes_in_Nodes_sign$male[grep(pattern = "M1", DE_genes_in_Nodes_sign$male)] <- 1
+      DE_genes_in_Nodes_sign$male[grep(pattern = "M-1", DE_genes_in_Nodes_sign$male)] <- -1
+      DE_genes_in_Nodes_sign$ensembl_gene <- DE_genes_in_Nodes_ensembl
+      
+      #remove genes with no known human gene symbol
+      DE_genes_in_Nodes_sign <- DE_genes_in_Nodes_sign[!is.na(DE_genes_in_Nodes_sign$gene),]
+      
+      #filter down to sex
+      DE_genes_signs <- as.integer(DE_genes_in_Nodes_sign[,sex])
+      names(DE_genes_signs) <- DE_genes_in_Nodes_sign$gene
+      
+      #get relative expression scores
+      sex_i <- sex
+      relative_effect_sizes <- deg_eqtl_list[[tissue_i]][deg_eqtl_list[[tissue_i]]$sex == sex_i & 
+                                                           deg_eqtl_list[[tissue_i]]$comparison_group == timepoint,]
+      
+      
+      if(trace_8w_backwards){
+        new_nodes <- paths_tiss[match(DE_genes_in_Nodes_sign$ensembl_gene, paths_tiss$feature_ID), paste0("state_", timepoint)]
+        
+        new_DE_genes_in_Nodes_sign <- cbind(as.data.frame(do.call(rbind, strsplit(new_nodes, split = "_"))), gene = DE_genes_in_Nodes_sign$gene)
+        colnames(new_DE_genes_in_Nodes_sign) <- c("female", "male", "gene")
+        new_DE_genes_in_Nodes_sign$female[grep(pattern = "F1", new_DE_genes_in_Nodes_sign$female)] <- 1
+        new_DE_genes_in_Nodes_sign$female[grep(pattern = "F-1", new_DE_genes_in_Nodes_sign$female)] <- -1
+        new_DE_genes_in_Nodes_sign$male[grep(pattern = "M1", new_DE_genes_in_Nodes_sign$male)] <- 1
+        new_DE_genes_in_Nodes_sign$male[grep(pattern = "M-1", new_DE_genes_in_Nodes_sign$male)] <- -1
+        new_DE_genes_in_Nodes_sign$female[grep(pattern = "F0", new_DE_genes_in_Nodes_sign$female)] <- 0
+        new_DE_genes_in_Nodes_sign$male[grep(pattern = "M0", new_DE_genes_in_Nodes_sign$male)] <- 0
+        
+        #NA nodes get a 0 too
+        new_DE_genes_in_Nodes_sign[is.na(new_DE_genes_in_Nodes_sign)] <- 0
+        
+        DE_genes_signs <- setNames(as.integer(new_DE_genes_in_Nodes_sign[,sex]), DE_genes_in_Nodes_sign$gene)
+        
+      }
+      
+      
+      results <- t(sapply(setNames(twas_with_hits, twas_with_hits), function(trait_i) {
+        twas_signs <- sig_twas_by_trait_signs[[trait_i]]
+        shared_genes <- intersect(names(DE_genes_signs), names(twas_signs))
+        sign_of_effect <- twas_signs[shared_genes] * DE_genes_signs[shared_genes]
+        
+        #get proportion of positive hits
+        npos <- sum(sign_of_effect > 0.5)
+        nneg <- sum(sign_of_effect < -0.5)
+        nzero <- length(sign_of_effect) - npos - nneg
+        prop_positive <- (npos + nzero * 0.5) / length(sign_of_effect)
+        #prop_positive <- mean(sign_of_effect > 0)
+        
+        sign_of_effect_symbol <- rep("+", length(shared_genes))
+        sign_of_effect_symbol[sign_of_effect == -1] <- "-"
+        eff_size <- round(abs(relative_effect_sizes$phenotypic_expression_Z[match(shared_genes, relative_effect_sizes$gene_name)]), 2)
+        shared_gene_names <- paste0(shared_genes, " (",  sign_of_effect_symbol, ", ", eff_size, ")")
+        
+        return(list(prop_positive = prop_positive, n = length(shared_genes), genes = paste0(shared_gene_names, collapse = " ~ ")))
+      }))
+      
+      # DELT <- as.data.frame(deg_eqtl_list_TWAS_cluster_subset[[tissue_i]])
+      # 
+      # #subset to time, sex, and unique gene entries
+      # DELT <- DELT[DELT$comparison_group == time,]
+      # DELT <- DELT[DELT$sex == sex,]
+      # # DELT <- DELT[-which(is.na(DELT$gene_name)),] #get rid of na genes
+      # if(nrow(DELT) == 0){next()}
+      # DELT <- DELT[match(unique(DELT$gene_name), DELT$gene_name),] #pull out only first gene entry
+      # 
+      # 
+      # DE_inds <- which(DELT$adj_p_value <= 1.1)
+      # # TWAS_inds <- apply(DELT[,grep(colnames(DELT), pattern = "BH_PValue")] < 0.05, 2, which)
+      # TWAS_inds <- apply(log(DELT[,grep(colnames(DELT), pattern = ".pvalue")]) <= (log(0.05) - log(n_twas_comparisons_clusters)), 2, which)
+      # if(length(TWAS_inds) == 0){next()}
+      # 
+      # intersect_inds <- lapply(TWAS_inds, function(twi) intersect(DE_inds, twi))
+      # # intersect_inds <- lapply(intersect_inds, function(ii) ii[DELT$gene_name[ii] %in% cluster_genes]) #subset to just monotonic sex-homogenous clusters
+      # intersect_genes <- lapply(intersect_inds, function(ii) unique(DELT$gene_name[ii]))
+      # 
+      # 
+      # intersect_sign_logFC <- lapply(intersect_inds, function(ii) sign(DELT$logFC[ii]))
+      # names(intersect_sign_logFC) <- gsub(names(intersect_sign_logFC), pattern = ".pvalue", replacement = "")
+      # intersect_sign_TWAS <- lapply(gsub(names(intersect_inds), pattern = ".pvalue", replacement = ""), function(ii) 
+      #                        sign(DELT[intersect_inds[paste0(ii, ".pvalue")][[1]], paste0(ii, ".zscore")]))
+      # intersect_sign_match <- lapply(1:length(intersect_sign_logFC), function(i) intersect_sign_logFC[[i]]*intersect_sign_TWAS[[i]])
+      # 
+      # intersect_genes_strings <- lapply(1:length(intersect_sign_logFC), function(i) 
+      #   paste0(intersect_genes[[i]], " (", c("-", "", "+")[intersect_sign_match[[i]] + 2], ")", collapse = " ~ "))
+      # intersect_genes_strings <- unlist(intersect_genes_strings)
+      # intersect_genes_strings[intersect_genes_strings == " ()"] <- ""
+      # 
+      # intersect_sign_match <- sapply(intersect_sign_match, function(x) mean(x == 1))
+      # intersect_sign_match_n <- sapply(intersect_inds, function(x) length(x))
+      # deg_sigtwas_proportion[tissue_i,names(n_intersect),time, "p", sex] <- intersect_sign_match
+      # deg_sigtwas_proportion[tissue_i,names(n_intersect),time, "n", sex] <- intersect_sign_match_n
+      # deg_sigtwas_proportion[tissue_i,names(n_intersect),time, "genes", sex] <- intersect_genes_strings
+      
+      deg_sigtwas_proportion[tissue_i,rownames(results),timepoint, "p", sex] <- unlist(results[,"prop_positive"])
+      deg_sigtwas_proportion[tissue_i,rownames(results),timepoint, "n", sex] <- unlist(results[,"n"])
+      deg_sigtwas_proportion[tissue_i,rownames(results),timepoint, "genes", sex] <- unlist(results[,"genes"])
+      
+    }
+    
+  }
+  
+}
+
+# #### add in "all tissues" group ####
+# 
+# str(deg_sigtwas_proportion)
+# 
+# all_tissues_array <- deg_sigtwas_proportion[1,,,,]
+# 
+# list(names(motrpac_gtex_map), twas_with_hits, paste0(2^(0:3), "w"), c("p", "n", "genes"), c("male", "female"))
+# 
+# for(tissue_i in names(motrpac_gtex_map)[-1]){
+#   
+#   for(timepoint in paste0(2^(0:3), "w")){
+#     
+#     for(sex in c("male", "female")){
+#     
+#       all_tissues_array[tissue_i,,,"n",] <- all_tissues_array[,,"n",] + deg_sigtwas_proportion[tissue_i,,,"n",]
+#             
+#     }
+#   }
+# }
+# 
+# deg_sigtwas_proportion <- abind::abind(deg_sigtwas_proportion, all_tissues_array, along = 1)
+# deg_sigtwas_proportion <- deg_sigtwas_proportion[-18,,,,]
+
+
+
+
+#### the actual trajectory plotting ####
+deg_sigtwas_proportion[,twas_with_hits[grep(twas_with_hits, pattern = "type_1_diabetes", ignore.case = T)],,"p",sex]
+deg_sigtwas_proportion[,twas_with_hits[grep(twas_with_hits, pattern = "reported_hypertension", ignore.case = T)],,"p",sex]
+deg_sigtwas_proportion[,twas_with_hits[grep(twas_with_hits, pattern = "heart_problems", ignore.case = T)],,"n","male"]
+deg_sigtwas_proportion[,twas_with_hits[grep(twas_with_hits, pattern = "Body_mass_index_BMI", ignore.case = T)],,"n",sex]
+deg_sigtwas_proportion[,twas_with_hits[grep(twas_with_hits, pattern = "Body_fat_percentage", ignore.case = T)],,"p",sex]
+deg_sigtwas_proportion[,twas_with_hits[grep(twas_with_hits, pattern = "Body_fat_percentage", ignore.case = T)],,"p",sex]
+deg_sigtwas_proportion[,twas_with_hits[grep(twas_with_hits, pattern = "UKB_20002_1462_self_reported_crohns_disease", ignore.case = T)],,"p",sex]
+deg_sigtwas_proportion[,twas_with_hits[grep(twas_with_hits, pattern = "tag.evrsmk.tbl", ignore.case = T)],,"p",sex]
+
+deg_sigtwas_proportion[,twas_with_hits[grep(twas_with_hits, pattern = "UKB_50_Standing_height", ignore.case = T)],,"n",sex]
+
+#plot lines for proportions
+trait <- twas_with_hits[grep(twas_with_hits, pattern = "reported_hypertension", ignore.case = T)][1]
+trait <- twas_with_hits[grep(twas_with_hits, pattern = "heart_problems", ignore.case = T)][1]
+trait <- twas_with_hits[grep(twas_with_hits, pattern = "Body_mass_index_BMI", ignore.case = T)][1]
+
+trait <- twas_with_hits[grep(twas_with_hits, pattern = "ldl", ignore.case = T)][1]
+trait <- twas_with_hits[grep(twas_with_hits, pattern = "CAD", ignore.case = T)][1]
+trait <- twas_with_hits[grep(twas_with_hits, pattern = "alzhei", ignore.case = T)][1]
+
+trait <- twas_with_hits[grep(twas_with_hits, pattern = "Body_fat_percentage", ignore.case = T)][1]
+trait <- twas_with_hits[grep(twas_with_hits, pattern = "cholesterol", ignore.case = T)][1]
+trait <- twas_with_hits[grep(twas_with_hits, pattern = "asthma", ignore.case = T)][1]
+
+trait_patt <- trait_patts[4]
+trait <- intersect(twas_with_hits, trait_categories$Tag[grep(trait_categories$new_Phenotype, pattern = trait_patt, ignore.case = T)])[1]
+
+cols = list(Tissue=tissue_cols[names(motrpac_gtex_map)], 
             Time=group_cols[paste0(c(1,2,4,8), "w")],
             Sex=sex_cols[c('male','female')])
-cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
-names(cols$Tissue)[which(is.na(names(cols$Tissue)))] <- "t1000-gonads"
-cols$cluster <- cols$Tissue[1:length(cluster_names)]
-names(cols$cluster) <- cluster_names
-
-#read in conditional analyses
-if(file.exists("~/data/smontgom/ldsc_cluster_results_conditional.txt")){
-  ldsc_results_conditional <- as.data.frame(fread("~/data/smontgom/ldsc_cluster_results_conditional.txt"))
-} else{
-  ldsc_results_conditional_paths <- list.files(ldsc_output_dir)
-  ldsc_results_conditional_paths <- paste0(ldsc_output_dir, ldsc_results_conditional_paths[grep(ldsc_results_conditional_paths, pattern = "results")])
-  # cluster_names <- paste0("Cluster_", 1:15)
-  tissue_abbrev <- unique(MotrpacBicQC::bic_animal_tissue_code$abbreviation)
-  tissue_abbrev <- tissue_abbrev[!is.na(tissue_abbrev)]
-  tissue_abbrev <- setdiff(tissue_abbrev, c("PLASMA", "HYPOTH", "TESTES", "OVARY", "VENACV"))
-  cluster_names <- paste0(tissue_abbrev, "-sex_homogeneous_changing")
-  ldsc_results_conditional_paths <- lapply(gwas_names, function(gwas) ldsc_results_conditional_paths[grep(pattern = gwas, ldsc_results_conditional_paths)])
-  names(ldsc_results_conditional_paths) <-  gwas_names
-  ldsc_results_conditional_paths <- lapply(gwas_names, function(gwas) 
-    ldsc_results_conditional_paths[[gwas]][grep(pattern = 
-    paste0(sort(cluster_names)[c(1, length(cluster_names))], collapse = "-"), ldsc_results_conditional_paths[[gwas]])])
-  names(ldsc_results_conditional_paths) <-  gwas_names
-  
-  ldsc_results_conditional <- as.data.frame(matrix(data = NA, ncol = ncol(fread(ldsc_results_conditional_paths[[1]][1])), nrow = length(gwas_names) * length(cluster_names)))
-  colnames(ldsc_results_conditional) <- colnames(fread(ldsc_results_conditional_paths[[1]][1]))
-  ldsc_results_conditional$cluster <- rep(cluster_names, length(gwas_names))
-  ldsc_results_conditional$gwas <- c(sapply(gwas_names, function(gwas_name) rep(gwas_name, length(cluster_names))))
-  for(i in 0:(length(gwas_names)-1) * length(cluster_names) + 1){
-    output <- fread(ldsc_results_conditional_paths[[ldsc_results_conditional$gwas[i]]][1])
-    output$Category <- stringr::str_replace(pattern = "L2_0", replacement = "", output$Category)
-    output <- output[output$Category %in% paste0("Cluster_", cluster_names),]
-    reorder_output <- order(match(stringr::str_replace(output$Category, pattern = "Cluster_", replacement = ""), 
-          ldsc_results_conditional[i:(i+length(cluster_names)-1),"cluster"]))
-    ldsc_results_conditional[i:(i+length(cluster_names)-1),1:ncol(output)] <- output[reorder_output,]
-  }
-  ldsc_results_conditional$gwas <- stringr::str_remove(ldsc_results_conditional$gwas, "imputed_")
-  ldsc_results_conditional$logPVal_enrichment <- log10(ldsc_results_conditional$Enrichment_p)
-  fwrite(ldsc_results_conditional, "~/data/smontgom/ldsc_cluster_results_conditional.txt")
-}
-
-
-#read in ldsc cts results outputted from *old* command
-if(file.exists("~/data/smontgom/ldsc_cluster_results_cts_alt.txt")){
-  ldsc_results_cts_alt <- as.data.frame(fread("~/data/smontgom/ldsc_cluster_results_cts_alt.txt"))
-} else{
-  ldsc_output_dir <- "~/repos/ldsc/output/original_command/"
-  ldsc_results_cts_alt_paths <- list.files(ldsc_output_dir)
-  ldsc_results_cts_alt_paths <- paste0(ldsc_output_dir, ldsc_results_cts_alt_paths[grep(ldsc_results_cts_alt_paths, pattern = "results")])
-  # cluster_names <- paste0("Cluster_", 1:15)
-  
-  tissue_abbrev <- unique(MotrpacBicQC::bic_animal_tissue_code$abbreviation)
-  tissue_abbrev <- tissue_abbrev[!is.na(tissue_abbrev)]
-  tissue_abbrev <- setdiff(tissue_abbrev, c("PLASMA", "HYPOTH", "TESTES", "OVARY", "VENACV"))
-  cluster_names <- paste0(tissue_abbrev, "-sex_homogeneous_changing")
-  
-  ldsc_results_cts_alt_paths <- lapply(gwas_names, function(gwas) ldsc_results_cts_alt_paths[grep(pattern = gwas, ldsc_results_cts_alt_paths)])
-  names(ldsc_results_cts_alt_paths) <-  gwas_names
-  
-  ldsc_results_cts_alt <- as.data.frame(matrix(data = NA, 
-                                               ncol = ncol(fread(ldsc_results_cts_alt_paths[[1]][[1]][1])), 
-                                               nrow = length(gwas_names) * length(cluster_names)))
-  colnames(ldsc_results_cts_alt) <- colnames(fread(ldsc_results_cts_alt_paths[[1]][[1]][1]))
-  ldsc_results_cts_alt$cluster <- rep(cluster_names, length(gwas_names))
-  ldsc_results_cts_alt$gwas <- c(sapply(gwas_names, function(gwas_name) rep(gwas_name, length(cluster_names))))
-  for(i in 0:(length(gwas_names)-1) * length(cluster_names) + 1){
-    paths <- ldsc_results_cts_alt_paths[[ldsc_results_cts_alt$gwas[i]]]
-    output <- do.call(rbind, lapply(setNames(cluster_names, cluster_names), function(cli){
-      path <- paths[grep(cli, paths)]
-      temp_output <- fread(path)
-      temp_output <- temp_output[temp_output$Category == "L2_0"]
-      temp_output$Category <- cli
-      return(temp_output)
-    }))
-    reorder_output <- order(match(output$Category, ldsc_results_cts_alt[i:(i+length(cluster_names)-1),"cluster"]))
-    ldsc_results_cts_alt[i:(i+length(cluster_names)-1),1:ncol(output)] <- output[reorder_output,]
-  }
-  ldsc_results_cts_alt$gwas <- stringr::str_remove(ldsc_results_cts_alt$gwas, "imputed_")
-  ldsc_results_cts_alt$logPVal_enrichment <- log10(ldsc_results_cts_alt$Enrichment_p)
-  fwrite(ldsc_results_cts_alt, "~/data/smontgom/ldsc_cluster_results_cts_alt.txt")
-}
-# all(as.numeric(stringr::str_remove_all(ldsc_results_conditional$Category, pattern = "Cluster_")) == ldsc_results_conditional$cluster)
-
-
-#read in ldsc cts results outputted from *old* command
-if(file.exists("~/data/smontgom/ldsc_cluster_results_cts_alt_fullyconditional.txt")){
-  ldsc_results_cts_alt_fullyconditional <- as.data.frame(fread("~/data/smontgom/ldsc_cluster_results_cts_alt_fullyconditional.txt"))
-} else{
-  ldsc_output_dir <- "~/repos/ldsc/output/original_command/"
-  ldsc_results_cts_alt_fullyconditional_paths <- list.files(ldsc_output_dir)
-  ldsc_results_cts_alt_fullyconditional_paths <- paste0(ldsc_output_dir, ldsc_results_cts_alt_fullyconditional_paths[grep(ldsc_results_cts_alt_fullyconditional_paths, pattern = "results")])
-  # cluster_names <- paste0("Cluster_", 1:15)
-  
-  tissue_abbrev <- unique(MotrpacBicQC::bic_animal_tissue_code$abbreviation)
-  tissue_abbrev <- tissue_abbrev[!is.na(tissue_abbrev)]
-  tissue_abbrev <- setdiff(tissue_abbrev, c("PLASMA", "HYPOTH", "TESTES", "OVARY", "VENACV"))
-  cluster_names <- paste0(tissue_abbrev, "-sex_homogeneous_changing")
-  
-  ldsc_results_cts_alt_fullyconditional_paths <- lapply(gwas_names, function(gwas) ldsc_results_cts_alt_fullyconditional_paths[grep(pattern = gwas, ldsc_results_cts_alt_fullyconditional_paths)])
-  names(ldsc_results_cts_alt_fullyconditional_paths) <-  gwas_names
-  
-  ldsc_results_cts_alt_fullyconditional <- as.data.frame(matrix(data = NA, 
-                                               ncol = ncol(fread(ldsc_results_cts_alt_fullyconditional_paths[[1]][[1]][1])), 
-                                               nrow = length(gwas_names) * length(cluster_names)))
-  colnames(ldsc_results_cts_alt_fullyconditional) <- colnames(fread(ldsc_results_cts_alt_fullyconditional_paths[[1]][[1]][1]))
-  ldsc_results_cts_alt_fullyconditional$cluster <- rep(cluster_names, length(gwas_names))
-  ldsc_results_cts_alt_fullyconditional$gwas <- c(sapply(gwas_names, function(gwas_name) rep(gwas_name, length(cluster_names))))
-  for(i in 0:(length(gwas_names)-1) * length(cluster_names) + 1){
-    paths <- ldsc_results_cts_alt_fullyconditional_paths[[ldsc_results_cts_alt_fullyconditional$gwas[i]]]
-    output <- do.call(rbind, lapply(setNames(cluster_names, cluster_names), function(cli){
-      path <- paths[grep(cli, paths)]
-      path <- path[grep("baseline-plus", path)]
-      temp_output <- fread(path)
-      temp_output <- temp_output[temp_output$Category == "L2_0"]
-      temp_output$Category <- cli
-      return(temp_output)
-    }))
-    reorder_output <- order(match(output$Category, ldsc_results_cts_alt_fullyconditional[i:(i+length(cluster_names)-1),"cluster"]))
-    ldsc_results_cts_alt_fullyconditional[i:(i+length(cluster_names)-1),1:ncol(output)] <- output[reorder_output,]
-  }
-  ldsc_results_cts_alt_fullyconditional$gwas <- stringr::str_remove(ldsc_results_cts_alt_fullyconditional$gwas, "imputed_")
-  ldsc_results_cts_alt_fullyconditional$logPVal_enrichment <- log10(ldsc_results_cts_alt_fullyconditional$Enrichment_p)
-  fwrite(ldsc_results_cts_alt_fullyconditional, "~/data/smontgom/ldsc_cluster_results_cts_alt_fullyconditional.txt")
-}
-
-
-#### plotting LDSC output ####
-#specify graph parameters
-max_point_cex <- 3.5
-point_cex_power <- 0.35
-n_points_for_legend = 7
-buffer_min_and_max = 0.05
-# minimum_enrichment_logPval <- min(ldsc_results_sub$logPVal_enrichment)
-opacity_insig_points <- 0.2
-opacity_sig_points <- 0.8
-
-plot_LDSC_comparison = T
-reorder_vertical <- T
-use_conditional_model = F
-use_cts_alt_model = T
-use_enrichment = F
-partition_by_category <- T
-use_heritability = !use_enrichment
-fix_axes = F
-fix_axes_bounds_enrichment = c(0,5)
-fix_axes_bounds_heritability = c(0,1)
-
-#filter by h2 sigma
-total_h2_sigma_thresh <- 7
-traits_with_satisfactory_heritaility <- unique(log_files$gwas[log_files$h2 / log_files$h2se > total_h2_sigma_thresh])
-
-# ldsc_results_sub <- ldsc_results[ldsc_results$gwas %in% traits_with_satisfactory_heritaility,]
-# if(use_conditional_model){
-#   ldsc_results_sub <- ldsc_results_conditional[ldsc_results_conditional$gwas %in% traits_with_satisfactory_heritaility,]
-# }
-
-trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
-traitname_map <- trait_categories[,c("Tag", "new_Phenotype")]
-traitwise_partitions <- trait_categories[,c("Tag", "Category")]
-categories <- sort(unique(traitwise_partitions$Category))
-
-#filter by category
-trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
-traitwise_partitions <- trait_categories[,c("Tag", "Category")]
-traits_in_focal_categories <- traitwise_partitions$Tag[traitwise_partitions$Category %in% 
-                                                         c("Cardiometabolic", "Aging", "Anthropometric", 
-                                                           "Immune", "Psychiatric-neurologic")]
-traits_in_focal_categories <- traitwise_partitions$Tag
-
-#BH correction significant
-use_IHW_ldsc <- T
-if(length(ldsc_results$adj_p) == 0){
-  if(use_IHW_ldsc){
-    ihw_results_ldsc <- IHW::ihw(p ~ trait, data = data.frame(p = ldsc_results$Enrichment_p, trait = as.factor(ldsc_results$gwas)), alpha = 0.05)
-    ldsc_results$adj_p <- ihw_results_ldsc@df$adj_pvalue
-    
-    ihw_results_ldsc <- IHW::ihw(p ~ trait, data = data.frame(p = ldsc_results_conditional$Enrichment_p, trait = as.factor(ldsc_results_conditional$gwas)), alpha = 0.05)
-    ldsc_results_conditional$adj_p <- ihw_results_ldsc@df$adj_pvalue
-    
-    ihw_results_ldsc <- IHW::ihw(p ~ trait, data = data.frame(p = ldsc_results_cts_alt$Enrichment_p, trait = as.factor(ldsc_results_cts_alt$gwas)), alpha = 0.05)
-    ldsc_results_cts_alt$adj_p <- ihw_results_ldsc@df$adj_pvalue
-    
-    ihw_results_ldsc <- IHW::ihw(p ~ trait, data = data.frame(p = ldsc_results_cts_alt_fullyconditional$Enrichment_p, trait = as.factor(ldsc_results_cts_alt_fullyconditional$gwas)), alpha = 0.05)
-    ldsc_results_cts_alt_fullyconditional$adj_p <- ihw_results_ldsc@df$adj_pvalue
-  } else {
-    ldsc_results$adj_p <- p.adjust(ldsc_results$Enrichment_p, "BH")
-  }
-}
-
-#get final trait list
-traits_to_keep <- intersect(traits_with_satisfactory_heritaility, traits_in_focal_categories)
-traits_with_significant_hits <- unique(ldsc_results_cts_alt_fullyconditional$gwas[
-  ldsc_results_cts_alt_fullyconditional$adj_p < 0.05 & ldsc_results$Enrichment > 0])
-traits_to_keep <- intersect(traits_to_keep, traits_with_significant_hits)
-
-coloc_phenotypes_sub <- traits_to_keep
-
-ldsc_results_sub <- ldsc_results[ldsc_results$gwas %in% traits_to_keep,]
-
-if(use_conditional_model){
-  ldsc_results_sub <- ldsc_results_conditional[ldsc_results_conditional$gwas %in% traits_to_keep,]
-}
-
-if(use_cts_alt_model){
-  ldsc_results_sub <- ldsc_results_cts_alt[ldsc_results_cts_alt$gwas %in% traits_to_keep,]
-}
-
-use_fullyconditional_cts_alt_model = T
-if(use_fullyconditional_cts_alt_model){
-  ldsc_results_sub <- ldsc_results_cts_alt_fullyconditional[ldsc_results_cts_alt_fullyconditional$gwas %in% traits_to_keep,]
-}
-
-#get minimum p-val
-minimum_enrichment_logPval <- log10(min(ldsc_results_sub$adj_p))
-
-
-#identify traits with negative heritabilities
-bad_boys <- sort(unique(ldsc_results_sub$gwas[ldsc_results_sub$Enrichment < 0 | ldsc_results_sub$Prop._h2 < 0]))
-bad_boys_cols <- rep(1, length(gwas_names))
-# bad_boys_cols[match(bad_boys, coloc_phenotypes_sub)] <- 2
-
-plot(density(log_files$h2))
-segments(x0 = c(log_files$h2[log_files$gwas %in% bad_boys]), x1 = c(log_files$h2[log_files$gwas %in% bad_boys]), y0 = 0, y1 = 5, col = "red", lwd = 0.4)
-hist(log_files$h2[log_files$gwas %in% bad_boys])
-hist(sapply(log_files$h2[log_files$gwas %in% bad_boys], function(h) mean(h > log_files$h2)), cex.main = 1)
-par(mar = c(4,4,4,4))
-plot(log_files$h2[log_files$gwas %in% bad_boys], log_files$h2se[log_files$gwas %in% bad_boys], xlim = c(-0.003, 0.006), ylim = c(-0.003, 0.006), 
-     xlab = "total heritability", ylab = "total heritability SE")
-hist(log_files$h2[log_files$gwas %in% bad_boys] / log_files$h2se[log_files$gwas %in% bad_boys])
-hist(log_files$h2 / log_files$h2se, breaks = seq(min(log_files$h2 / log_files$h2se), max(log_files$h2 / log_files$h2se), length.out = 100))
-abline(a = 0, b = 1, xpd = F)
-hist(log_files$h2, breaks = seq(min(log_files$h2), max(log_files$h2), length.out = 50))
-hist(log_files$chi2, breaks = seq(min(log_files$chi2), max(log_files$chi2), length.out = 50))
-hist(log_files$chi2[log_files$gwas %in% bad_boys])
-log_files$gwas[log_files$h2 > 1]
-
-
-
-change_names <- F
-change_names_in_plot = T
-nicole_mods = T
-arnold_mods = F
-if(plot_LDSC_comparison){
-  
-  
-  # grDevices::cairo_pdf(filename = paste0("~/Documents/Documents - nikolai/DExEQTL/LDSC_comparison_heritabilities", 
-  #                                        ifelse(use_enrichment, "_enrichment", "_heritability"), 
-  #                                        ifelse(fix_axes, "_fixedAxes", ""), 
-  #                                        ifelse(use_fullyconditional_cts_alt_model, "_fullyConditional", ""), 
-  #                                        # ifelse(use_conditional_model, "_conditionalModel", "_unconditionalModel"), 
-  #                                        ifelse(use_cts_alt_model, "_cell-type-specific-Model", ""), ".pdf"), 
-  #                      width = 1500 / 72, height = 2000 / 72 * 18 / 17 / 114 * length(coloc_phenotypes_sub) * 2, family="Arial Unicode MS")
-  
-  grDevices::cairo_pdf(filename = paste0("~/Documents/Documents - nikolai/motrpac_companion/figures//LDSC_output.pdf"), 
-                       width = 1500 / 72, height = 2000 / 72 * 18 / 17 / 114 * length(coloc_phenotypes_sub) * 2, family="Arial Unicode MS")
-  
-  par(mfrow = c(2, 1), mar = c(3,3,2,3), xpd = NA)
-  
-  for(type_of_plot in 1:2){
-  
-    use_enrichment <- c(T, F)[type_of_plot]
-    
-  max_horiz_axis <- 2.05
-  
-    
-  #first get metainfo
-    if(reorder_vertical){
-      
-      if(use_enrichment){
-        order_traits <- order(sapply(coloc_phenotypes_sub, function(coloc_phenotype) mean(ldsc_results_sub[ldsc_results_sub$gwas == coloc_phenotype,]$Enrichment)), decreasing = T)
-      } else {
-        order_traits <- order(sapply(coloc_phenotypes_sub, function(coloc_phenotype) mean(ldsc_results_sub[ldsc_results_sub$gwas == coloc_phenotype,]$Prop._h2)), decreasing = T)
-      }
-      
-    } else {
-      order_traits <- 1:length(coloc_phenotypes_sub)
-    }
-    
-    if(partition_by_category){
-      order_traits <- order_traits[order(traitwise_partitions[,2][match(coloc_phenotypes_sub[order_traits], traitwise_partitions[,1])], sort(order_traits))]
-      trait_category_counts <- as.data.table(table(traitwise_partitions[,2][match(coloc_phenotypes_sub[order_traits], traitwise_partitions[,1])] ))
-      trait_category_counts$cN <- cumsum(trait_category_counts$N)
-    }
-    
-    if(use_enrichment){
-      if(fix_axes){
-        logprob_range <- fix_axes_bounds_enrichment
-      } else {
-        logprob_range <- range(ldsc_results_sub$Enrichment)
-      }
-    } else {
-      if(fix_axes){
-        logprob_range <- fix_axes_bounds_heritability
-      } else {
-        logprob_range <- range(ldsc_results_sub$Prop._h2)
-      }
-    }
-    
-    logprob_range <- c(logprob_range[1] - diff(logprob_range) * buffer_min_and_max / 2, logprob_range[2] + diff(logprob_range) * buffer_min_and_max / 2)
-    logprob_range <- c(0,ifelse(use_enrichment, 
-                                max(ldsc_results_sub$Enrichment[ldsc_results_sub$adj_p < 0.05]) * 1.025, 
-                                max(ldsc_results_sub$Prop._h2[ldsc_results_sub$adj_p < 0.05])) * 1.025)
-    max_prob <- diff(logprob_range)
-    
-    nameloc <- 0.3 + ifelse(change_names | change_names_in_plot, 0, 0.3)
-    
-    plot(1,1,xlim = c(0,2.1), ylim = c(0,10), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-    
-    ylocs <- seq(10, 0, length.out = length(coloc_phenotypes_sub))
-    
-    #put boxes around categories, if we're doing that  
-    if(partition_by_category){
-      segments(x0 = -0.1, x1 = -0.1, y0 = 0+diff(ylocs)[1]/2, y1 = 10-diff(ylocs)[1]/2, col = "grey35")
-      for(traitcat in 1:(nrow(trait_category_counts)-1)){
-        segments(y0 = ylocs[trait_category_counts$cN[traitcat]] + diff(ylocs)[1]/2, y1 = ylocs[trait_category_counts$cN[traitcat]] + diff(ylocs)[1]/2, x0 = -0.1, x1 = nameloc, col = "grey35")
-      }
-      
-      catylocs <- (ylocs[trait_category_counts$cN] + c(ylocs[1], ylocs[trait_category_counts$cN][-length(trait_category_counts$cN)])) / 2 - diff(ylocs)[1]/1.5
-      catnames <- as.vector(trait_category_counts$V1)
-      catnames <- sapply(catnames, function(x) strsplit(x, split = c("-"))[[1]][1])
-      catnames <- sapply(catnames, function(x) strsplit(x, split = c(" "))[[1]][1])
-      
-      #manually fudge category locations
-      catylocs[catnames == "Hair"] <- catylocs[catnames == "Hair"] + diff(ylocs)[1]/1.5
-      catylocs[catnames == "Aging"] <- catylocs[catnames == "Aging"] - diff(ylocs)[1]/3
-      catylocs[catnames == "Endocrine"] <- catylocs[catnames == "Endocrine"] - diff(ylocs)[1]/10
-      catylocs[catnames == "Allergy"] <- catylocs[catnames == "Allergy"] - diff(ylocs)[1]*1.2
-      catylocs[catnames == "Anthropometric"] <- catylocs[catnames == "Anthropometric"] - diff(ylocs)[1]*1.2
-      catylocs[catnames == "Cardiometabolic"] <- catylocs[catnames == "Cardiometabolic"] - diff(ylocs)[1]*2
-      for(catname in 1:length(catnames)){
-        text(x = -0.1, y = catylocs[catname] + ifelse(catnames[catname] == "Endocrine", 0.1, 0), labels = catnames[catname], pos = 2, srt = 90, col = "grey35")
-      }
-      
-    }
-    
-    #plot names of traits
-    if(change_names_in_plot){
-      coloc_phenotypes_sub_newnames <- traitname_map[match(coloc_phenotypes_sub, traitname_map[,1]),2]
-    } else {
-      coloc_phenotypes_sub_newnames <- coloc_phenotypes_sub
-    }
-    
-    if(nicole_mods){
-      # text(paste0(1:length(coloc_phenotypes_sub_newnames), ": ", 
-      #             coloc_phenotypes_sub_newnames)[order_traits], 
-      #      col = bad_boys_cols[order_traits], x = nameloc, y = ylocs, pos = 2, cex = 1, xpd = NA)
-      text(paste0(coloc_phenotypes_sub_newnames)[order_traits], 
-           col = bad_boys_cols[order_traits], x = nameloc, y = ylocs, pos = 2, cex = 1, xpd = NA)
-    } else {
-      text(paste0(1:length(coloc_phenotypes_sub_newnames), ": ", 
-                  coloc_phenotypes_sub_newnames)[order_traits], 
-           col = pheno_cols, x = nameloc, y = ylocs, pos = 2, cex = 1, xpd = NA)
-    }
-    
-    #vert axis label
-    text(labels = "Phenotypes", x = nameloc, y = 10.45, pos = 2, cex = 2.5, xpd = NA, family="Courier", col = "grey25")
-    #horiz axis label
-    text(labels = paste0("Heritability ", ifelse(use_enrichment, "Enrichment", "Proportion"), " Across Tissues"), x = 1.2, y = -0.5, cex = 2.25, pos = 1, xpd = NA)
-    
-    
-    #guiding lines for traits
-    if(nicole_mods){
-      segments(x0 = nameloc, x1 = max_horiz_axis, y0 = ylocs, y1 = ylocs, col = "grey80", lty = 3, lwd = 0.5)
-    }
-    
-    #axes
-    segments(x0 = nameloc, x1 = nameloc, y0 = 10.675, y1 = -0.1, lwd = 2)
-    segments(x0 = nameloc, x1 = max_horiz_axis, y0 = -0.1, y1 = -0.1, lwd = 2)
-    
-    #horiz axis ticks and nums
-    # if(use_geometric_mean){
-    #   
-    #   probs <- ceiling(logprob_range[1]):ceiling(logprob_range[2])
-    #   segments(x0 = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-    #            x1 = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-    #            y0 = -0.1, y1 = -0.15, lwd = 2)
-    #   text(x = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-    #        y = -0.135, pos = 1, cex = 1.25,
-    #        labels =  c(sapply(probs, function(num) as.expression(bquote(10^.(num))))))
-    #   
-    # } else {
-    #   
-    #   segments(x0 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-    #            x1 = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-    #            y0 = -0.1, y1 = -0.15, lwd = 2)
-    #   text(x = seq(0, max_prob, by = 1) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-    #        y = -0.135, pos = 1, cex = 1.25,
-    #        labels =  c(sapply(seq(ceiling(logprob_range[1]), ceiling(logprob_range[2]), by = 1), function(num) as.expression(bquote(10^.(num))))))
-    # }
-    
-    if(use_enrichment){
-      probs <- seq(ceiling(logprob_range[1]), floor(logprob_range[2]), by = ifelse(fix_axes, 0.5, 1))  
-    } else {
-      probs <- seq(ceiling(logprob_range[1]), (logprob_range[2]), by = ifelse(fix_axes, 0.1, 0.1))
-    }
-    
-    segments(x0 = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc,
-             x1 = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc,
-             y0 = -0.1, y1 = -0.15, lwd = 2)
-    text(x = (probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc,
-         y = -0.135, pos = 1, cex = 1.25,
-         labels =  probs)
-  
-    
-    # #let's get minor tick marks in there too
-    # if(use_geometric_mean){
-    #   minticks <- log10(as.vector(sapply(1:(length(probs)-1), function(p) seq(10^probs[p], 10^probs[p+1], length.out = 10))))
-    #   minticks <- (minticks - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc
-    #   minticks <- minticks[minticks < max_horiz_axis]
-    #   segments(x0 = minticks, x1 =  minticks, y0 = -0.1, y1 = -0.125, lwd = 1)
-    #   #hmm being weird
-    # } else {
-    #   minticks <- log10(as.vector(t(t(1:9)) %*% t(10^seq(0, max_prob, by = 10^round(log(max_prob))))))
-    #   minticks <- minticks / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025
-    #   minticks <- minticks[minticks < max_horiz_axis]
-    #   segments(x0 = minticks, x1 =  minticks, y0 = -0.1, y1 = -0.125, lwd = 1)
-    # }
-    
-    
-    #dashed lines for ticks
-    segments(x0 = (probs[-1] - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-             x1 = (probs[-1] - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y0 = 10, y1 = -0.075, lwd = 2, lty = 2, col = "grey75")
-    segments(x0 = (1 - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-             x1 = (1 - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-             y0 = 10, y1 = -0.075, lwd = 3, lty = 1, col = "grey75")
-    
-    
-    #helpful hint line about direction
-    
-    # if(use_geometric_mean){
-    #   segments(x0 = (0 - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, 
-    #            x1 = (0 - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y0 = 10, y1 = 10.4, lwd = 2, lty = 2, col = "grey75")
-    #   text(labels = "non-DE Genes", srt = 90, x = (0 - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y = 10.4, pos = 2, col = "grey75", cex = 0.75)
-    #   text(labels = "DE Genes", srt = 270, x = (0 - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y = 10.4, pos = 4, col = "grey75", cex = 0.75)
-    #   text(labels = "Stronger Coloc\nSignal In", srt = 0, x = (0 - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc, y = 10.3875, pos = 3, col = "grey75", cex = 0.75)
-    # } else {
-    #   segments(x0 = floor(-logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, 
-    #            x1 = floor(-logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y0 = 10, y1 = 10.4, lwd = 2, lty = 2, col = "grey75")
-    #   text(labels = "eQTL > DEG", srt = 90, x = floor(-logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y = 10.4, pos = 2, col = "grey75", cex = 0.75)
-    #   text(labels = "DEG > eQTL", srt = 270, x = floor(-logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y = 10.4, pos = 4, col = "grey75", cex = 0.75)
-    #   text(labels = "Stronger Coloc\nSignal In", srt = 0, x = floor(-logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc + 0.025, y = 10.3875, pos = 3, col = "grey75", cex = 0.75)
-    # }
-    
-    #plot legend for colors etc.
-    lower_legend_by <- 1.6
-    rect(xleft = 1.97, ybottom = 8.15 - lower_legend_by - 0.05*n_points_for_legend, 
-         ytop = 10.1 - lower_legend_by, xright = 2.2, border = NA, col = "white")
-    # text(labels = sapply(names(deg_eqtl_list), function(ts) stringr::str_to_title(paste0(strsplit(ts, "-")[[1]][-1], collapse = " "))),
-    #      y = seq(9.95,8.75,length.out = length(names(deg_eqtl_list))), x = 2, pos = 4)
-    # points(x = rep(1.9925, length(names(deg_eqtl_list))), y = seq(9.955,8.755,length.out = length(names(deg_eqtl_list))), col = cols$Tissue, pch = 15, cex = 1.75)
-    # text(labels = stringr::str_replace_all(cluster_names, "_", " "),
-    #      y = seq(9.95,8.75,length.out = length(cluster_names)), x = 2, pos = 4)
-    text(labels = sapply(cluster_names, function(cli) strsplit(cli, "-")[[1]][1]),
-         y = seq(9.95,8.75 - lower_legend_by,length.out = length(cluster_names)) - 0.02, x = 2, pos = 4)
-    points(x = rep(1.9925, length(cluster_names)), y = seq(9.955,8.755 - lower_legend_by,length.out = length(cluster_names)), col = cols$cluster, pch = 19, cex = 1.75)
-    
-    #plot legend for points
-    lower_legend_by <- lower_legend_by + 0.3
-    pt_loc_expander <- 8
-    point_legend_cexes <- seq(from = 0.4, to = max_point_cex, length.out = n_points_for_legend)
-    points_legend_pchs <- rep(19, n_points_for_legend)
-    point_legend_cexes_log10_pvals <- round((point_legend_cexes / max_point_cex)^(1/point_cex_power) * minimum_enrichment_logPval, 2)
-    # points_legend_pchs[point_legend_cexes_log10_pvals < (log10(0.05) - log10(nrow(ldsc_results_sub)))] <- 18
-    points_legend_pchs[point_legend_cexes_log10_pvals < (log10(0.05))] <- 18
-    
-    points(y = 8.55 - lower_legend_by - cumsum(point_legend_cexes + pt_loc_expander) / sum(point_legend_cexes) * 0.05*n_points_for_legend, 
-           x = rep(1.9925, n_points_for_legend), cex = point_legend_cexes, col = "grey50", pch = points_legend_pchs)
-    text(labels = latex2exp::TeX("$log_{10}$(enrichment p-val)"), y = 8.6 - lower_legend_by, x = 1.975, cex = 1.1, pos = 4,  font = 2)
-    # text(labels = paste0("0.05 FDR @ ", round(log10(0.05) - log10(nrow(ldsc_results_sub)),2), "\n           (Bonferroni)"), y = 8.45 , x = 2.1, cex = 0.8, pos = 4,  font = 2)
-    text(labels = latex2exp::TeX(paste0("$\\alpha = 0.05$, IHW")), 
-         y = 8.35 - lower_legend_by, x = 2.1, cex = 0.8, pos = 4,  font = 2)
-    # text(labels = latex2exp::TeX(paste0("(Benjamini-Hochberg)")), 
-    #      y = 8.35 - lower_legend_by, x = 2.07, cex = 0.8, pos = 4,  font = 2)
-    # text(labels = paste0("< ", round(log10(0.05) - log10(nrow(ldsc_results_sub)),2), "\n> ", round(log10(0.05) - log10(nrow(ldsc_results_sub)),2)), 
-    #      y = 8.25 , x = 2.175, cex = 1, pos = 4,  font = 2)
-    text(labels = paste0("< ", round(log10(0.05),2), "\n> ", round(log10(0.05),2)), 
-         y = 8.25 - lower_legend_by - 0.1 - c(0.15), x = 2.145, cex = 1, pos = 4,  font = 2)
-    points(pch = c(19,18), y = c(8.41, 8.2) - lower_legend_by - 0.1 - 0.15, x = rep(2.145,2), cex = c(1.25, 1.75), 
-           col = sapply(c(opacity_insig_points, opacity_sig_points), function(opcty) adjustcolor("grey50", alpha.f = opcty)))
-    
-    
-    text(labels = point_legend_cexes_log10_pvals,y = 8.545 - lower_legend_by - cumsum(point_legend_cexes + pt_loc_expander) / sum(point_legend_cexes) * 0.05*n_points_for_legend, 
-           x = rep(1.99, n_points_for_legend) + point_legend_cexes / 200, cex = 1, pos = 4, pch = 19)
-    
-    
-    #figure out cex params
-    for(cluster in cluster_names){
-        
-        # horizontal lines for colocalizing traits
-        trait_locs <- ylocs
-        if(use_enrichment){
-          trait_probs <- ldsc_results_sub$Enrichment[ldsc_results_sub$cluster == cluster]
-          #for bonferroni
-          # trait_logPvals <- (ldsc_results_sub$logPVal_enrichment[ldsc_results_sub$cluster == cluster])[order_traits]
-          #for BH adjustment
-          trait_logPvals <- log10((ldsc_results_sub$adj_p[ldsc_results_sub$cluster == cluster])[order_traits])
-        } else {
-          trait_probs <- ldsc_results_sub$Prop._h2[ldsc_results_sub$cluster == cluster]
-          trait_logPvals <- (ldsc_results_sub$logPVal_enrichment[ldsc_results_sub$cluster == cluster])[order_traits]
-        }
-        trait_probs <- trait_probs[order_traits]
-        
-        point_cex <- (-trait_logPvals / -minimum_enrichment_logPval)^point_cex_power
-        point_cex <- point_cex * max_point_cex
-        
-        good_points <- trait_probs >= logprob_range[1] & trait_probs <= logprob_range[2]
-        
-        pchs <- rep(19, length(trait_probs))
-        opacities <- rep(opacity_insig_points, length(trait_probs))
-        
-        #mark "significant" points
-        # pchs[trait_logPvals < (log10(0.05) - log10(nrow(ldsc_results_sub)))] <- 18
-        # opacities[trait_logPvals < (log10(0.05) - log10(nrow(ldsc_results_sub)))] <- opacity_sig_points
-        pchs[trait_logPvals < log10(0.05)] <- 23
-        opacities[trait_logPvals < log10(0.05)] <- opacity_sig_points
-        
-        point_cols <- sapply(opacities, function(opcty) grDevices::adjustcolor(cols$Tissue[match(cluster, cluster_names)], alpha.f = opcty))
-        point_bgs <- point_cols
-        point_cols[trait_logPvals < log10(0.05)] <- 1
-        
-        
-        points(x = ((trait_probs - logprob_range[1]) / max_prob * (2 - nameloc - 0.025) + nameloc)[good_points], y = (trait_locs)[good_points], 
-               pch = pchs[good_points], bg = point_bgs[good_points], col = point_cols[good_points], cex = point_cex[good_points])
-        
-        
-      }
-      
-    
-    
-    if(arnold_mods){
-      addImg(obj = arnold_bayes, x = 1.9, y = 1.6775, width = 0.5)
-    }
-    
-  }
-    
-    dev.off()
-}
-  
-#quick comparison of conditional vs unconditional models
-par(mfrow = c(1,2), mar = c(4,4,4,2))
-plot(ldsc_results_conditional$Enrichment,  ldsc_results$Enrichment, main = "Heritability Enrichment",
-     xlab = "Conditional Model Enrichments", ylab = "Unconditional Model Enrichments", pch = 19, col = adjustcolor(1, 0.5))
-abline(0,1, col = "red", lty = 2)
-plot(ldsc_results_conditional$Prop._h2,  ldsc_results$Prop._h2, main = "Proportion Heritability", xpd = NA,
-     xlab = latex2exp::TeX("Conditional Model Prop. h^2"), ylab =  latex2exp::TeX("Uncnditional Model Prop. h^2"), pch = 19, col = adjustcolor(1, 0.5))
-abline(0,1, col = "red", lty = 2)
-
-plot(ldsc_results$Prop._h2,  ldsc_results_cts_alt$Prop._h2, main = "Proportion Heritability", xpd = NA,
-     xlab = latex2exp::TeX("Conditional Model Prop. h^2"), ylab =  latex2exp::TeX("Uncnditional Model Prop. h^2"), pch = 19, col = adjustcolor(1, 0.5))
-
-plot(ldsc_results$Enrichment,  ldsc_results_cts_alt$Enrichment, main = "Proportion Heritability", xpd = NA,
-     xlab = latex2exp::TeX("Conditional Model Prop. h^2"), ylab =  latex2exp::TeX("Uncnditional Model Prop. h^2"), pch = 19, col = adjustcolor(1, 0.5))
-
-ldsc_results_conditional
-ldsc_results_cts_alt
-
-#### cluster-based marginal enrichment ####
-
-trait_type_specific = T
-grDevices::cairo_pdf(filename = paste0("~/Documents/Documents - nikolai/DExEQTL/LDSC_cluster-specific_enrichments", ifelse(trait_type_specific, "_categorized-by-categories"),".pdf"), 
-                     width = 1500 / 72, height = 2000 / 72, family="Arial Unicode MS")
-par(mfrow = c(1, 1), mar = c(4,3,1,3), xpd = NA)
-
-range_xs <- c(0, max(ldsc_results_sub$Enrichment[!(ldsc_results_sub$gwas %in% bad_boys)]) * 1.2)
-plot(1,1,xlim = range_xs, ylim = c(0,10), col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-cis <- 1:15
-
-ylocs_bottoms <- seq(0, 10, length.out = length(cis) + 1)[-(length(cis) + 1)]
-yheight = diff(ylocs_bottoms)[1] * 0.9
-
-order_cs <- order(sapply(cis, function(ci) mean(ldsc_results_sub$Enrichment[ldsc_results_sub$cluster == ci & !(ldsc_results_sub$gwas %in% bad_boys)])))
-unique_trait_categories <- unique(traitwise_partitions$Category)
-cols$category <- cols$Tissue[1:length(unique_trait_categories)+1]
-names(cols$category) <- unique_trait_categories
-for(ci in cis){
-  if(trait_type_specific){
-    for(ti in unique_trait_categories){
-      
-      enrichments <- ldsc_results_sub$Enrichment[ldsc_results_sub$cluster == ci & 
-                                                !(ldsc_results_sub$gwas %in% bad_boys) & 
-                                                  ldsc_results_sub$gwas %in% traitwise_partitions$Tag[traitwise_partitions$Category == ti]]
-      if(length(enrichments) == 0){
-        next()
-      } else if(length(enrichments) == 1){
-        dens_enrich <- density(enrichments, from = range_xs[1], to = range_xs[2], bw = 0.1)
-      } else {
-        dens_enrich <- density(enrichments, from = range_xs[1], to = range_xs[2])
-      }
-      ylocs <- dens_enrich$y / max(dens_enrich$y) * yheight + ylocs_bottoms[order_cs[ci]]
-      xlocs <- dens_enrich$x
-      ylocs[1] <- ylocs[length(ylocs)] <- ylocs_bottoms[order_cs[ci]]
-      polygon(x = xlocs, y = ylocs, col = adjustcolor(cols$category[ti], 0.5))
-      text(labels = paste0("Cluster ", ci), x = range_xs[1], y = ylocs_bottoms[order_cs[ci]] + 0.55, pos = 2, col = "black", cex = 1.5, srt = 90)
-      }
-    
-  } else {
-    enrichments <- ldsc_results_sub$Enrichment[ldsc_results_sub$cluster == ci & !(ldsc_results_sub$gwas %in% bad_boys)]
-    dens_enrich <- density(enrichments, from = range_xs[1], to = range_xs[2])
-    ylocs <- dens_enrich$y / max(dens_enrich$y) * yheight + ylocs_bottoms[order_cs[ci]]
-    xlocs <- dens_enrich$x
-    ylocs[1] <- ylocs[length(ylocs)] <- ylocs_bottoms[order_cs[ci]]
-    polygon(x = xlocs, y = ylocs, col = "lightgrey")
-    text(labels = paste0("Cluster ", ci), x = xlocs[min(which(cumsum(dens_enrich$y) / sum(dens_enrich$y) > 0.5))], y = ylocs_bottoms[order_cs[ci]], pos = 3, col = "white", cex = 2)  
-  }
-  
-}
-segments(x0 = range_xs[1], x1 = range_xs[2], lwd = 3, y0 = -0.1)
-xticks <- seq(range_xs[1], range_xs[2], by = 1)
-segments(x0 = xticks, x1 = xticks, y0 = -0.1, y1 = -0.15, lwd = 3)
-text(labels = xticks, x = xticks, y = -0.15, pos = 1, cex = 2)
-text(labels = "Enrichment Proportion", x = diff(range_xs) / 2, y = -0.35, pos = 1, cex = 3)
-text(labels = "LDSC Enrichment Across Clusters", x = diff(range_xs) / 2, y = 10.1, pos = 3, cex = 4)
-
-if(trait_type_specific){
-  legend(legend = names(cols$category), x = range_xs[2] - diff(range_xs) / 5, y = 10.45, col = adjustcolor(cols$category, 0.75), pch = 15, pt.cex = 3, ncol = 2, cex = 1.1)
-}
-
-dev.off()
-
-#### pairwise genetic correlation matrix ####
-ldsc_directory <- "~/repos/ldsc/"
-
-#could maybe have genetic correlations in the upper right, significance in the bottom left
-
-#let's get the gwas summary stats into a format that munge_sumstats.py can process
-gwas_dir <- "~/data/smontgom/imputed_gwas_hg38_1.1/"
-gwas_summary_files <- list.files(gwas_dir)
-gwas_summary_files <- gwas_summary_files[-grep(gwas_summary_files, pattern = "README")]
-traitnames <- gwas_summary_files
-traitnames <- sapply(traitnames, function(trait) strsplit(trait, ".txt.gz")[[1]][1])
-traitnames <- sapply(traitnames, function(trait) strsplit(trait, "imputed_")[[1]][2])
-traitnames <- as.character(traitnames)
-gcors <- lapply(traitnames, function(x) integer())
-names(gcors) <- traitnames  
-for(gi in 1:length(gwas_summary_files)){
- logfile <- readLines(paste0(ldsc_directory, "output/signed_gcor/", strsplit(gwas_summary_files[gi], ".txt.gz")[[1]][1], "_pairwise-Gcorrs.log"))
- logfile <- logfile[(grep(x = logfile, pattern = "Summary of Genetic Correlation Results")+1):(length(logfile)-3)]
- writeLines(logfile, con = paste0(ldsc_directory, "temp.txt"))
- gcors[[gi]] <- fread(paste0(ldsc_directory, "temp.txt"))
- file.remove(paste0(ldsc_directory, "temp.txt"))
- 
- gcors[[gi]]$p1 <- sapply(gcors[[gi]]$p1, function(trait) strsplit(trait, ".txt.gz")[[1]][1])
- gcors[[gi]]$p1 <- sapply(gcors[[gi]]$p1, function(trait) strsplit(trait, "gwas_sumstats/proper_format/signed/imputed_")[[1]][2])
- gcors[[gi]]$p2 <- sapply(gcors[[gi]]$p2, function(trait) strsplit(trait, ".txt.gz")[[1]][1])
- gcors[[gi]]$p2 <- sapply(gcors[[gi]]$p2, function(trait) strsplit(trait, "gwas_sumstats/proper_format/signed/imputed_")[[1]][2])
-}
-
-gcor_mat <- diag(length(traitnames))
-colnames(gcor_mat) <- rownames(gcor_mat) <- traitnames
-for(ri in rownames(gcor_mat)){
-  for(ci in colnames(gcor_mat)){
-    gcor_mat[ri, ci] <- gcors[[ri]]$rg[match(ci, gcors[[ri]]$p2)]  
-  }
-}
-diag(gcor_mat) <- rep(1, length(traitnames))
-
-gcor_mat <- gcor_mat[traits_with_satisfactory_heritaility,traits_with_satisfactory_heritaility]
-troublesome_inds_NA_corrs <- as.numeric(names(which(table(which(is.na(gcor_mat), arr.ind = T)) > 1)))
-troublesome_inds_NA_corrs_traits <- rownames(gcor_mat)[troublesome_inds_NA_corrs]
-if(length(troublesome_inds_NA_corrs) > 0){
-  gcor_mat <- gcor_mat[-troublesome_inds_NA_corrs, -troublesome_inds_NA_corrs]
-}
-troublesome_inds_imposs_corrs <- as.numeric(names(which(table(which(gcor_mat > 1 | gcor_mat < -1, arr.ind = T)) > 1)))
-troublesome_inds_imposs_corrs_traits <- rownames(gcor_mat)[troublesome_inds_imposs_corrs]
-if(length(troublesome_inds_imposs_corrs) > 0){
-  gcor_mat <- gcor_mat[-troublesome_inds_imposs_corrs, -troublesome_inds_imposs_corrs]
-}
-
-rownames(gcor_mat) <- colnames(gcor_mat) <- traitname_map$new_Phenotype[match(rownames(gcor_mat), traitname_map$Tag)]
-
-gcor_mat_se <- diag(length(traitnames))
-colnames(gcor_mat_se) <- rownames(gcor_mat_se) <- traitnames
-for(ri in rownames(gcor_mat_se)){
-  for(ci in colnames(gcor_mat_se)){
-    gcor_mat_se[ri, ci] <- gcors[[ri]]$se[match(ci, gcors[[ri]]$p2)]
-  }
-}
-diag(gcor_mat_se) <- rep(NA, length(traitnames))
-rownames(gcor_mat_se) <- colnames(gcor_mat_se) <- traitname_map$new_Phenotype[match(rownames(gcor_mat_se), traitname_map$Tag)]
-gcor_mat_se <- gcor_mat_se[rownames(gcor_mat), rownames(gcor_mat)]
-gcor_mat_z <- abs(gcor_mat / gcor_mat_se)
-zscore_sig_thresh <- abs(qnorm(0.025  / choose(dim(gcor_mat)[1], 2), 0, 1))
-gcor_mat_sig <- gcor_mat_z > zscore_sig_thresh
-diag(gcor_mat_sig) <- T
-sum(gcor_mat_sig, na.rm = T) - nrow(gcor_mat_sig)
-
-#### actually plot genetic correlations ####
-
-grDevices::cairo_pdf(filename = paste0("~/Documents/DExEQTL/genetic_correlations.pdf"), 
-                     width = 1200 / 72, height = 600 / 72, family="Arial Unicode MS")
-par(mar = c(8,6,3,4), mfrow = c(1,2), xpd = NA)
-
+tissue_names <- sapply(strsplit(names(cols$Tissue), "-"), function(x) paste0(x[ifelse(length(x) == 2, c(2), list(2:3))[[1]]], collapse = " "))
 
 #plotting params
-traits <- rownames(gcor_mat)
-rate = 0.001
-exp_dist_cols <- round(cumsum(c(1, dexp(1:100, rate = rate) / min(dexp(1:100, rate = rate)))))
-heatcols <- viridis::magma(max(exp_dist_cols))[exp_dist_cols]
-heatcols <- RColorBrewer::brewer.pal(11, "RdBu")[-c(1,11)]
-heatcols <- rev(colorRampPalette(heatcols)(101))
-# plot(1:length(heatcols), 1:length(heatcols), cex = 2, pch = 19, col = heatcols)
+plot_gene_names <- T
+trait_patts <- c("triglycerides", "rheumatoid_arthritis", "high_cholesterol", "asthma_ukbs")
+# trait_patts <- c("triglycerides")
 
-par(mar = c(8,6,3,4), xpd = NA)
-plot(1,1,xlim = c(0,length(traits)), ylim = c(0,length(traits)), xpd = NA,
-     col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-sorted_row_inds <- order(cmdscale(1-gcor_mat, k = 1))
-for(rowi in 1:length(traits)){
-  text(labels = traits[sorted_row_inds[rowi]], x = length(traits), y = length(traits) - rowi + 1, 
-       col = cols$category[traitwise_partitions$Category[match(traitname_map$Tag[
-         match(traits[sorted_row_inds[rowi]], traitname_map$new_Phenotype)],traitwise_partitions$Tag)]]
-       , pos = 4, xpd = NA, cex = 0.5, font = 1)
-  for(colj in 1:length(traits)){
-    rect(yb = length(traits) - rowi + 1 - 1/2, yt = length(traits) - rowi + 1 + 1/2, 
-         xl = colj - 1/2, xr = colj + 1/2, pch = 15, cex = 1, border = NA,
-           col = heatcols[round((gcor_mat[sorted_row_inds[rowi], sorted_row_inds[colj]] + 1) / 2 * 100) + 1])
+
+cairo_pdf(paste0("~/Documents/Documents - nikolai/pass1b_fig8_DE_protective_effect.pdf"), 
+          width = 1400 / 72, height = 500 / 72 * length(trait_patts), family="Arial Unicode MS", pointsize = 18)
+par(mfrow = c(length(trait_patts),2), xpd = NA, mar = c(5,5,5,17))
+lwd <- 3
+tissue_name_cex <- 1.2
+
+for(trait_patt in trait_patts){
+  trait <- intersect(twas_with_hits, trait_categories$Tag[grep(trait_categories$new_Phenotype, pattern = trait_patt, ignore.case = T)])[1]
+  
+  
+  for(sex in c("male", "female")){
     
-    if(gcor_mat_sig[sorted_row_inds[rowi], sorted_row_inds[colj]]){
-      points(y = length(traits) - rowi + 1, x = colj, pch = 19, col = "white", cex = 0.2)
+    #retrieve data
+    d <- apply(deg_sigtwas_proportion[, trait,,"p",sex], 2, as.numeric)
+    dn <-  apply(deg_sigtwas_proportion[, trait,,"n",sex], 2, as.numeric)
+    colnames(d) <- colnames(dn) <- colnames(deg_sigtwas_proportion[, trait,,"p",sex])
+    rownames(d) <- rownames(dn) <- rownames(deg_sigtwas_proportion[, trait,,"p",sex])
+    dn <- dn[!apply(apply(d, 1, is.na), 2, all),]
+    d <- d[!apply(apply(d, 1, is.na), 2, all),]
+    d <- d[!is.nan(d[,"8w"]),]
+    d[is.nan(d)] <- 0.5
+    dg <- deg_sigtwas_proportion[, trait,,"genes",sex]
+    dg <- lapply(dg[,"8w"], function(x) strsplit(x, " ~ ")[[1]])
+    
+    #iterate through d to make identical lines parallel
+    line_thickness <- lwd / 96 / par("pin")[2] * (par("usr")[4] - par("usr")[3])
+    need_to_increment <- matrix(T, nrow = nrow(d), ncol = ncol(d), dimnames = list(rownames(d), colnames(d)))
+    while(any(need_to_increment)){
+      need_to_increment <- matrix(F, nrow = nrow(d), ncol = ncol(d), dimnames = list(rownames(d), colnames(d)))
+      for(coi in 1:(ncol(d)-1)){
+        unchanging_tissues <- rownames(unique(d[,c(coi,coi+1)]))
+        need_to_increment[setdiff(rownames(d), unchanging_tissues),c(coi,coi+1)] <- T
+      }
+      d[need_to_increment] <- d[need_to_increment] + line_thickness * 1.05
     }
     
-    if(rowi == 1){
-      text(labels = traits[sorted_row_inds[colj]], x = colj-1.25, y = 0, 
-           col = cols$category[traitwise_partitions$Category[match(traitname_map$Tag[
-             match(traits[sorted_row_inds[colj]], traitname_map$new_Phenotype)],traitwise_partitions$Tag)]]
-           , pos = 4, srt = 270, xpd = NA, cex = 0.5, font = 1)
+    #find coordinates to plot tissue names
+    if(sex == "male"){
+      ylocs_scale <- 100
+      xylocs_tissue_names <- FField::FFieldPtRep(coords = cbind(rep(4 + 0.25, nrow(d)),
+                                                                c((d[,"8w"] + 1:length(d[,"8w"])/1000 - length(d[,"8w"])/2000) * ylocs_scale)),
+                                                 rep.fact = 20, adj.max = 15)
+      xylocs_tissue_names$y <- xylocs_tissue_names$y / ylocs_scale
+      # xylocs_tissue_names <- as.data.frame(cbind(x = rep(4 + 0.25, nrow(d)), y = c(d[,"8w"])))
+    }
+    
+    #find coordinates to plot gene names
+    if(plot_gene_names){
+      xylocs_tissues_genes <- data.frame(gene = unlist(dg[rownames(xylocs_tissue_names)[order(xylocs_tissue_names$y, decreasing = T)]]))
+      xylocs_tissues_genes$tissue <- rownames(xylocs_tissue_names)[sapply(rownames(xylocs_tissues_genes), function(x) 
+        grep(strsplit(x, "-")[[1]][1], rownames(xylocs_tissue_names)))]
+      xylocs_tissues_genes$x <- 5.25
+      xylocs_tissues_genes$y <- xylocs_tissue_names$y[match(xylocs_tissues_genes$tissue, rownames(xylocs_tissue_names))]
+      xylocs_tissues_genes$y <- xylocs_tissues_genes$y + 1:length(xylocs_tissues_genes$y)/1E4
+      xylocs_tissues_genes$y <- seq(1.15, -0.15, length.out = nrow(xylocs_tissues_genes))
+      xylocs_tissues_genes_locs <- FField::FFieldPtRep(coords = cbind(xylocs_tissues_genes$x,
+                                                                      xylocs_tissues_genes$y * 500),
+                                                       rep.fact = 30, adj.max = 5, iter.max = 5E3)
+      xylocs_tissues_genes$y <- xylocs_tissues_genes_locs$y / 500
+    }
+    
+    
+    plot(100,100,xlim = c(1,4), ylim = c(0,1), xpd=NA, 
+         ylab = "Proportion Positive Effects on GWAS Trait", xlab = "Timepoint", xaxt = "n", 
+         yaxt = "n", bty="n", cex.lab = 1.5, cex.axis = 1.25)
+    
+    #plot faded positive and negative regions
+    rect(xl = 1, xr = 4, yb = 0.5, ytop = 1,
+         col = grDevices::adjustcolor("red", 0.1), border = NA)
+    rect(xl = 1, xr = 4, yb = 0, ytop = 0.5,
+         col = grDevices::adjustcolor("blue", 0.1), border = NA)
+    
+    text(paste0(trait_categories$new_Phenotype[trait_categories$Tag == trait], ","), col = 1, cex = 2, font = 2, pos = 3,
+         x = par("usr")[2] * 0.45 + par("usr")[1] * 0.55, y = par("usr")[3] * 0 + par("usr")[4] * 1)
+    
+    text(c("\u2642", "\u2640")[c("male", "female") == sex], col = cols$Sex[sex], cex = 3.5, font = 3, pos = 3,
+         x = par("usr")[2] * 0.45 + par("usr")[1] * 0.55 + strwidth(paste0(trait_categories$new_Phenotype[trait_categories$Tag == trait], ",     "), units = "use")*2/2, 
+         y = par("usr")[3] * 0 + par("usr")[4] * 1)
+    
+    
+    #horizontal axis
+    segments(x0 = 1:4, x1 = 1:4, y0 = - 0.02, y1 = - 0.04, lwd = 2)
+    segments(x0 = 1, x1 = 4, y0 = - 0.02, y1 = - 0.02, lwd = 2)
+    text(x = 1:4, y = - 0.07, labels = paste0(2^(0:3), "w"), pos = , cex = 1.251)
+    
+    #vertical axis
+    segments(x0 = 1 - 3 * 0.02, x1 = 1 - 3 * 0.04, y0 = 0:5/5, y1 = 0:5/5, lwd = 2)
+    segments(x0 = 1 - 3 * 0.02, x1 = 1 - 3 * 0.02, y0 = 0, y1 = 1, lwd = 2)
+    text(x = 1 - 3 * 0.035, y = 0:5/5, labels = 0:5/5, pos = 2, cex = 1.25)
+    
+    
+    for(tissue in rownames(d)){
+      
+      if(all(is.na(d[tissue,]))){
+        next()
+      }
+      
+      lines(1:4, d[tissue,], lwd = lwd, col = cols$Tissue[tissue])
+      
+      #plot gene names
+      if(plot_gene_names){
+        tissue_genes <- xylocs_tissues_genes[xylocs_tissues_genes$tissue == tissue,]
+        
+        #break up gene names to allow for different colors
+        genes_df <- do.call(rbind, strsplit(tissue_genes$gene, "(?=[\\(,)])", perl = TRUE))
+        tissue_genes$gene <- tissue_genes$gene[order(genes_df[,3], decreasing = T)]
+        genes_df <- genes_df[order(genes_df[,3], decreasing = T),]
+        if(nrow(tissue_genes) == 1){
+          genes_df <- t(as.matrix(genes_df))
+        }
+        max_ef <- 5
+        colors_mat <- cbind(cols$Tissue[tissue], 
+                            1, 
+                            ifelse3(genes_df[,3] == "+", "red", "blue"), 
+                            1, 
+                            rev(viridisLite::cividis(n = 100))[min2(ceiling(as.numeric(genes_df[,5]) / max_ef * 100), 100)], 
+                            1)
+        text_indivcolor(labels_mat = genes_df, xloc = tissue_genes$x, y = tissue_genes$y, 
+                        colors_mat = colors_mat, pos = 4, cex = 0.75)
+        
+        # #all same color text
+        # text(labels = tissue_genes$gene,
+        #      x = tissue_genes$x,
+        #      y = tissue_genes$y,
+        #      cex = 0.75, col = cols$Tissue[tissue], pos = 4)
+        
+        #plot connecting lines
+        for(gene_i in 1:nrow(tissue_genes)){
+          segments(x0 = xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] + 
+                     strwidth(paste0(tissue_abbr[tissue], " (", dn[tissue,"8w"], ")   "), cex = tissue_name_cex, units = "user"), 
+                   y0 = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue],
+                   x1 = tissue_genes$x[gene_i] + 0.75*strwidth("  ", cex = tissue_name_cex, units = "user"),
+                   y1 = tissue_genes$y[gene_i],
+                   col = cols$Tissue[tissue], lty = 3)
+        }
+      }
+      
+    }
+    
+    #plot tissue names
+    for(tissue in rownames(d)){
+      text(x = xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue], cex = tissue_name_cex,
+           y = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue], 
+           labels = paste0(tissue_abbr[tissue], " (", dn[tissue,"8w"], ")"), col = cols$Tissue[tissue], pos = 4)
+      segments(x0 = 4, y0 = d[tissue,"8w"], 
+               x1 = xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] + 0.075, 
+               y1 = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue],
+               col = cols$Tissue[tissue], lty = 3)
+    }
+    
+    # legend(x = 1, y = 1.5, legend = tissue_names,
+    #        col = cols$Tissue, lwd = 3, ncol = 4, cex = 1, border = NA, seg.len = 1, bg = NA, bty = "n", x.intersp = 0.25, text.width = 0.65)
+    # segments(x0 = 0.9, y0 = 0.5, x1 = 4.1, y1 = 0.5, lty = 3, lwd = 3, col = "lightgrey")
+    
+  }
+  
+}
+
+dev.off()
+
+pdftools::pdf_combine(c("~/Documents/Documents - nikolai/pass1b_fig8_DE_protective_effect_in_UKB_20002_1111_self_reported_asthma.pdf",
+                        "~/Documents/Documents - nikolai/pass1b_fig8_DE_protective_effect_in_UKB_20002_1473_self_reported_high_cholesterol.pdf",
+                        "~/Documents/Documents - nikolai/pass1b_fig8_DE_protective_effect_in_GLGC_Mc_TG.pdf",
+                        "~/Documents/Documents - nikolai/pass1b_fig8_DE_protective_effect_in_RA_OKADA_TRANS_ETHNIC.pdf"),
+                      output = paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/multi-trait-trajectories.pdf"))
+
+#### trajectories, but sexes opposing eachother ####
+
+#plotting params
+plot_gene_names <- T
+add_in_alltiss <- T
+trait_patts <- c("triglycerides", "rheumatoid_arthritis", "high_cholesterol", "asthma_ukbs")[c(3,4)]
+n_deg_sigtwas_intersect
+# trait_patts <- c("body", "standing")
+# trait_patts <- c("triglycerides")
+
+
+cairo_pdf(paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/pass1b_fig8_DE_protective_effect_opposing.pdf"), 
+          width = 1400 / 72, height = 475 / 72 * length(trait_patts), family="Arial Unicode MS", pointsize = 12.5)
+par(mfrow = c(length(trait_patts),1), xpd = NA, mar = c(4,3,4,17.75))
+lwd <- 3
+tissue_name_cex <- 1.2
+gene_cex <- 0.75
+gene_location <- 5.5
+f_offset <- 7.15
+
+tissue_abbr["all_tissues"] <- "ALL"
+for(trait_patt in trait_patts){
+  trait <- intersect(twas_with_hits, 
+                     trait_categories$Tag[grep(trait_categories$new_Phenotype, pattern = trait_patt, ignore.case = T)])[1]
+  
+  for(sex in c("male", "female")){
+    
+    #retrieve data
+    d <- apply(deg_sigtwas_proportion[, trait,,"p",sex], 2, as.numeric)
+    dn <-  apply(deg_sigtwas_proportion[, trait,,"n",sex], 2, as.numeric)
+    colnames(d) <- colnames(dn) <- colnames(deg_sigtwas_proportion[, trait,,"p",sex])
+    rownames(d) <- rownames(dn) <- rownames(deg_sigtwas_proportion[, trait,,"p",sex])
+    
+    #add in summary of all tissues
+    if(add_in_alltiss){
+      at_prop <- apply(d * dn, 2, sum, na.rm = T)
+      dn <- rbind(dn, all_tissues = apply(dn, 2, sum, na.rm = T))
+      d <- rbind(d, all_tissues = at_prop / dn["all_tissues",])
+      # d <- rbind(d, all_tissues = apply(d, 2, mean, na.rm = T))
+    }
+    
+    dn <- dn[!apply(apply(d, 1, is.na), 2, all),]
+    d <- d[!apply(apply(d, 1, is.na), 2, all),]
+    d <- d[!is.nan(d[,"8w"]),]
+    d[is.nan(d)] <- 0.5
+    dg <- deg_sigtwas_proportion[, trait,,"genes",sex]
+    dg <- lapply(dg[,"8w"], function(x) strsplit(x, " ~ ")[[1]])
+    
+    #munge gene names into composite strings
+    dgm <- deg_sigtwas_proportion[, trait,,"genes","male"]
+    dgm <- lapply(dgm[,"8w"], function(x) strsplit(x, " ~ ")[[1]])
+    dgf <- deg_sigtwas_proportion[, trait,,"genes","female"]
+    dgf <- lapply(dgf[,"8w"], function(x) strsplit(x, " ~ ")[[1]])
+    dg <- lapply(setNames(names(dgm), names(dgm)), function(tiss){
+      if(is.na(dgm[[tiss]][1])){return(NA)}
+      mvs <- do.call(rbind, strsplit(dgm[[tiss]], " "))
+      fvs <- do.call(rbind, strsplit(dgf[[tiss]], " "))
+      if(nrow(mvs) > 1){
+        apply(cbind(mvs[,2:3], mvs[,1], fvs[match(mvs[,1], fvs[,1]), 2:3]), 1, paste0, collapse = " ")  
+      } else {
+        mvs <- c(mvs)
+        fvs <- c(fvs)
+        paste0(c(mvs[2:3], mvs[1], fvs[2:3]), collapse = " ")
+      }
+    })
+    
+    
+    #iterate through d to make identical lines parallel
+    line_thickness <- lwd / 96 / par("pin")[2] * (par("usr")[4] - par("usr")[3])
+    need_to_increment <- matrix(T, nrow = nrow(d), ncol = ncol(d), dimnames = list(rownames(d), colnames(d)))
+    while(any(need_to_increment)){
+      need_to_increment <- matrix(F, nrow = nrow(d), ncol = ncol(d), dimnames = list(rownames(d), colnames(d)))
+      for(coi in 1:(ncol(d)-1)){
+        unchanging_tissues <- rownames(unique(d[,c(coi,coi+1)]))
+        need_to_increment[setdiff(rownames(d), unchanging_tissues),c(coi,coi+1)] <- T
+      }
+      d[need_to_increment] <- d[need_to_increment] + line_thickness * 1.05
+    }
+    
+    #find coordinates to plot tissue names
+    if(sex == "male"){
+      # ylocs_scale <- 100
+      xylocs_tissue_names <- FField::FFieldPtRep(coords = cbind(rep(4 + 0.25, nrow(d)),
+                                                                c((d[,"8w"] + 1:length(d[,"8w"])/1000 - length(d[,"8w"])/2000) * ylocs_scale)),
+                                                 rep.fact = 20, adj.max = 15)
+      xylocs_tissue_names$y <- xylocs_tissue_names$y / ylocs_scale
+      # xylocs_tissue_names <- as.data.frame(cbind(x = rep(4 + 0.25, nrow(d)), y = c(d[,"8w"])))
+    }
+    
+    #find coordinates to plot gene names
+    if(plot_gene_names){
+      xylocs_tissues_genes <- data.frame(gene = unlist(dg[rownames(xylocs_tissue_names)[order(xylocs_tissue_names$y, decreasing = T)]]))
+      xylocs_tissues_genes$tissue <- rownames(xylocs_tissue_names)[sapply(rownames(xylocs_tissues_genes), function(x) 
+        grep(strsplit(x, "-")[[1]][1], rownames(xylocs_tissue_names)))]
+      xylocs_tissues_genes$x <- gene_location
+      xylocs_tissues_genes$y <- xylocs_tissue_names$y[match(xylocs_tissues_genes$tissue, rownames(xylocs_tissue_names))]
+      xylocs_tissues_genes$y <- xylocs_tissues_genes$y + 1:length(xylocs_tissues_genes$y)/1E4
+      xylocs_tissues_genes$y <- seq(1.15, -0.15, length.out = nrow(xylocs_tissues_genes))
+      # xylocs_tissues_genes_locs <- FField::FFieldPtRep(coords = cbind(xylocs_tissues_genes$x,
+      #                                                                 xylocs_tissues_genes$y * 500),
+      #                                                  rep.fact = 30, adj.max = 5, iter.max = 5E3)
+      # xylocs_tissues_genes$y <- xylocs_tissues_genes_locs$y / 500
+    }
+    
+    if(sex == "male"){
+      
+      plot(100,100,xlim = c(1,9.5), ylim = c(0,1), xpd=NA, 
+           ylab = "", xlab = "", xaxt = "n", 
+           yaxt = "n", bty="n", cex.lab = 1.5, cex.axis = 1.25)
+      
+      
+      text("Timepoint", x = 2.5 + c(0,f_offset), y = -0.125, pos = 1, cex = 1.5)
+      if(trait_goodness[trait_categories$new_Phenotype[trait_categories$Tag == trait]] == -1){
+        vlab <- "Proportion Risk Enhancing Effects"
+      } else if(trait_goodness[trait_categories$new_Phenotype[trait_categories$Tag == trait]] == 0){
+        vlab <- "Proportion Positive Effects on GWAS Trait"
+      } else if(trait_goodness[trait_categories$new_Phenotype[trait_categories$Tag == trait]] == 1){
+        vlab <- "Proportion Risk Reducing Effects"
+      }
+        
+      text(vlab, x = 0.5, y = 0.5, pos = 3, cex = 1.5, srt = 90, xpd = NA)
+      text(vlab, x = 4 + f_offset + 0.6, y = 0.5, pos = 1, cex = 1.5, srt = 270, xpd = NA)
+      
+      
+      #plot faded positive and negative regions
+      rect(xl = 1, xr = 4, yb = 0.5, ytop = 1,
+           col = grDevices::adjustcolor("red", 0.1), border = NA)
+      rect(xl = 1, xr = 4, yb = 0, ytop = 0.5,
+           col = grDevices::adjustcolor("blue", 0.1), border = NA)
+      
+      #trait and sex name
+      text(paste0(trait_categories$new_Phenotype[trait_categories$Tag == trait], ","), col = 1, cex = 2, font = 2, pos = 3,
+           x = par("usr")[2] * 0.185 + par("usr")[1] * 0.825, y = par("usr")[3] * 0 + par("usr")[4] * 1)
+      text(c("\u2642", "\u2640")[c("male", "female") == sex], col = cols$Sex[sex], cex = 3.5, font = 3, pos = 3,
+           x = par("usr")[2] * 0.185 + par("usr")[1] * 0.825 + strwidth(paste0(trait_categories$new_Phenotype[trait_categories$Tag == trait], ",     "), units = "use")*2/2, 
+           y = par("usr")[3] * 0 + par("usr")[4] * 1)
+      
+      
+      #horizontal axis
+      segments(x0 = 1:4, x1 = 1:4, y0 = - 0.02, y1 = - 0.04, lwd = 2)
+      segments(x0 = 1, x1 = 4, y0 = - 0.02, y1 = - 0.02, lwd = 2)
+      text(x = 1:4, y = - 0.07, labels = paste0(2^(0:3), "w"), pos = , cex = 1.251)
+      
+      #vertical axis
+      segments(x0 = 1 - 3 * 0.02, x1 = 1 - 3 * 0.04, y0 = 0:5/5, y1 = 0:5/5, lwd = 2)
+      segments(x0 = 1 - 3 * 0.02, x1 = 1 - 3 * 0.02, y0 = 0, y1 = 1, lwd = 2)
+      text(x = 1 - 3 * 0.035, y = 0:5/5, labels = 0:5/5, pos = 2, cex = 1.25)
+      
+      
+      for(tissue in rownames(d)){
+        
+        if(all(is.na(d[tissue,]))){
+          next()
+        }
+        
+        lines(1:4, d[tissue,], lwd = lwd, col = ifelse(is.na(cols$Tissue[tissue]), 1, cols$Tissue[tissue]))
+        
+        #plot gene names
+        maxwidth_genename <- max(strwidth(xylocs_tissues_genes$gene, units = "user", cex = gene_cex))
+        if(plot_gene_names & tissue != "all_tissues"){
+          tissue_genes <- xylocs_tissues_genes[xylocs_tissues_genes$tissue == tissue,]
+          
+          #break up gene names to allow for different colors
+          genes_df <- do.call(rbind, strsplit(tissue_genes$gene, "(?=[\\(,)])", perl = TRUE))
+          tissue_genes$gene <- tissue_genes$gene[order(genes_df[,3], decreasing = T)]
+          genes_df <- genes_df[order(genes_df[,3], decreasing = T),]
+          if(nrow(tissue_genes) == 1){
+            genes_df <- t(as.matrix(genes_df))
+          }
+          max_ef <- 5
+          colors_mat <- cbind(1, 
+                              ifelse3(genes_df[,2] == "+", "red", "blue"), 
+                              1, 
+                              rev(viridisLite::cividis(n = 100))[min2(ceiling(as.numeric(genes_df[,4]) / max_ef * 100), 100)], 
+                              1,
+                              cols$Tissue[tissue], 
+                              1, 
+                              ifelse3(genes_df[,8] == "+", "red", "blue"), 
+                              1, 
+                              rev(viridisLite::cividis(n = 100))[min2(ceiling(as.numeric(genes_df[,10]) / max_ef * 100), 100)], 
+                              1)
+          text_indivcolor(labels_mat = genes_df, xloc = tissue_genes$x + (maxwidth_genename - strwidth(tissue_genes$gene, units = "user", cex = gene_cex)) / 2, y = tissue_genes$y, 
+                          colors_mat = colors_mat, pos = 4, cex = gene_cex)
+          
+          
+          # #all same color text
+          # text(labels = tissue_genes$gene,
+          #      x = tissue_genes$x,
+          #      y = tissue_genes$y,
+          #      cex = gene_cex, col = cols$Tissue[tissue], pos = 4)
+          
+          #plot connecting lines
+          for(gene_i in 1:nrow(tissue_genes)){
+            segments(x0 = xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] + 
+                       strwidth(paste0(tissue_abbr[tissue], " (", dn[tissue,"8w"], ")   "), cex = tissue_name_cex, units = "user"), 
+                     y0 = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue],
+                     x1 = tissue_genes$x[gene_i] + gene_cex*strwidth("  ", cex = tissue_name_cex, units = "user"),
+                     y1 = tissue_genes$y[gene_i],
+                     col = cols$Tissue[tissue], lty = 3)
+            segments(x0 = tissue_genes$x[gene_i] + gene_cex*strwidth("  ", cex = tissue_name_cex, units = "user"), 
+                     y0 = tissue_genes$y[gene_i],
+                     x1 = tissue_genes$x[gene_i] + gene_cex*strwidth("  ", cex = tissue_name_cex, units = "user") + 
+                       (maxwidth_genename - strwidth(tissue_genes$gene[gene_i], units = "user", cex = gene_cex)) / 2,
+                     y1 = tissue_genes$y[gene_i],
+                     col = cols$Tissue[tissue], lty = 3)
+          }
+        }
+        
+      }
+      
+      #plot tissue names
+      for(tissue in rownames(d)){
+        text(x = xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue], cex = tissue_name_cex,
+             y = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue], 
+             labels = paste0(tissue_abbr[tissue], " (", dn[tissue,"8w"], ")"), col = cols$Tissue[tissue], pos = 4)
+        segments(x0 = 4, y0 = d[tissue,"8w"], 
+                 x1 = xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] + 0.075, 
+                 y1 = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue],
+                 col = ifelse(is.na(cols$Tissue[tissue]), 1, cols$Tissue[tissue]), lty = 3)
+      }
+      
+      # legend(x = 1, y = 1.5, legend = tissue_names,
+      #        col = cols$Tissue, lwd = 3, ncol = 4, cex = 1, border = NA, seg.len = 1, bg = NA, bty = "n", x.intersp = 0.25, text.width = 0.65)
+      # segments(x0 = 0.9, y0 = 0.5, x1 = 4.1, y1 = 0.5, lty = 3, lwd = 3, col = "lightgrey")
+    } else if(sex == "female") {
+      
+      #find desired offset for female plot
+      # f_offset <- (gene_location - 4) * 2 + maxwidth_genename
+      
+      #plot faded positive and negative regions
+      rect(xl = 1+f_offset, xr = 4+f_offset, yb = 0.5, ytop = 1,
+           col = grDevices::adjustcolor("red", 0.1), border = NA)
+      rect(xl = 1+f_offset, xr = 4+f_offset, yb = 0, ytop = 0.5,
+           col = grDevices::adjustcolor("blue", 0.1), border = NA)
+      
+      #trait and sex name
+      text(paste0(trait_categories$new_Phenotype[trait_categories$Tag == trait], ","), col = 1, cex = 2, font = 2, pos = 3,
+           x = par("usr")[2] * 0.185 + par("usr")[1] * 0.825+f_offset, y = par("usr")[3] * 0 + par("usr")[4] * 1)
+      text(c("\u2642", "\u2640")[c("male", "female") == sex], col = cols$Sex[sex], cex = 3.5, font = 3, pos = 3,
+           x = par("usr")[2] * 0.185 + par("usr")[1] * 0.825 + strwidth(paste0(trait_categories$new_Phenotype[trait_categories$Tag == trait], ",     "), units = "use")*2/2+f_offset, 
+           y = par("usr")[3] * 0 + par("usr")[4] * 1)
+      
+      #horizontal axis
+      segments(x0 = 1:4+f_offset, x1 = 1:4+f_offset, y0 = - 0.02, y1 = - 0.04, lwd = 2)
+      segments(x0 = 1+f_offset, x1 = 4+f_offset, y0 = - 0.02, y1 = - 0.02, lwd = 2)
+      text(x = 1:4+f_offset, y = - 0.07, labels = rev(paste0(2^(0:3), "w")), pos = , cex = 1.251)
+      
+      #vertical axis
+      segments(x0 = 1 + 3 * 0.02+f_offset+3, x1 = 1 + 3 * 0.04+f_offset+3, y0 = 0:5/5, y1 = 0:5/5, lwd = 2)
+      segments(x0 = 1 + 3 * 0.02+f_offset+3, x1 = 1 + 3 * 0.02+f_offset+3, y0 = 0, y1 = 1, lwd = 2)
+      text(x = 1 + 3 * 0.035+f_offset+3, y = 0:5/5, labels = 0:5/5, pos = 4, cex = 1.25)
+      
+      
+      for(tissue in rownames(d)){
+        
+        if(all(is.na(d[tissue,]))){
+          next()
+        }
+        
+        lines(rev(1:4)+f_offset, d[tissue,], lwd = lwd, col = ifelse(is.na(cols$Tissue[tissue]), 1, cols$Tissue[tissue]))
+        
+      }
+      
+      #plot tissue names
+      for(tissue in rownames(d)){
+        text(x = -(xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] - 4) + f_offset + 1 - 0.025, cex = tissue_name_cex,
+             y = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue], 
+             labels = paste0("(", dn[tissue,"8w"], ") ", tissue_abbr[tissue]), col = cols$Tissue[tissue], pos = 2)
+        segments(x0 = 1+f_offset, y0 = d[tissue,"8w"], 
+                 x1 = -(xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] - 4) + f_offset + 1 - 0.075, 
+                 y1 = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue],
+                 col = ifelse(is.na(cols$Tissue[tissue]), 1, cols$Tissue[tissue]), lty = 3)
+      }
+      
+      #plot connecting lines
+      
+      for(tissue in rownames(d)){
+        if(tissue == "all_tissues"){next()}
+        tissue_genes <- xylocs_tissues_genes[xylocs_tissues_genes$tissue == tissue,]
+        
+        for(gene_i in 1:nrow(tissue_genes)){
+          segments(x0 = -(xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] - 4) + f_offset + 1 - 0.075 - 
+                     strwidth(paste0(tissue_abbr[tissue], " (", dn[tissue,"8w"], ")  "), cex = tissue_name_cex, units = "user"), 
+                   y0 = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue],
+                   x1 = tissue_genes$x[gene_i] + gene_cex*strwidth("  ", cex = tissue_name_cex, units = "user") + 
+                     (maxwidth_genename - strwidth(tissue_genes$gene[gene_i], units = "user", cex = gene_cex)) + 
+                     strwidth(tissue_genes$gene[gene_i], units = "user", cex = gene_cex),
+                   y1 = tissue_genes$y[gene_i],
+                   col = cols$Tissue[tissue], lty = 3)
+          
+          segments(x0 = tissue_genes$x[gene_i] + gene_cex*strwidth("  ", cex = tissue_name_cex, units = "user") + 
+                     (maxwidth_genename - strwidth(tissue_genes$gene[gene_i], units = "user", cex = gene_cex)) + 
+                     strwidth(tissue_genes$gene[gene_i], units = "user", cex = gene_cex),
+                   y0 = tissue_genes$y[gene_i],
+                   x1 = tissue_genes$x[gene_i] + gene_cex*strwidth("  ", cex = tissue_name_cex, units = "user") +
+                     (maxwidth_genename - strwidth(tissue_genes$gene[gene_i], units = "user", cex = gene_cex)) / 2 +
+                     strwidth(tissue_genes$gene[gene_i], units = "user", cex = gene_cex),
+                   y1 = tissue_genes$y[gene_i],
+                   col = cols$Tissue[tissue], lty = 3)
+          
+        }
+      }
+      
+    }
+  }
+  
+}
+
+dev.off()
+
+#### plot raw scatterplot ####
+category_colors <- RColorBrewer::brewer.pal(length(salient.categories), "Dark2")
+names(category_colors) <- sort(salient.categories)
+
+subset_to_traits <- T
+trait_subset <- colnames(n_deg_sigtwas_intersect)[
+  traitwise_partitions$Category[match(colnames(n_deg_sigtwas_intersect), traitwise_partitions$Tag)] %in% 
+    c("Cardiometabolic", "Psychiatric-neurologic")]
+categories_represented <- unique(traitwise_partitions$Category[match(trait_subset, traitwise_partitions$Tag)])
+if(subset_to_traits){
+  traits_to_plot <- trait_subset
+} else {
+  traits_to_plot <- twas_with_hits
+}
+
+cols = list(Tissue=tissue_cols[names(motrpac_gtex_map)], 
+            Time=group_cols[paste0(c(1,2,4,8), "w")],
+            Sex=sex_cols[c('male','female')])
+cols$Tissue<- cols$Tissue[order(match(MotrpacBicQC::tissue_abbr[names(cols$Tissue)], MotrpacBicQC::tissue_order))]
+
+tissue_names <- sapply(strsplit(names(cols$Tissue), "-"), function(x) paste0(x[ifelse(length(x) == 2, c(2), list(2:3))[[1]]], collapse = " "))
+
+#plotting params
+trait_category_legend_below <- T
+deg_sigtwas_proportion[,order(),,,]
+
+cairo_pdf(paste0("~/Documents/Documents - nikolai/pass1b_fig8_DE_protective_effect_scatterplot.pdf"), 
+          width = 2000 / 72 * length(traits_to_plot) / 73, height = 700 / 72, family="Arial Unicode MS")
+par(mfrow = c(1,1), xpd = NA, 
+    mar = c(14,
+            9,
+            5,
+            7 + ifelse(subset_to_traits, 2, 0)))
+lwd <- 3
+tissue_name_cex <- 1.2
+
+plot(100,100, xlim = c(3,length(traits_to_plot)), ylim = c(0,1), xpd=NA, 
+     ylab = "", xlab = "", xaxt = "n", 
+     yaxt = "n", bty="n", cex.lab = 2, cex.axis = 1.25)
+text(label = "Proportion Positive Effects on GWAS Trait", x = par("usr")[1] - diff(par("usr")[1:2])/12, y = mean(par("usr")[3:4]), srt = 90, pos = 3,
+     cex = 1.75)
+
+for(sex in c("male", "female")[1]){
+  
+  # mean_freq <- apply(sapply(traits_to_plot, function(trait) as.numeric(deg_sigtwas_proportion[, trait,"8w","p",sex])), 2, weighted.mean, na.rm = T)
+  
+  mean_freq <- sapply(setNames(1:length(traits_to_plot), traits_to_plot), function(trait_i){
+    weighted.mean(as.numeric(deg_sigtwas_proportion[, traits_to_plot[trait_i],"8w","p",sex]), 
+                  w = as.numeric(deg_sigtwas_proportion[, traits_to_plot[trait_i],"8w","n",sex]),
+                  na.rm = T)})
+  
+  order_traits_to_plot <- order(mean_freq, decreasing = T)
+  
+  #plot faded positive and negative regions
+  rect(xl = 1, xr = length(traits_to_plot) + 2, yb = 0.5, ytop = 1,
+       col = grDevices::adjustcolor("red", 0.1), border = NA)
+  rect(xl = 1, xr = length(traits_to_plot) + 2, yb = 0, ytop = 0.5,
+       col = grDevices::adjustcolor("blue", 0.1), border = NA)
+  
+  #vertical axis
+  segments(x0 = 1 - length(traits_to_plot) * 0.005, x1 = 1 - 3 * 0.04, y0 = 0:5/5, y1 = 0:5/5, lwd = 2)
+  segments(x0 = 1 - 3 * 0.02, x1 = 1 - 3 * 0.02, y0 = 0, y1 = 1, lwd = 2)
+  text(x = 1 - 3 * 0.05, y = 0:5/5, labels = 0:5/5, pos = 2, cex = 1.5)
+  
+  #horizontal axis
+  text(1:length(traits_to_plot) + 1.5, -0.07, srt = 45, pos = 2,
+       trait_categories$new_Phenotype[match(traits_to_plot[order_traits_to_plot], trait_categories$Tag)])
+  segments(1:length(traits_to_plot) + 1, 0, 1:length(traits_to_plot) + 1, 1, col = adjustcolor(1, 0.2), lty = 2)
+  
+  #plot points
+  points(1:length(traits_to_plot)+1, y = sort(mean_freq, decreasing = T), pch = "*", cex = 3)
+  
+  for(trait_i in (1:length(traits_to_plot))){
+    
+    #plot category blocks
+    rect(xleft = which(order_traits_to_plot == trait_i) + 1/2, xright = which(order_traits_to_plot == trait_i) + 3/2,
+         ybottom = -0.06, ytop = -0.02,
+         col = category_colors[trait_categories$Category[match(traits_to_plot[trait_i], trait_categories$Tag)]])
+    
+    
+    d <- as.numeric(deg_sigtwas_proportion[, traits_to_plot[trait_i],"8w","p",sex])
+    dn <- as.numeric(deg_sigtwas_proportion[, traits_to_plot[trait_i],"8w","n",sex])
+    names(d) <- names(dn) <- rownames(deg_sigtwas_proportion)
+    dn <- dn[!is.na(d)]
+    d <- d[!is.na(d)]
+    #plot white points first
+    points(x = rep(which(order_traits_to_plot == trait_i) + 1, length(d)), y = d, pch = 19, col = "white", cex = dn^0.25)
+    #and then the actual points
+    points(x = rep(which(order_traits_to_plot == trait_i) + 1, length(d)), y = d, pch = 19, col = adjustcolor(cols$Tissue[names(d)], 0.5), cex = dn^0.25)
+    
+  }
+  
+  
+  #legend for tissues
+  points(x = rep(length(traits_to_plot) + 3, length(cols$Tissue)), 
+         y = seq(0.5, 0.99, length.out = length(cols$Tissue)), 
+         col = adjustcolor(cols$Tissue, 0.5),
+         pch = 19, cex = 2)
+  text(x = rep(length(traits_to_plot) + 3.25, length(cols$Tissue)), 
+       y = seq(0.5, 0.99, length.out = length(cols$Tissue)), 
+       pos = 4, pch = 19, cex = 1,
+       labels = MotrpacBicQC::tissue_abbr[names(cols$Tissue)])
+  
+  points(x = length(traits_to_plot) + 3, 
+         y = min(seq(0.5, 0.99, length.out = length(cols$Tissue))) - 0.0675, 
+         col = "black", pch = "*", cex = 3)
+  text(x = length(traits_to_plot) + 3.25, cex = 1.1,
+       y = min(seq(0.5, 0.99, length.out = length(cols$Tissue))) - 0.075, 
+       pos = 4, labels = "Weighted\nMean")
+  
+  #legend for tissue size
+  n_pts <- 5
+  pt_size_logs <- seq(1, log(max(as.numeric(deg_sigtwas_proportion[,,"8w","n",sex]), na.rm = T)) / log(2), length.out = n_pts)
+  pt_size_legend <- round(2^pt_size_logs)
+  text(x = length(traits_to_plot) + 2.25, 
+       y = 0.1875 + 0.01 * n_pts + sum(pt_size_legend^0.25/100), 
+       pos = 4, pch = 19, cex = 1.1,
+       labels = "Sample Size")
+  points(x = rep(length(traits_to_plot) + 3.25, n_pts), 
+         y = 0.15 + cumsum(pt_size_legend^0.25/100) + cumsum(rep(0.01, n_pts)), 
+         col = adjustcolor(1, 0.5),
+         pch = 19, cex = pt_size_legend^0.25)
+  text(x = rep(length(traits_to_plot) + 3.25, n_pts) + pt_size_legend^0.25/10, 
+       y = 0.15 + cumsum(pt_size_legend^0.25/100) + cumsum(rep(0.01, n_pts)), 
+       pos = 4, pch = 19, cex = 1,
+       labels = pt_size_legend)
+  
+  #legend for categories
+  if(trait_category_legend_below){
+    yadj <- -0.15
+    for(i in 1:length(categories_represented)){
+      rect(xleft = 0 + i + cumsum(c(0,strwidth(categories_represented, cex = 1.25, units = "user") + 1))[i],
+           xright = 1 + i + cumsum(c(0,strwidth(categories_represented, cex = 1.25, units = "user") + 1))[i],
+           ybottom = -0.375 + yadj,
+           ytop = -0.335 + yadj,
+           col = category_colors[categories_represented[i]], border = 1)
+      text(labels = categories_represented[i], pos = 4, 
+           y = -0.355 + yadj, cex = 1.25, x = 0.85 + i + cumsum(c(0,strwidth(categories_represented, cex = 1.25, units = "user") + 1))[i])
+      #draw circle?
+      arc(t1 = 3*pi/2, t2 = pi/2, r1 = (0.355-0.04-yadj) / 2, r2 = (0.355-0.04-yadj) / 2, center = c(0.5,(-0.355 + yadj -0.04)/2), lwd = 3, res = 50, adjx = 20)
+      points(0.5, -0.04, pch = -9658, cex = 3)
+    }
+  } else {
+    x_adj2 <- x_adj - 2.5
+    y_adj2 <- y_adj - 2.5
+    for(i in 1:length(categories_represented)){
+      rect(xleft = 0 + i,
+           xright = 1 + i,
+           ybottom = -10,
+           ytop = -9,
+           col = category_colors[categories_represented[i]], border = 1)
+      text(labels = categories_represented[i], pos = 4, y = i + y_adj2 - 7, x = ncol(table_to_use) - 1/2 + x_adj2 + 1/3)
+    }
+  }
+  
+}
+
+text("Proportion of Positive Effects Across Tissues and Traits at 8W Timepoint", x = mean(par("usr")[1:2]), y = 1.075, cex = 2.25, font = 2)
+
+dev.off()
+
+#### stitch pdfs together ####
+
+pdftools::pdf_combine(paste0("~/Documents/Documents - nikolai/", 
+                             c("pass1b_fig8_DEG-TWAS_Intersect_counts",
+                               "pass1b_fig8_DEG-TWAS_Intersect_permille", 
+                               "pass1b_fig8_DE_protective_effect_scatterplot"),".pdf"),
+                      output = paste0("~/Documents/Documents - nikolai/", ifelse(use_tissue_cols_for_cols, "option_1", "option_2"), ".pdf"))
+
+
+
+#### plot bayesian posterior scatterplot ####
+if(length(salient.categories) < 9){
+  category_colors <- RColorBrewer::brewer.pal(length(salient.categories), "Dark2")
+  names(category_colors) <- sort(salient.categories)  
+} else {
+  category_colors <- RColorBrewer::brewer.pal(5, "Dark2")
+  names(category_colors) <- sort(c("Cardiometabolic", "Aging", "Anthropometric", 
+                                   "Immune", "Psychiatric-neurologic"))
+  cats_leftover <- setdiff(salient.categories, names(category_colors))
+  cols_leftover <- setdiff(RColorBrewer::brewer.pal(8, "Dark2"), category_colors)
+  n_cols_needed <- length(cats_leftover) - length(cols_leftover)
+  if(n_cols_needed > 0){
+    extra_cols <- c(cols_leftover, RColorBrewer::brewer.pal(n_cols_needed, "Set2"))
+  } else {
+    extra_cols <- cols_leftover
+  }
+  names(extra_cols) <- cats_leftover
+  category_colors <- c(category_colors, extra_cols)
+}
+
+#process significance files
+# deg_sigtwas_proportion_posterior_mean
+alpha_post = 0.1
+cell_sigs <- deg_sigtwas_proportion_posterior_prob_bias < alpha_post | deg_sigtwas_proportion_posterior_prob_bias > (1-alpha_post)
+# trait_means 
+trait_sigs <- trait_bias_probs < alpha_post | trait_bias_probs > (1-alpha_post)
+
+subset_to_traits <- F
+if(subset_to_traits){
+  trait_subset <- colnames(n_deg_sigtwas_intersect)[
+    traitwise_partitions$Category[match(colnames(n_deg_sigtwas_intersect), traitwise_partitions$Tag)] %in% 
+      ifelse2(subset_to_traits, c("Cardiometabolic", "Psychiatric-neurologic"), salient.categories)]
+  
+  #alternatively
+  trait_subset <- names(trait_means)[trait_means > 0.5]
+  traits_to_plot <- trait_subset
+  
+} else {
+  traits_to_plot <- twas_with_hits
+}
+categories_represented <- unique(traitwise_partitions$Category[match(traits_to_plot, traitwise_partitions$Tag)])
+
+
+cols = list(Tissue=tissue_cols[names(motrpac_gtex_map)], 
+            Time=group_cols[paste0(c(1,2,4,8), "w")],
+            Sex=sex_cols[c('male','female')])
+cols$Tissue<- cols$Tissue[order(match(MotrpacBicQC::tissue_abbr[names(cols$Tissue)], MotrpacBicQC::tissue_order))]
+
+tissue_names <- sapply(strsplit(names(cols$Tissue), "-"), function(x) paste0(x[ifelse(length(x) == 2, c(2), list(2:3))[[1]]], collapse = " "))
+
+#other plotting params
+trait_category_legend_below <- T
+
+#do the plotting
+cairo_pdf(paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/prop_pos_hits_bayesian_scatterplot", ifelse(subset_to_traits, "_sub.pdf", "")), 
+          width = 2000 / 72 * length(traits_to_plot) / 73, height = 700 / 72, family="Arial Unicode MS")
+par(mfrow = c(1,1), xpd = NA, 
+    mar = c(20,
+            12,
+            9,
+            7 + ifelse(subset_to_traits, 2, 0)))
+lwd <- 3
+tissue_name_cex <- 1.2
+
+plot(100,100, xlim = c(3,length(traits_to_plot)), ylim = range(deg_sigtwas_proportion_posterior_mean), xpd=NA, 
+     ylab = "", xlab = "", xaxt = "n", 
+     yaxt = "n", bty="n", cex.lab = 2, cex.axis = 1.25)
+text(label = "Proportion Positive Effects on GWAS Trait", x = par("usr")[1] - diff(par("usr")[1:2])/12, y = mean(par("usr")[3:4]), srt = 90, pos = 3,
+     cex = 1.75)
+
+for(sex in c("male", "female")[1]){
+  
+  # mean_freq <- apply(sapply(traits_to_plot, function(trait) as.numeric(deg_sigtwas_proportion[, trait,"8w","p",sex])), 2, weighted.mean, na.rm = T)
+  
+  mean_freq <- trait_means[traits_to_plot]
+  
+  order_traits_to_plot <- order(mean_freq, decreasing = T)
+  
+  #plot faded positive and negative regions
+  yseq <- round(seq(min(deg_sigtwas_proportion_posterior_mean) - 0.025, max(deg_sigtwas_proportion_posterior_mean) + 0.025, length.out = 6), 2)
+  rect(xl = 1, xr = length(traits_to_plot) + 2, yb = 0.5, ytop = max(yseq),
+       col = grDevices::adjustcolor("red", 0.1), border = NA)
+  rect(xl = 1, xr = length(traits_to_plot) + 2, yb = min(yseq), ytop = 0.5,
+       col = grDevices::adjustcolor("blue", 0.1), border = NA)
+  
+  #vertical axis
+  segments(x0 = 1 - length(traits_to_plot) * 0.005, x1 = 1 - 3 * 0.04, y0 = yseq, y1 = yseq, lwd = 2)
+  segments(x0 = 1 - 3 * 0.02, x1 = 1 - 3 * 0.02, y0 = min(yseq), y1 = max(yseq), lwd = 2)
+  text(x = 1 - 3 * 0.05, y = yseq, labels = yseq, pos = 2, cex = 1.5)
+  
+  #horizontal axis
+  text(1:length(traits_to_plot) + 1.5, min(yseq)-0.0275, srt = 45, pos = 2,
+       labels = paste0(ifelse(trait_sigs[traits_to_plot][order_traits_to_plot], "♦ ", ""), 
+                       trait_categories$new_Phenotype[match(traits_to_plot[order_traits_to_plot], trait_categories$Tag)]), 
+       cex = 1.125, col = 1)
+  segments(1:length(traits_to_plot) + 1, min(yseq)-0.01, 1:length(traits_to_plot) + 1, max(yseq), col = adjustcolor(1, 0.2), lty = 2)
+  
+  #plot points
+  points(1:length(traits_to_plot)+1, y = sort(mean_freq[traits_to_plot], decreasing = T), pch = "*", cex = 3)
+  
+  for(trait_i in (1:length(traits_to_plot))){
+    
+    #plot category blocks
+    rect(xleft = which(order_traits_to_plot == trait_i) + 1/2, xright = which(order_traits_to_plot == trait_i) + 3/2,
+         ybottom = min(yseq)-0.02, ytop = min(yseq)-0.01,
+         col = category_colors[trait_categories$Category[match(traits_to_plot[trait_i], trait_categories$Tag)]])
+    
+    
+    d <- unlist(deg_sigtwas_proportion_posterior_mean[,traits_to_plot[trait_i]])
+    d_sig <- unlist(cell_sigs[,traits_to_plot[trait_i]])
+    tissue_abbr <- MotrpacBicQC::tissue_abbr[startsWith(names(MotrpacBicQC::tissue_abbr), "t")]
+    tissue_abbr_rev <- setNames(names(tissue_abbr), tissue_abbr)
+    names(d) <- tissue_abbr_rev[rownames(deg_sigtwas_proportion_posterior_mean)]
+    
+    dn <- as.numeric(deg_sigtwas_proportion[, traits_to_plot[trait_i],"8w","n",sex])
+    names(dn) <- rownames(deg_sigtwas_proportion)
+    dn <- dn[names(d)]
+    
+    #plot white points first
+    points(x = rep(which(order_traits_to_plot == trait_i) + 1, length(d)), y = d, pch = 19 - d_sig, col = "white", cex = dn^0.25)
+    #and then the actual points
+    points(x = rep(which(order_traits_to_plot == trait_i) + 1, length(d)), y = d, pch = 19 - d_sig, 
+           col = adjustcolor(cols$Tissue[names(d)], 0.5), cex = dn^0.25)
+    #and then the significant points
+    points(x = rep(which(order_traits_to_plot == trait_i) + 1, length(d)), y = d, pch = 5, 
+           col = 1, cex = dn^0.25*d_sig*0.8)
+    
+  }
+  
+  
+  #legend for tissues
+  points(x = rep(length(traits_to_plot) + 3, length(cols$Tissue)), 
+         y = seq(mean(yseq), max(yseq), length.out = length(cols$Tissue)), 
+         col = adjustcolor(cols$Tissue, 0.5),
+         pch = 19, cex = 2)
+  text(x = rep(length(traits_to_plot) + 3.25, length(cols$Tissue)), 
+       y = seq(mean(yseq), max(yseq), length.out = length(cols$Tissue)), 
+       pos = 4, pch = 19, cex = 1,
+       labels = MotrpacBicQC::tissue_abbr[names(cols$Tissue)])
+  
+  points(x = length(traits_to_plot) + 3, 
+         y = min(seq(mean(yseq), max(yseq), length.out = length(cols$Tissue))) - 0.025, 
+         col = "black", pch = "*", cex = 3)
+  text(x = length(traits_to_plot) + 3.25, cex = 1.1,
+       y = min(seq(mean(yseq), max(yseq), length.out = length(cols$Tissue))) - 0.0275, 
+       pos = 4, labels = "Posterior\nMean")
+  
+  #legend for tissue size
+  n_pts <- 5
+  pt_size_logs <- seq(1, log(max(as.numeric(deg_sigtwas_proportion[,,"8w","n",sex]), na.rm = T)) / log(2), length.out = n_pts)
+  pt_size_legend <- round(2^pt_size_logs)
+  per_pt_incr <- 0.01
+  text(x = length(traits_to_plot) + 2.25, 
+       y = 0.2875 + per_pt_incr * n_pts + sum(pt_size_legend^0.25/100), 
+       pos = 4, pch = 19, cex = 1.1,
+       labels = "Sample Size")
+  points(x = rep(length(traits_to_plot) + 3.25, n_pts), 
+         y = 0.362 + cumsum(pt_size_legend^0.25/800) + cumsum(rep(per_pt_incr, n_pts)), 
+         col = adjustcolor(1, 0.5),
+         pch = 19, cex = pt_size_legend^0.25)
+  text(x = rep(length(traits_to_plot) + 3.25, n_pts) + pt_size_legend^0.25/10, 
+       y = 0.362 + cumsum(pt_size_legend^0.25/800) + cumsum(rep(per_pt_incr, n_pts)), 
+       pos = 4, pch = 19, cex = 1,
+       labels = pt_size_legend)
+  
+  #legend for diamonds
+  text(x = length(traits_to_plot) + 2.25, cex = 1,
+       y = min(yseq) + 0.01, 
+       pos = 4, labels = paste0("♦ indicates\nPr(enr. or dep.)\n> ", 1-alpha_post))
+  
+  
+  #legend for categories
+  if(trait_category_legend_below){
+    yadj <- 0.4875
+    for(i in 1:length(categories_represented)){
+      rect(xleft = 0 + i + cumsum(c(0,strwidth(categories_represented, cex = 1.25, units = "user") + 1))[i],
+           xright = 1 + i + cumsum(c(0,strwidth(categories_represented, cex = 1.25, units = "user") + 1))[i],
+           ybottom = -0.345 + yadj,
+           ytop = -0.335 + yadj,
+           col = category_colors[categories_represented[i]], border = 1)
+      text(labels = categories_represented[i], pos = 4, 
+           y = -0.34 + yadj, cex = 1.25, x = 0.85 + i + cumsum(c(0,strwidth(categories_represented, cex = 1.25, units = "user") + 1))[i])
+      #draw circle?
+      arc(t1 = 3*pi/2, t2 = pi/2-1E-6, r1 = (0.34-0.015-yadj) / 2, r2 = (0.34-0.025-yadj) / 2, 
+          center = c(0.5, (-0.34 + yadj + min(yseq) - 0.01)/2), lwd = 3, res = 50, adjx = 40)
+      points(0.5, min(yseq)-0.015, pch = -9658, cex = 3)
+    }
+  } else {
+    x_adj2 <- x_adj - 2.5
+    y_adj2 <- y_adj - 2.5
+    for(i in 1:length(categories_represented)){
+      rect(xleft = 0 + i,
+           xright = 1 + i,
+           ybottom = -10,
+           ytop = -9,
+           col = category_colors[categories_represented[i]], border = 1)
+      text(labels = categories_represented[i], pos = 4, y = i + y_adj2 - 7, x = ncol(table_to_use) - 1/2 + x_adj2 + 1/3)
+    }
+  }
+  
+}
+
+text("Proportion of Positive Effects Across Tissues and Traits at 8W Timepoint", x = mean(par("usr")[1:2]), y = max(yseq) + 0.02, cex = 2.25, font = 2)
+
+dev.off()
+
+
+#### plot tiered bayesian posterior scatterplot ####
+
+if(length(salient.categories) < 9){
+  category_colors <- RColorBrewer::brewer.pal(length(salient.categories), "Dark2")
+  names(category_colors) <- sort(salient.categories)  
+} else {
+  category_colors <- RColorBrewer::brewer.pal(5, "Dark2")
+  names(category_colors) <- sort(c("Cardiometabolic", "Aging", "Anthropometric", 
+                                   "Immune", "Psychiatric-neurologic"))
+  cats_leftover <- setdiff(salient.categories, names(category_colors))
+  cols_leftover <- setdiff(RColorBrewer::brewer.pal(8, "Dark2"), category_colors)
+  n_cols_needed <- length(cats_leftover) - length(cols_leftover)
+  if(n_cols_needed > 0){
+    extra_cols <- c(cols_leftover, RColorBrewer::brewer.pal(n_cols_needed, "Set2"))
+  } else {
+    extra_cols <- cols_leftover
+  }
+  names(extra_cols) <- cats_leftover
+  category_colors <- c(category_colors, extra_cols)
+}
+
+#process significance files
+# deg_sigtwas_proportion_posterior_mean
+alpha_post = 0.1
+cell_sigs <- deg_sigtwas_proportion_posterior_prob_bias < alpha_post | deg_sigtwas_proportion_posterior_prob_bias > (1-alpha_post)
+# trait_means 
+trait_sigs <- trait_bias_probs < alpha_post | trait_bias_probs > (1-alpha_post)
+
+subset_to_traits <- T
+cairo_pdf(paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/prop_pos_hits_bayesian_scatterplot", ifelse(subset_to_traits, "_sub.pdf", "")), 
+          width = 2000 / 72 * length(twas_with_hits) / 2 / 73, height = 700 / 72 * 2, family="Arial Unicode MS")
+par(mfrow = c(2,1), xpd = NA, 
+    mar = c(18,
+            9,
+            5,
+            7 + ifelse(subset_to_traits, 2, 0)))
+lwd <- 3
+tissue_name_cex <- 1.2
+
+
+for(subset_i in 1:2){
+  if(subset_to_traits){
+    trait_subset <- colnames(n_deg_sigtwas_intersect)[
+      traitwise_partitions$Category[match(colnames(n_deg_sigtwas_intersect), traitwise_partitions$Tag)] %in% 
+        ifelse2(subset_to_traits, c("Cardiometabolic", "Psychiatric-neurologic"), salient.categories)]
+    
+    #alternatively
+    if(subset_i == 1){
+      trait_subset <- names(trait_means)[trait_means > 0.5]  
+    } else {
+      trait_subset <- names(trait_means)[trait_means < 0.5]
+    }
+    
+    traits_to_plot <- trait_subset
+    
+  } else {
+    traits_to_plot <- twas_with_hits
+  }
+  categories_represented <- unique(traitwise_partitions$Category[match(traits_to_plot, traitwise_partitions$Tag)])
+  categories_represented <- gsub("\\ .*", "", gsub("\\-.*", "", categories_represented))
+  category_colors <- c(category_colors, setNames(category_colors[sapply(categories_represented, function(cati) grep(cati, names(category_colors))[1])], 
+                                                 categories_represented)[!(categories_represented %in% names(category_colors))])
+  
+  cols = list(Tissue=tissue_cols[names(motrpac_gtex_map)], 
+              Time=group_cols[paste0(c(1,2,4,8), "w")],
+              Sex=sex_cols[c('male','female')])
+  cols$Tissue<- cols$Tissue[order(match(MotrpacBicQC::tissue_abbr[names(cols$Tissue)], MotrpacBicQC::tissue_order))]
+  
+  tissue_names <- sapply(strsplit(names(cols$Tissue), "-"), function(x) paste0(x[ifelse(length(x) == 2, c(2), list(2:3))[[1]]], collapse = " "))
+  
+  #other plotting params
+  trait_category_legend_below <- T
+  
+  #do the plotting
+  plot(100,100, xlim = c(3,length(traits_to_plot)), ylim = range(deg_sigtwas_proportion_posterior_mean[,traits_to_plot]), xpd=NA, 
+       ylab = "", xlab = "", xaxt = "n", 
+       yaxt = "n", bty="n", cex.lab = 2, cex.axis = 1.25)
+  text(label = "Posterior Mean Bias (logit-scale)\nin Positive Effects on GWAS Trait", x = par("usr")[1] - diff(par("usr")[1:2])/15, 
+       y = mean(par("usr")[3:4]), srt = 90, pos = 3,
+       cex = 1.75)
+  
+  for(sex in c("male", "female")[1]){
+    
+    # mean_freq <- apply(sapply(traits_to_plot, function(trait) as.numeric(deg_sigtwas_proportion[, trait,"8w","p",sex])), 2, weighted.mean, na.rm = T)
+    
+    mean_freq <- trait_means[traits_to_plot]
+    
+    order_traits_to_plot <- order(mean_freq, decreasing = T)
+    
+    #plot faded positive and negative regions
+    yseq <- round(seq(min(deg_sigtwas_proportion_posterior_mean[,traits_to_plot]) - 0.0025, max(deg_sigtwas_proportion_posterior_mean[,traits_to_plot]) + 0.0025, length.out = 9), 2)
+    rect(xl = 1, xr = length(traits_to_plot) + 2, yb = 0.5, ytop = max(yseq),
+         col = grDevices::adjustcolor("red", 0.1), border = NA)
+    rect(xl = 1, xr = length(traits_to_plot) + 2, yb = min(yseq), ytop = 0.5,
+         col = grDevices::adjustcolor("blue", 0.1), border = NA)
+    
+    #vertical axis
+    segments(x0 = 1 - length(traits_to_plot) * 0.005, x1 = 1 - 3 * 0.04, y0 = yseq, y1 = yseq, lwd = 2)
+    segments(x0 = 1 - 3 * 0.02, x1 = 1 - 3 * 0.02, y0 = min(yseq), y1 = max(yseq), lwd = 2)
+    text(x = 1 - 3 * 0.05, y = yseq, labels = round(logit(yseq), 2), pos = 2, cex = 1.5)
+    
+    #horizontal axis
+    text(1:length(traits_to_plot) + 1.5, min(yseq) - diff(range(yseq)) / 10, srt = 45, pos = 2,
+         labels = paste0(ifelse(trait_sigs[traits_to_plot][order_traits_to_plot], "♦ ", ""), 
+                         trait_categories$new_Phenotype[match(traits_to_plot[order_traits_to_plot], trait_categories$Tag)]), 
+         cex = 1.125, col = 1)
+    segments(1:length(traits_to_plot) + 1, min(yseq) - diff(range(yseq)) / 15, 1:length(traits_to_plot) + 1, max(yseq), col = adjustcolor(1, 0.2), lty = 2)
+    
+    #plot points
+    points(1:length(traits_to_plot)+1, y = sort(mean_freq[traits_to_plot], decreasing = T), pch = "*", cex = 3)
+    
+    for(trait_i in (1:length(traits_to_plot))){
+      
+      #plot category blocks
+      rect(xleft = which(order_traits_to_plot == trait_i) + 1/2, xright = which(order_traits_to_plot == trait_i) + 3/2,
+           ybottom = min(yseq)- diff(range(yseq)) / 30, ytop = min(yseq)-diff(range(yseq)) / 14,
+           col = category_colors[trait_categories$Category[match(traits_to_plot[trait_i], trait_categories$Tag)]])
+      
+      
+      d <- unlist(deg_sigtwas_proportion_posterior_mean[,traits_to_plot[trait_i]])
+      d_sig <- unlist(cell_sigs[,traits_to_plot[trait_i]])
+      tissue_abbr <- MotrpacBicQC::tissue_abbr[startsWith(names(MotrpacBicQC::tissue_abbr), "t")]
+      tissue_abbr_rev <- setNames(names(tissue_abbr), tissue_abbr)
+      names(d) <- tissue_abbr_rev[rownames(deg_sigtwas_proportion_posterior_mean)]
+      
+      dn <- as.numeric(deg_sigtwas_proportion[, traits_to_plot[trait_i],"8w","n",sex])
+      names(dn) <- rownames(deg_sigtwas_proportion)
+      dn <- dn[names(d)]
+      
+      #plot white points first
+      points(x = rep(which(order_traits_to_plot == trait_i) + 1, length(d)), y = d, pch = 19 - d_sig, col = "white", cex = dn^0.25)
+      #and then the actual points
+      points(x = rep(which(order_traits_to_plot == trait_i) + 1, length(d)), y = d, pch = 19 - d_sig, 
+             col = adjustcolor(cols$Tissue[names(d)], 0.5), cex = dn^0.25)
+      #and then the significant points
+      points(x = rep(which(order_traits_to_plot == trait_i) + 1, length(d)), y = d, pch = 5, 
+             col = 1, cex = dn^0.25*d_sig*0.8)
+      
+    }
+    
+    
+    #legend for tissues
+    points(x = rep(length(traits_to_plot) + 3, length(cols$Tissue)), 
+           y = seq(mean(yseq)-diff(range(yseq)) / 15, max(yseq), length.out = length(cols$Tissue)), 
+           col = adjustcolor(cols$Tissue, 0.5),
+           pch = 19, cex = 2)
+    text(x = rep(length(traits_to_plot) + 3.25, length(cols$Tissue)), 
+         y = seq(mean(yseq)-diff(range(yseq)) / 15, max(yseq), length.out = length(cols$Tissue)), 
+         pos = 4, pch = 19, cex = 1,
+         labels = MotrpacBicQC::tissue_abbr[names(cols$Tissue)])
+    
+    points(x = length(traits_to_plot) + 3, 
+           y = mean(yseq)-diff(range(yseq)) / 7, 
+           col = "black", pch = "*", cex = 3)
+    text(x = length(traits_to_plot) + 3.25, cex = 1.1,
+         y = mean(yseq)-diff(range(yseq)) / 6.5, 
+         pos = 4, labels = "Posterior\nMean")
+    
+    #legend for tissue size
+    n_pts <- 5
+    pt_size_logs <- seq(1, log(max(as.numeric(deg_sigtwas_proportion[,,"8w","n",sex]), na.rm = T)) / log(2), length.out = n_pts)
+    pt_size_legend <- round(2^pt_size_logs)
+    per_pt_incr <- diff(range(yseq)) / 200
+    text(x = length(traits_to_plot) + 2.25, 
+         y = min(yseq) - diff(range(yseq)) / 5.25 + sum(pt_size_legend^0.25/800) + sum(rep(per_pt_incr, n_pts)) + diff(range(yseq)) / 7, 
+         pos = 4, pch = 19, cex = 1.1,
+         labels = "Sample Size")
+    points(x = rep(length(traits_to_plot) + 3.25, n_pts), 
+           y = min(yseq) - diff(range(yseq)) / 4 + cumsum(pt_size_legend^0.25/800) + cumsum(rep(per_pt_incr, n_pts)) + diff(range(yseq)) / 7, 
+           col = adjustcolor(1, 0.5),
+           pch = 19, cex = pt_size_legend^0.25)
+    text(x = rep(length(traits_to_plot) + 3.25, n_pts) + pt_size_legend^0.25/10, 
+         y = min(yseq) - diff(range(yseq)) / 4 + cumsum(pt_size_legend^0.25/800) + cumsum(rep(per_pt_incr, n_pts)) + diff(range(yseq)) / 7, 
+         pos = 4, pch = 19, cex = 1,
+         labels = pt_size_legend)
+    
+    #legend for diamonds
+    text(x = length(traits_to_plot) * 1.055, cex = 1,
+         y = min(yseq) + diff(range(yseq)) / 4.5 + ifelse(subset_i == 1, 0, 0.00325), 
+         pos = 4, labels = paste0("♦ indicates\nPr(enr. or dep.)\n> ", 1-alpha_post))
+    
+    
+    #legend for categories
+    if(trait_category_legend_below){
+      yadj <- 0
+      yloc_factor <- ifelse(subset_i == 1, 1.8, 2)
+      for(i in 1:length(categories_represented)){
+        rect(xleft = 0 + i + cumsum(c(0,strwidth(categories_represented, cex = 1.25, units = "user") + 1))[i],
+             xright = 1 + i + cumsum(c(0,strwidth(categories_represented, cex = 1.25, units = "user") + 1))[i],
+             ybottom = min(yseq) - diff(range(yseq)) / yloc_factor - diff(range(yseq)) / 14,
+             ytop = min(yseq) - diff(range(yseq)) / yloc_factor - diff(range(yseq)) / 30,
+             col = category_colors[categories_represented[i]], border = 1)
+        text(labels = categories_represented[i], pos = 4, 
+             y = min(yseq) - diff(range(yseq)) / yloc_factor - diff(range(yseq)) / 18, cex = 1.25, x = 0.85 + i + cumsum(c(0,strwidth(categories_represented, cex = 1.25, units = "user") + 1))[i])
+        #draw circle?
+        ends_y <- c(min(yseq) - diff(range(yseq)) / yloc_factor - diff(range(yseq)) / 18, min(yseq) - diff(range(yseq)) / 18)
+        arc(t1 = 3*pi/2, t2 = pi/2+1E-6, r1 = diff(range(ends_y))/2, r2 = diff(range(ends_y))/2, 
+            center = c(0.5, mean(ends_y)), lwd = 3, res = 50, adjx = 210 + ifelse(subset_i == 1, 30, 50))
+        points(0.5, ends_y[2], pch = -9658, cex = 3)
+      }
+    } else {
+      x_adj2 <- x_adj - 2.5
+      y_adj2 <- y_adj - 2.5
+      for(i in 1:length(categories_represented)){
+        rect(xleft = 0 + i,
+             xright = 1 + i,
+             ybottom = -10,
+             ytop = -9,
+             col = category_colors[categories_represented[i]], border = 1)
+        text(labels = categories_represented[i], pos = 4, y = i + y_adj2 - 7, x = ncol(table_to_use) - 1/2 + x_adj2 + 1/3)
+      }
+    }
+    
+  }
+  
+  text(paste0("Traits with ", ifelse(subset_i == 1, "Positive", "Negative"), " Posterior Mean Bias"), x = mean(par("usr")[1:2]), y = max(yseq) + diff(range(yseq)) / 15, cex = 2.25, font = 2)
+  
+}
+dev.off()
+
+
+#### identify genes in intersect & x-reference against relative effect size ####
+twas_intersect <- lapply(setNames(rownames(n_deg_sigtwas_intersect), rownames(n_deg_sigtwas_intersect)), function(x) NULL)
+twas_with_hits <- colnames(prop_degs_are_twas)
+prop_pos <- lapply(setNames(rownames(n_deg_sigtwas_intersect), rownames(n_deg_sigtwas_intersect)), function(i) NULL)
+tissue_code <- MotrpacBicQC::bic_animal_tissue_code
+tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
+tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
+for(tissue_abbrev in names(twas_intersect)){
+  
+  tissue_i <- tissue_code$tissue_name_release[tissue_code$abbreviation == tissue_abbrev]
+  
+  print(tissue_i)
+  
+  sig_twas_by_trait <- lapply(setNames(twas_with_hits, twas_with_hits), 
+                              function(trait_i) sig_twas_by_tissue[[tissue_i]][sig_twas_by_tissue[[tissue_i]]$trait == trait_i,])
+  sig_twas_by_trait_genes <- lapply(setNames(twas_with_hits, twas_with_hits), 
+                                    function(trait_i) sig_twas_by_trait[[trait_i]]$gene_name)
+  sig_twas_by_trait_signs <- lapply(setNames(twas_with_hits, twas_with_hits), 
+                                    function(trait_i){
+                                      signs <- sign(sig_twas_by_trait[[trait_i]]$zscore)
+                                      names(signs) <- sig_twas_by_trait_genes[[trait_i]]
+                                      signs
+                                    })
+  
+  timepoint = "8w"
+  sex = "male"
+  
+  DE_genes_in_Nodes <- node_metadata_list[[timepoint]]$human_gene_symbol[
+    node_metadata_list[[timepoint]]$tissue == tissue_code$abbreviation[tissue_code$tissue_name_release == tissue_i]]
+  
+  if(length(DE_genes_in_Nodes) == 0){next()}
+  
+  DE_genes_in_Nodes_sign <- cbind(as.data.frame(do.call(rbind, strsplit(node_metadata_list[[timepoint]]$node[
+    node_metadata_list[[timepoint]]$tissue == tissue_code$abbreviation[tissue_code$tissue_name_release == tissue_i]], split = "_"))),
+    gene = DE_genes_in_Nodes)
+  
+  colnames(DE_genes_in_Nodes_sign) <- c("time", "female", "male", "gene")
+  DE_genes_in_Nodes_sign$female[grep(pattern = "F1", DE_genes_in_Nodes_sign$female)] <- 1
+  DE_genes_in_Nodes_sign$female[grep(pattern = "F-1", DE_genes_in_Nodes_sign$female)] <- -1
+  DE_genes_in_Nodes_sign$male[grep(pattern = "M1", DE_genes_in_Nodes_sign$male)] <- 1
+  DE_genes_in_Nodes_sign$male[grep(pattern = "M-1", DE_genes_in_Nodes_sign$male)] <- -1
+  DE_genes_in_Nodes_sign <- DE_genes_in_Nodes_sign[!is.na(DE_genes_in_Nodes_sign$gene),]
+  
+  DE_genes_signs <- as.integer(DE_genes_in_Nodes_sign[,sex])
+  names(DE_genes_signs) <- DE_genes_in_Nodes_sign$gene
+  
+  results <- lapply(setNames(twas_with_hits, twas_with_hits), function(trait_i) {
+    twas_signs <- sig_twas_by_trait_signs[[trait_i]]
+    shared_genes <- intersect(names(DE_genes_signs), names(twas_signs))
+    if(length(shared_genes) != 0){
+      shared_genes_signs <- twas_signs[shared_genes] * DE_genes_signs[shared_genes]
+      shared_genes_rat <- gene_map$RAT_SYMBOL[match(shared_genes, gene_map$HUMAN_ORTHOLOG_SYMBOL)]
+      shared_genes_rat_ensembl_id <- gene_map$RAT_ENSEMBL_ID[match(shared_genes, gene_map$HUMAN_ORTHOLOG_SYMBOL)]
+      
+      # enrichment_test <- signif_df[which(signif_df$tissue == tissue_abbrev & signif_df$trait == trait_i),]
+      
+      # output <- data.frame(tissue = tissue_abbrev,
+      #                      trait = trait_i,
+      #                      human_ortholog_symbol = shared_genes,
+      #                      rat_symbol = shared_genes_rat,
+      #                      rat_ensembl_ID = shared_genes_rat_ensembl_id,
+      #                      direction_of_DE_on_trait = shared_genes_signs,
+      #                      Pr_Geneset_DiffProp_is_Pos = enrichment_test$prob_diff_is_positive,
+      #                      geneset_enrichment = enrichment_test$signif)
+      
+      output <- data.frame(tissue = tissue_abbrev,
+                           trait = trait_i,
+                           human_ortholog_symbol = shared_genes,
+                           rat_symbol = shared_genes_rat,
+                           rat_ensembl_ID = shared_genes_rat_ensembl_id,
+                           direction_of_DE_on_trait = shared_genes_signs)
+      return(output)
+    } else {return(NULL)}
+  })
+  
+  results <- do.call(rbind, results)
+  
+  twas_intersect[[tissue_abbrev]] <- results
+  
+}
+
+
+
+#### quick plot of exp vs obs freqs, incl prop pos hits ####
+use_focal_vs_compl <- T
+
+traits <- unique(data1$trait)
+tissues <- unique(data1$tissue)
+d <- list(cell_count = data1$count,
+          total = sapply(1:nrow(data1), function(i) total_number_of_possible_hits_matrix[data1$tissue[i], data1$trait[i]]),
+          row_count = sapply(1:nrow(data1), function(i) n_genes_in_nodes_matrix[data1$tissue[i], data1$trait[i]]),
+          col_count = sapply(1:nrow(data1), function(i) sig_twas_by_trait_genes_matrix[data1$tissue[i], data1$trait[i]]),
+          row_index = match(data1$tissue, tissues),
+          col_index = match(data1$trait, traits),
+          row_n = length(unique(data1$tissue)),
+          col_n = length(unique(data1$trait)))
+
+
+
+
+cairo_pdf(paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/pass1b_fig8_DEG-TWAS_logodds_double.pdf"), 
+          width = 1000 / 72 * 2, height = 925 / 72, family="Arial Unicode MS", pointsize = 36)
+
+category_shapes <- setNames(15:19, salient.categories)
+category_shapes <- setNames(15:19, c("Cardiometabolic", "Aging", "Anthropometric", 
+                                     "Immune", "Psychiatric-neurologic")
+)
+
+par(mar = c(5,4,3,4), mfrow = c(1,2))
+layout(t(c(rep(1,10), rep(2,10), 3)))
+layout(t(c(1,2,3)), widths = c(1,1,0.1))
+#first plot
+
+
+sapply(1:nrow(signif_df), function(i) adjustcolor(tissue_cols[tissues[d$row_index[i]]], as.numeric(signif_df$signif[i] != 0) * 0.625 + 0.125))
+if(use_focal_vs_compl){
+  xvals <- (d$col_count - d$cell_count) / (d$total - d$row_count)
+  yvals <- d$cell_count / d$row_count
+} else {
+  xvals <- d$row_count / d$total * d$col_count / d$total  
+  yvals <- d$cell_count / d$total
+}
+
+
+
+
+plot(logit(xvals), logit(yvals), xlim = ifelse2(use_focal_vs_compl, c(-14,-1), c(-15,-4.25)), 
+     ylim = ifelse2(use_focal_vs_compl, c(-6, -1), c(-9.5,-4.25)),
+     pch = category_shapes[traitwise_partitions$Category[match(traits[d$col_index], traitwise_partitions$Tag)]], 
+     col = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), 
+     cex = 1.5,
+     xlab = "", ylab = "", yaxt = 'n', xaxt = "n")
+box(which = "plot", lwd = 2)
+#axes
+text(labels = "observed logit(frequency)", x = par("usr")[2] + diff(par("usr")[1:2])/8, srt = 270, pos = 1, 
+     y = mean(par("usr")[3:4]), xpd = NA, cex = 1.25)
+text(labels = "expected logit(frequency)", x = mean(par("usr")[1:2]), srt = 0, pos = 1, 
+     y = par("usr")[3] - diff(par("usr")[3:4])/12, xpd = NA, cex = 1.25)
+yaxlocs <- ifelse2(use_focal_vs_compl, c(-6:-1), c(-5:-9))
+segments(x0 = par("usr")[2], x1 = par("usr")[2] + diff(par("usr")[1:2])/100, y0 = yaxlocs, y1 = yaxlocs, lwd = 4, xpd = NA)
+text(labels = yaxlocs, x = par("usr")[2] + diff(par("usr")[1:2])/200, srt = 0, pos = 4, 
+     y = yaxlocs, xpd = NA, cex = 1.25)
+xaxlocs <- ifelse2(use_focal_vs_compl, -7:-1*2, -7:-3*2)
+segments(x0 = xaxlocs, x1 = xaxlocs, y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/80, lwd = 4, xpd = NA)
+text(labels = xaxlocs, x = xaxlocs, srt = 0, pos = 1, 
+     y = par("usr")[3] - diff(par("usr")[3:4])/80, xpd = NA, cex = 1.25)
+abline(0,1, lty = 2, lwd = 6, col = adjustcolor(1,0.75))
+
+#secondplot
+xl <- par("usr")[1]
+xr <- par("usr")[1] + diff(par("usr")[1:2]) / 2
+yt <- par("usr")[4]
+yb <- par("usr")[4] - diff(par("usr")[3:4]) / 2
+
+buffer <- 0.075
+bx <- (xr-xl) * buffer
+by <- (yt-yb) * buffer
+rect(xleft = xl, ybottom = yb, xright = xr, ytop = yt, lwd = 2, xpd = NA)
+
+points(x = ((xvals - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+       y = ((yvals - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
+       pch = category_shapes[traitwise_partitions$Category[match(traits[d$col_index], traitwise_partitions$Tag)]], 
+       col = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), 
+       cex = 1)
+segments(x0 = 0 * (xr - xl - 2*bx) + xl, 
+         y0 = 0 * (yt - yb - 2*by) + yb,
+         x1 = ((max(yvals, na.rm = T) - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+         y1 = ((max(yvals, na.rm = T) - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
+         lty = 2, lwd = 4, col = adjustcolor(1,0.75))
+
+#axes
+text(labels = "observed frequency", x = par("usr")[1] - diff(par("usr")[1:2])/ifelse2(use_focal_vs_compl, 8, 7), srt = 90, pos = 1, 
+     y = par("usr")[4] - diff(par("usr")[3:4])/5, xpd = NA, cex = 1)
+text(labels = "expected frequency", x = par("usr")[1] + diff(par("usr")[1:2])/4, srt = 0, pos = 1, 
+     y = par("usr")[4] + diff(par("usr")[3:4])/8, xpd = NA, cex = 1)
+xaxlocs <- ifelse2(use_focal_vs_compl, c(0:4/20), c(0:6/500))
+yaxlocs <- ifelse2(use_focal_vs_compl, c(0:6/20), c(0:6/500))
+
+segments(x0 = par("usr")[1], x1 = par("usr")[1] - diff(par("usr")[1:2])/100, 
+         y0 = ((yaxlocs - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
+         y1 = ((yaxlocs - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
+         lwd = 4, xpd = NA)
+segments(y0 = par("usr")[4], y1 = par("usr")[4] + diff(par("usr")[3:4])/100, 
+         x0 = ((xaxlocs - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+         x1 = ((xaxlocs - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+         lwd = 4, xpd = NA)
+text(labels = xaxlocs, x = ((xaxlocs - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+     srt = 0, pos = 3, 
+     y = par("usr")[4], xpd = NA, cex = 0.75)
+text(labels = yaxlocs, x = par("usr")[1], 
+     srt = 0, pos = 2, 
+     y = ((yaxlocs - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, xpd = NA, cex = 0.75)
+# text(labels = 0:6/500, x = -7:-3*2, srt = 0, pos = 1, 
+#      y = par("usr")[3] - diff(par("usr")[3:4])/80, xpd = NA, cex = 1.25)
+abline(0,1, lty = 2, lwd = 6, col = adjustcolor(1,0.75))
+
+#legends
+legend(x = xl, y = yb, legend = names(category_shapes), pch = category_shapes, col = adjustcolor(1, 0.5), cex = 0.75, pt.cex = 1.4)
+legend(x = xr, y = yt, legend = tissues, pch = 19, col = adjustcolor(tissue_cols[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
+segments(x0 = par("usr")[1] + diff(par("usr")[1:2]) / 1.55, 
+         y0 = par("usr")[4] - diff(par("usr")[3:4])/50,
+         x1 = par("usr")[1] + diff(par("usr")[1:2]) / 1.45, 
+         y1 = par("usr")[4] - diff(par("usr")[3:4])/50, 
+         lty = 2, lwd = 4, col = adjustcolor(1,0.75))
+text(x = par("usr")[1] + diff(par("usr")[1:2]) / 1.45, 
+     y = par("usr")[4] - diff(par("usr")[3:4])/45, 
+     pos = 4, cex = 0.75, labels = "1-to-1 line")
+fig_label("a)", shrinkX = 0.975, cex = 2, shrinkY = 2)
+
+#make second plot with raw proportion data
+xvals <- data$count_all / data$total_all
+yvals <- data$count_inters / data$total_inters
+
+
+cex_pow <- 1/2
+plot(xvals, yvals, xlim = c(0.48, 0.52), 
+     ylim = c(0,1),
+     pch = category_shapes[traitwise_partitions$Category[match(data$trait, traitwise_partitions$Tag)]], 
+     col = adjustcolor(tissue_cols[data$tissue], 0.5), 
+     cex = (data$total_inters / max(data$total_inters))^cex_pow * 5,
+     xlab = "", ylab = "", yaxt = 'n', xaxt = "n")
+box(which = "plot", lwd = 2)
+#axes
+text(labels = "observed frequency (+ effects)", x = par("usr")[1] - diff(par("usr")[1:2])/7, srt = 90, pos = 1, 
+     y = mean(par("usr")[3:4]), xpd = NA, cex = 1.25)
+text(labels = "expected frequency (+ effects)", x = mean(par("usr")[1:2]), srt = 0, pos = 1, 
+     y = par("usr")[3] - diff(par("usr")[3:4])/12, xpd = NA, cex = 1.25)
+yaxlocs <- seq(0,1,by=0.1)
+segments(x0 = par("usr")[1], x1 = par("usr")[1] - diff(par("usr")[1:2])/100, y0 = yaxlocs, y1 = yaxlocs, lwd = 4, xpd = NA)
+text(labels = yaxlocs, x = par("usr")[1] - diff(par("usr")[1:2])/200, srt = 0, pos = 2, 
+     y = yaxlocs, xpd = NA, cex = 1.25)
+xaxlocs <- round(seq(par("usr")[1], par("usr")[2], by = 0.01), 2)
+segments(x0 = xaxlocs, x1 = xaxlocs, y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/80, lwd = 4, xpd = NA)
+text(labels = xaxlocs, x = xaxlocs, srt = 0, pos = 1, 
+     y = par("usr")[3] - diff(par("usr")[3:4])/80, xpd = NA, cex = 1.25)
+# abline(0,1, lty = 2, lwd = 6, col = adjustcolor(1,0.75))
+abline(h=0.5,lwd=4,lty=2,col=adjustcolor(1,0.5))
+abline(v=0.5,lwd=4,lty=2,col=adjustcolor(1,0.5))
+
+#legened
+xl <- par("usr")[2]
+xr <- par("usr")[2] + diff(par("usr")[1:2]) / 2
+yt <- par("usr")[4]
+yb <- par("usr")[4] - diff(par("usr")[3:4]) / 2.75
+legend(x = xl, y = yb, legend = names(category_shapes), bty = "n",
+       pch = category_shapes, col = adjustcolor(1, 0.5), cex = 0.75, pt.cex = 1.4, xpd = NA)
+legend(x = xl + (xr-xl)/100, y = yt, legend = tissues, pch = 19, bty = "n", xpd = NA,
+       col = adjustcolor(tissue_cols[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
+
+
+legcexs <- c(0.5, 1:5)
+legvals <- (round((legcexs / 5) ^ (1/cex_pow) * max(data$total_inters)))
+legcexs <- (legvals / max(data$total_inters))^cex_pow * 5
+# points(x = rep(xl + (xr-xl)/11, 6) + (rev(legcexs)) / 4000, y = yb - (yt-yb) * 1.4 + 
+#          cumsum(rep((yt-yb)/60, length(legcexs))) + cumsum(legcexs + c(0,legcexs[-length(legcexs)])) / 120, 
+#        cex = legcexs, xpd = NA, pch = 19, col = adjustcolor(1, 0.5))
+text(labels = latex2exp::TeX("$n_{intersect}$"), x = xl - (xr-xl)/50, y = yb - (yt-yb) * 0.6, pos = 4, xpd = NA)
+points(x = rep(xl + (xr-xl)/11, 6), y = yb - (yt-yb) * 1.4 + 
+         cumsum(rep((yt-yb)/60, length(legcexs))) + cumsum(legcexs + c(0,legcexs[-length(legcexs)])) / 120, 
+       cex = legcexs, xpd = NA, pch = 19, col = adjustcolor(1, 0.5))
+text(x = rep(xl + (xr-xl)/11, 6), y = yb - (yt-yb) * 1.4 + 
+       cumsum(rep((yt-yb)/60, length(legcexs))) + cumsum(legcexs + c(0,legcexs[-length(legcexs)])) / 120, 
+     cex = legcexs / 5, xpd = NA, labels = legvals, col = "white")
+text(labels = legvals[1:2], x = xl + (xr-xl)/15 + cumsum(legcexs)[1:2]/4000, y = yb - (yt-yb) * 1.4 + 
+       cumsum(rep((yt-yb)/60, length(legcexs)))[1:2] + cumsum(legcexs + c(0,legcexs[-length(legcexs)]))[1:2] / 120, 
+     pos = 4, xpd = NA, cex = 0.5)
+
+
+fig_label("b)", shrinkX = 1, cex = 2)
+dev.off()
+
+#### composite figure for the heatmap, posterior output, and scatterplot ####
+
+#load appropriate model fit
+if(base != "deviation_from_expected_logodds_split_the_difference"){
+  
+  base = "deviation_from_expected_logodds_split_the_difference"
+  load(paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
+  
+  samps <- data.frame(as_draws_df(out$draws()))
+  prop_greater_than_0 <- function(x) mean(x>0)
+  cellbias <- apply(subset_samps("cell_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+  celltotalbias <- apply(subset_samps("cell_total_prob_bias", c("raw", "sd", "logodds"), samps = samps), 2, prop_greater_than_0)
+  rowbias <- apply(subset_samps("row_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+  colbias <- apply(subset_samps("col_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+  trait_key <- setNames(trait_categories$new_Phenotype, trait_categories$Tag)
+  colcatbias <- apply(subset_samps("colcat_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+  
+  #generate a "significance" matrix
+  signif_threshold <- 0.05
+  signif_df <- data_subset[1:(nrow(data_subset)), c("tissue", "trait")]
+  signif_df$prob_diff_is_positive <- apply(subset_samps("cell_total_prob_bias", c("raw", "sd", "logodds"), samps = samps), 2, prop_greater_than_0)
+  signif_df$signif <- 0
+  signif_df$signif[signif_df$prob_diff_is_positive > (1-signif_threshold)] <- 1
+  signif_df$signif[signif_df$prob_diff_is_positive < signif_threshold] <- -1
+  
+  signif_df[signif_df$signif != 0,]
+  
+  signif_matrix <- reshape(signif_df[,-match("prob_diff_is_positive", colnames(signif_df))], idvar = "tissue", timevar = "trait", direction = "wide")
+  rownames(signif_matrix) <- signif_matrix$tissue
+  signif_matrix <- signif_matrix[,-match("tissue", colnames(signif_matrix))]
+  colnames(signif_matrix) <- gsub(colnames(signif_matrix), pattern = "signif.", replacement = "")
+  
+  #add back in the HYPOTHALAMUS if we removed it
+  if(nrow(signif_matrix) != nrow(n_deg_sigtwas_intersect)){
+    signif_matrix <- signif_matrix[rownames(n_deg_sigtwas_intersect),]
+    rownames(signif_matrix) <- rownames(n_deg_sigtwas_intersect)
+    signif_matrix[is.na(signif_matrix)] <- 0
+  }
+  
+  if(!all(colnames(signif_matrix) == colnames(n_deg_sigtwas_intersect)) & all(rownames(signif_matrix) == rownames(n_deg_sigtwas_intersect))){
+    stop("something's wrong with the significance matrix")
+  }
+}
+
+
+cols = list(Tissue=tissue_cols[names(motrpac_gtex_map)], 
+            Time=group_cols[paste0(c(1,2,4,8), "w")],
+            Sex=sex_cols[c('male','female')])
+mars <- list(c(6,
+               0 + ifelse(subset_to_traits, 2, 0),
+               6 + ifelse(group_by_tissue_type, disp_amount * 4.5, 0),
+               6.5 + ifelse(subset_to_traits, 1, 0)),
+             c(3.5,7,3,7)+0.5, 
+             c(3.5,1,3,14)+0.5,
+             c(4.25,2.5,2.5,5.5), 
+             c(4.25,2.5,2.5,5.5), 
+             c(4.25,7.5,2.5,0.5))
+
+cairo_pdf(paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/fig4_intersect-enrichment.pdf"), 
+          width = 2300 / 72 * ncol(table_to_use) / 80, 
+          height = 900 / 72 + ifelse(group_by_tissue_type, disp_amount * 0.75, 0), 
+          family="Arial Unicode MS", pointsize = 18.5)
+par(xpd = T, 
+    mar = mars[[1]])
+
+layout(rbind(
+  c(1,1,1,1,4,6),
+  c(2,2,3,3,5,6)
+), heights = c(1,0.9))
+
+#counts or props?
+incl_significance <- T
+incl_cell_totals <- F
+trait_category_legend_below = T
+use_tissue_cols_for_cols <- F
+opacity_power_scaler <- 0.25
+opacity_white_threshold <- 0.85
+use_counts <- T
+prop_TWAS <- T
+order_by_counts <- F
+order_by_posterior_enrichment <- T
+group_by_tissue_type <- T
+use_range_for_maginal_labels <- F
+
+subset_to_traits <- T
+focal_traitcats <- c("Cardiometabolic", "Immune", "Endocrine system", "Anthropometric", "Allergy", "Aging")
+if(subset_to_traits){
+  trait_subset <- colnames(n_deg_sigtwas_intersect)[
+    traitwise_partitions$Category[match(colnames(n_deg_sigtwas_intersect), traitwise_partitions$Tag)] %in% 
+      focal_traitcats]
+  categories_represented <- unique(traitwise_partitions$Category[match(trait_subset, traitwise_partitions$Tag)])
+} else {
+  trait_subset <- colnames(n_deg_sigtwas_intersect)
+}
+categories_represented <- unique(traitwise_partitions$Category[match(trait_subset, traitwise_partitions$Tag)])
+
+if(use_counts){
+  table_to_use <- n_deg_sigtwas_intersect  
+} else {
+  if(prop_TWAS){
+    table_to_use <- round(prop_twas_are_degs * 1000)  
+  } else{
+    table_to_use <- round(prop_degs_are_twas * 1000)  
+  }
+}
+
+if(subset_to_traits){
+  table_to_use <- table_to_use[,trait_subset]
+  signif_matrix_to_use <- signif_matrix_to_use[,trait_subset]
+}
+
+
+if(order_by_counts){
+  table_to_use <- table_to_use[,colnames(n_deg_sigtwas_intersect)]
+  signif_matrix_to_use <- signif_matrix[,colnames(n_deg_sigtwas_intersect)]
+} else if(order_by_posterior_enrichment) {
+  trait_order <- traits[order(colbias, decreasing = T)]
+  trait_order <- trait_order[trait_order %in% colnames(table_to_use)]
+  table_to_use <- table_to_use[,trait_order]
+  signif_matrix_to_use <- signif_matrix[,match(trait_order, colnames(signif_matrix))]
+} else {
+  table_to_use <- table_to_use[,colnames(prop_twas_are_degs)]
+  signif_matrix_to_use <- signif_matrix[,colnames(prop_twas_are_degs)]
+}
+
+if(group_by_tissue_type){
+  tissue_cats <- list(circulation = c("BLOOD", "HEART", "SPLEEN"),
+                      skeletal_muscle = c("SKM-GN", "SKM-VL"),
+                      other = rev(c("ADRNL", "KIDNEY", "LUNG", "LIVER")),
+                      adipose = c("WAT−SC"),
+                      brain = c("CORTEX", "HYPOTH", "HIPPOC"),
+                      GI = c("SMLINT", "COLON"))
+  tissue_cats <- rev(tissue_cats)
+  disp_amount <- 0.5
+  tissue_disps <- unlist(lapply(1:length(tissue_cats), function(tci) rep(disp_amount * (tci), length(tissue_cats[[tci]]))))
+  tissue_cats_bars_ylocs <- cbind(start = (c(0, cumsum(unlist(lapply(tissue_cats, function(tc) length(tc))) + disp_amount)) + 2 * disp_amount)[-(length(tissue_cats)+1)], 
+                                  end = cumsum(unlist(lapply(tissue_cats, function(tc) length(tc))) + disp_amount) + disp_amount)
+  
+}
+
+if(use_range_for_maginal_labels){
+  n_genes_in_nodes_label <- apply(apply(n_genes_in_nodes_matrix, 1, range), 2, paste0, collapse = " - ")
+  sig_twas_by_trait_genes_label <- apply(apply(sig_twas_by_trait_genes_matrix, 2, range), 2, paste0, collapse = " - ")
+} else {
+  n_genes_in_nodes_label <- apply(n_genes_in_nodes_matrix, 1, max)
+  sig_twas_by_trait_genes_label <- apply(sig_twas_by_trait_genes_matrix, 2, max)
+}
+
+
+
+if(length(salient.categories) < 9){
+  category_colors <- RColorBrewer::brewer.pal(length(salient.categories), "Dark2")
+  names(category_colors) <- sort(salient.categories)  
+} else {
+  category_colors <- RColorBrewer::brewer.pal(5, "Dark2")
+  names(category_colors) <- sort(c("Cardiometabolic", "Aging", "Anthropometric", 
+                                   "Immune", "Psychiatric-neurologic"))
+  cats_leftover <- setdiff(salient.categories, names(category_colors))
+  cols_leftover <- setdiff(RColorBrewer::brewer.pal(8, "Dark2"), category_colors)
+  n_cols_needed <- length(cats_leftover) - length(cols_leftover)
+  if(n_cols_needed > 0){
+    extra_cols <- c(cols_leftover, RColorBrewer::brewer.pal(n_cols_needed, "Set2"))
+  } else {
+    extra_cols <- cols_leftover
+  }
+  names(extra_cols) <- cats_leftover
+  category_colors <- c(category_colors, extra_cols)
+}
+cols$category <- category_colors
+
+plot(1, xaxt="n",yaxt="n",bty="n",pch="",ylab="",xlab="", main="", sub="", 
+     xlim= c(-5,ncol(table_to_use)), ylim = c(-5,nrow(table_to_use)))
+
+if(group_by_tissue_type){
+  tissue_cats_bars_xlocs <- sapply(tissue_cats, function(tc) max(strwidth(tc, units = "user"))) + 0.2
+  tissue_cats_bars_xlocs <- rep(max(tissue_cats_bars_xlocs), length(tissue_cats_bars_xlocs))
+}
+
+
+if(use_tissue_cols_for_cols){
+  heatmap_cols <- sapply((1:max(table_to_use) / max(table_to_use))^opacity_power_scaler, function(opcty) 
+    adjustcolor("black", opcty))
+} else {
+  heatmap_cols <- viridisLite::viridis(n = max(table_to_use, na.rm = T)*100+1)
+  heatmap_cols <- heatmap_cols[round(log(1:max(table_to_use, na.rm = T)) / log(max(table_to_use, na.rm = T)) * max(table_to_use, na.rm = T) * 100 + 1)]
+}
+for(ri in 1:nrow(table_to_use)){
+  # text(x = 0.5, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0), pos = 2, labels = rownames(table_to_use)[ri], col = tissue_cols[rownames(table_to_use)[ri]])
+  text(x = 0.5, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0), pos = 2, labels = rownames(table_to_use)[ri], col = 1)
+  for(ci in 1:ncol(table_to_use)){
+    if(ri == 1){
+      #trait names
+      text(x = ci+0.5, y = -0.9, pos = 2, srt = 45, cex = 0.85,
+           labels = gsub("_Scatter", "", trait_categories$new_Phenotype[match(colnames(table_to_use)[ci], trait_categories$Tag)]))
+      rect(xleft = ci + 1/2,
+           xright = ci - 1/2,
+           ybottom = ri - 1/2 - 1,
+           ytop =  ri + 1/2 - 1,
+           col = category_colors[trait_categories$Category[match(colnames(table_to_use)[ci], trait_categories$Tag)]])
+    }
+    
+    #vertical total # options
+    if(ri == nrow(table_to_use)){
+      text(x = ci-0.5, y = ri+1 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), pos = 4, srt = 45,
+           labels = sig_twas_by_trait_genes_label[colnames(table_to_use)[ci]], cex = 0.9)
+    }
+    
+    #horiz total # of options
+    if(ci == ncol(table_to_use)){
+      text(x = ci+0.45, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0), pos = 4,
+           labels = n_genes_in_nodes_label[rownames(table_to_use)[ri]])
+    }
+    
+    #the actual cells
+    if(use_tissue_cols_for_cols){
+      rect(xleft = ci + 1/2,
+           xright = ci - 1/2,
+           ybottom = ri - 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0),
+           ytop =  ri + 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0),
+           col = adjustcolor(MotrpacBicQC::tissue_cols[rownames(table_to_use)[ri]], (table_to_use[ri, ci] / max(table_to_use, na.rm = T))^opacity_power_scaler ))  
+    } else {
+      rect(xleft = ci + 1/2,
+           xright = ci - 1/2,
+           ybottom = ri - 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0),
+           ytop =  ri + 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0),
+           col = heatmap_cols[table_to_use[ri, ci]])
     }
     
     
     
+    # rect(xleft = ci + 1/2,
+    #      xright = ci - 1/2,
+    #      ybottom = ri - 0.475,
+    #      ytop =  ri + 0.475,
+    #      col = heatmap_cols[table_to_use[ri, ci]],
+    #      border = MotrpacBicQC::tissue_cols[rownames(table_to_use)[ri]])
     
+    #text inside of cells
+    if(table_to_use[ri, ci] != 0){
+      text_in_cell <- table_to_use[ri, ci]
+      ndigs <- nchar(text_in_cell)
+      if(incl_significance){
+        signif_dir <- c("₋", "","⁺")[match(signif_matrix_to_use[ri, ci], -1:1)]
+        # text_in_cell <- paste0(text_in_cell, signif_dir)
+        
+        #try using corner triangles
+        ctr <- corner_triangle_ratio <- 1/3
+        cxr = ci + 1/2
+        cxl = ci - 1/2
+        cyb = ri - 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0)
+        cyt =  ri + 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0)
+        if(signif_dir == "⁺"){
+          polygon(x = c(cxl * (ctr) + cxr * (1-ctr), cxr, cxr),
+                  y = c(cyt, cyt, cyt * (1-ctr) + cyb * ctr),
+                  col = "red")  
+        }
+        if(signif_dir == "₋"){
+          polygon(x = c(cxl * (ctr) + cxr * (1-ctr), cxr, cxr),
+                  y = c(cyb, cyb, cyb * (1-ctr) + cyt * ctr),
+                  col = "lightblue")  
+        }
+      }
+      text(text_in_cell, x = ci, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0), 
+           col = ifelse((table_to_use[ri, ci] / max(table_to_use, na.rm = T))^opacity_power_scaler > opacity_white_threshold, "black", "white"), 
+           cex = 0.85 + ifelse(subset_to_traits, 0.1, 0) - (ndigs-1)/6)
+      if(incl_cell_totals){
+        text(sig_twas_by_trait_genes_matrix[,colnames(table_to_use)][ri, ci], 
+             x = ci - 0.7375, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0) - 0.325, 
+             col = "black", cex = 0.2, pos = 4, srt = 90)
+        text(n_genes_in_nodes_matrix[,colnames(table_to_use)][ri, ci], 
+             x = ci - 0.7, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0) - 0.4, 
+             col = "black", cex = 0.2, pos = 4, srt = 0)
+      }
+    }
     
   }
 }
 
-xl = -3; xr = -1; yb = 27; yt = 57
-rect(xleft = xl, xright = xr, col = heatcols, border = NA,
-     yb = seq(yb, yt, length.out = length(heatcols)+1)[-(length(heatcols)+1)], yt= seq(yb, yt, length.out = length(heatcols)+1)[-1])
-rect(xleft = xl, xright = xr, ybottom = yb, ytop = yt)
-text(labels = -5:5/5, x = xl+1, pos = 2, y = seq(yb, yt, length.out = 11), cex = 1)
-text(x = mean(c(xl, xr)), y = yt - 1, labels = latex2exp::TeX("r_g"), pos = 3, cex = 2, font = 2)
-text("Genetic Correlation Matrix", x = length(traits) / 2 + 0.5, y = length(traits) + 0.5, pos = 3, cex = 2.5, font = 2)
+#tissue category bars
+if(group_by_tissue_type){
+  for(bi in 1:length(tissue_cats_bars_xlocs)){
+    segments(x0 = -tissue_cats_bars_xlocs[bi],
+             x1 = -tissue_cats_bars_xlocs[bi],
+             y0 = tissue_cats_bars_ylocs[bi,1],
+             y1 = tissue_cats_bars_ylocs[bi,2],
+             lwd = 3)
+    bracket_length <- 0.2
+    segments(x0 = -tissue_cats_bars_xlocs[bi],
+             x1 = -tissue_cats_bars_xlocs[bi]+bracket_length,
+             y0 = tissue_cats_bars_ylocs[bi,1],
+             y1 = tissue_cats_bars_ylocs[bi,1],
+             lwd = 3)
+    segments(x0 = -tissue_cats_bars_xlocs[bi],
+             x1 = -tissue_cats_bars_xlocs[bi]+bracket_length,
+             y0 = tissue_cats_bars_ylocs[bi,2],
+             y1 = tissue_cats_bars_ylocs[bi,2],
+             lwd = 3)
+    
+    text(x = -tissue_cats_bars_xlocs[bi], y = mean(tissue_cats_bars_ylocs[bi,]) + ifelse(grepl("_", names(tissue_cats)[bi]), -0.25, 0), pos = 2, 
+         labels = gsub("Gi", "GI", stringr::str_to_title(gsub("_", "\n", names(tissue_cats)[bi]))), cex = 1.25)
+  }  
+}
 
-points(rep((xl+xr)/2, length(cols$category)), 1:length(cols$category)*2, pch = 15, col = cols$category, cex = 1.75)
-text(rep((xl+xr)/2, length(cols$category)), 1:length(cols$category)*2, pos = 2, col = 1, 
-     labels = sapply(sapply(names(cols$category), function(x) strsplit(x, " ")[[1]][1]), function(y) strsplit(y, "-")[[1]][1]), cex = 0.75)
+#legend for heatmap
+x_adj <- 2.25
+y_adj <- 0
+yb_adjust <- ifelse(incl_significance, 3, 0)
+n_legend_rects_to_use <- 30
+n_legend_labels_to_use <- 10
+legend_yvals <- round(seq(0, max(table_to_use), length.out = n_legend_labels_to_use))
+legend_ylocs <- seq(yb_adjust, 1 + nrow(table_to_use) + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), length.out = n_legend_rects_to_use)
+legend_ycols <- round(seq(1, max(table_to_use), length.out = n_legend_rects_to_use))
+for(i in 1:(n_legend_rects_to_use-1)){
+  yb = legend_ylocs[i]
+  yt = legend_ylocs[i+1]
+  print(paste(c(yb,yt)))
+  rect(xleft = ncol(table_to_use) + x_adj + 2 + 1/2,
+       xright = ncol(table_to_use) + x_adj + 2 - 1/2,
+       ybottom = yb,
+       ytop =  yt,
+       col = heatmap_cols[legend_ycols[i]], border = NA)
+}
+for(i in 1:n_legend_labels_to_use){
+  text(labels = legend_yvals[i], x = ncol(table_to_use) + x_adj + 2.4, pos = 4, cex = 0.75,
+       y = -0.25 + yb_adjust + legend_yvals[i] / max(table_to_use) * (1+nrow(table_to_use) - yb_adjust + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0)))
+}
 
-text(labels = latex2exp::TeX(paste0("• mark p-val < 10^{", round(log10(0.025  / choose(dim(gcor_mat)[1], 2)), 2), "}")), 
-     x = -1, y = yt + nrow(gcor_mat)/5, cex = 0.75, srt = 90)
-text(labels = "bonferroni", x = -2.5, y = yt + nrow(gcor_mat)/5, cex = 0.75, srt = 90, font = 3, family = "Arial")
+#overall rect for 0
+rect(xleft = ncol(table_to_use) + x_adj + 2 + 1/2,
+     xright = ncol(table_to_use) + x_adj + 2 - 1/2,
+     ybottom = min(legend_ylocs) - diff(range(legend_ylocs))/50,
+     ytop =  max(legend_ylocs))
 
-eigcor <- eigen(Matrix::nearPD(gcor_mat)$mat)
-par(mar = c(8,7,3,4), xpd = NA)
-dcor <- dim(gcor_mat)[1]
-cols_scree <- c("darkblue", "darkorange")
-plot(eigcor$values / sum(eigcor$values) * 100 / max(eigcor$values / sum(eigcor$values) * 100), type = "l", lwd = 2, 
-     ylab = "", xlab = "", cex.axis = 1.25, cex.lab = 1.5, xaxt = "n", yaxt = "n", frame = F, col = cols_scree[1], ylim = c(0,1))
-text("Proportion Variance Explained", y = 0.5, srt = 90, pos = 3, x = -dcor/10, xpd = NA, cex = 2, col = cols_scree[1])
-text("Cum. Proportion Variance Explained", y = 0.5, srt = 270, pos = 3, x = (dcor)*1.1, xpd = NA, cex = 2, col = cols_scree[2])
+#legend for significance
+if(incl_significance){
+  # text(labels = paste0("Pr(Enr.) > ", (1 - signif_threshold), " : X⁺\nPr(Dep.) > ", (1 - signif_threshold), " : X₋"),
+  #      x = ncol(table_to_use) + x_adj - 1.75,
+  #      y = yb_adjust-3.25, pos = 4, cex = 0.75)
+  
+  signif_label <- paste0("Pr(Dep.) > ", (1 - signif_threshold), " : ")
+  ctr <- 0.5
+  cxr = ncol(table_to_use) + x_adj - 2.25 + strwidth(signif_label) + 0.45
+  cxl = ncol(table_to_use) + x_adj - 2.25 + strwidth(signif_label) - 0.45
+  cyb = yb_adjust - 3.75 - 0.45
+  cyt = yb_adjust - 3.75 + 0.45
+  
+  text(labels = signif_label,
+       x = ncol(table_to_use) + x_adj - 1.75,
+       y = cyb * 0.325 + cyt * 0.675, pos = 4, cex = 0.75)
+  rect(xleft = cxl,
+       xright = cxr,
+       ybottom = cyb,
+       ytop =  cyt)
+  polygon(x = c(cxl * (ctr) + cxr * (1-ctr), cxr, cxr),
+          y = c(cyb, cyb, cyb * (1-ctr) + cyt * ctr),
+          col = "lightblue")  
+  
+  cyb <- cyb + 1.25
+  cyt <- cyt + 1.25
+  # cxl <- cxl - 0.125
+  # cxr <- cxr - 0.125
+  
+  signif_label2 <- paste0("Pr(Enr.) > ", (1 - signif_threshold), " : ")
+  text(labels = signif_label2,
+       x = ncol(table_to_use) + x_adj - 1.75,
+       y = cyb * 0.675 + cyt * 0.325, pos = 4, cex = 0.75 * strwidth(signif_label) / strwidth(signif_label2))
+  rect(xleft = cxl,
+       xright = cxr,
+       ybottom = cyb,
+       ytop =  cyt)
+  polygon(x = c(cxl * (ctr) + cxr * (1-ctr), cxr, cxr),
+          y = c(cyt, cyt, cyt * (1-ctr) + cyb * ctr),
+          col = "red")  
+  
+} else {
+  text(labels = paste0("* indicate \nIHW-adj. \np-vals < 0.05 \nfrom Fisher's Exact Test"),
+       x = ncol(table_to_use) + x_adj - 1.75,
+       y = yb_adjust-1.25, pos = 4, cex = 0.75, )
+}
 
-lines(1:length(eigcor$values), cumsum(eigcor$values) / sum(eigcor$values) * 100 / max(cumsum(eigcor$values) / sum(eigcor$values) * 100), lwd = 2,
-      col = cols_scree[2])
-rect(xleft = 0, xright = dcor, ybottom = 0, ytop = 1, lwd =2)
-segments(x0 = 0, x1 = -1, y0 = seq(0,1,0.1), y1 = seq(0,1,0.1), lwd= 2, col = cols_scree[1])
-segments(x0 = 0, x1 = 0, y0 = 0, y1 = 1, lwd= 2, col = cols_scree[1])
-text(x = -1, y = seq(0,1,0.1), pos = 2, col = cols_scree[1], 
-     labels = round(seq(0, max(eigcor$values / sum(eigcor$values) * 100), length.out= 11), 1))
-segments(x0 = dcor, x1 = dcor+1, y0 = seq(0,1,0.1), y1 = seq(0,1,0.1), lwd= 2, col = cols_scree[2])
-segments(x0 = dcor, x1 = dcor, y0 = 0, y1 = 1, lwd= 2, col = cols_scree[2])
-text(x = dcor + 1, y = seq(0,1,0.1), pos = 4, col = cols_scree[2], 
-     labels = round(seq(0, max(cumsum(eigcor$values) / sum(eigcor$values) * 100), length.out= 11), 1))
-text(labels = "Scree Plot", cex = 3, x = dcor/2, y = 1, pos = 3)
-segments(x0 = seq(1,dcor,10), x1 = seq(1,dcor,10), y0 = 0, y1 = -0.02, lwd= 2, col = 1)
-text(x = seq(1,dcor,10), y = -0.02, lwd= 2, col = 1, pos = 1, labels = seq(1,dcor,10))
-text(labels = "Index", cex = 2, x = dcor/2, y = -0.075, pos = 1)
 
 
+#legend for trait categories
+if(trait_category_legend_below){
+  x_adj2 <- 0
+  y_adj2 <- -0.5
+  for(i in 1:length(categories_represented)){
+    rect(xleft = -1/2 + i + cumsum(c(0,strwidth(categories_represented, units = "user") + 1))[i] + x_adj2,
+         xright = 1/2 + i + cumsum(c(0,strwidth(categories_represented, units = "user") + 1))[i] + x_adj2,
+         ybottom = -11 + y_adj2,
+         ytop = -10 + y_adj2,
+         col = category_colors[categories_represented[i]], border = 1)
+    text(labels = categories_represented[i], pos = 4, y = -10.5 + y_adj2, x = x_adj2 + 0.35 + i + cumsum(c(0,strwidth(categories_represented, units = "user") + 1))[i])
+    #draw circle?
+    arc(t1 = 3*pi/2, t2 = pi/2, r1 = (10.5-y_adj2) / 2, r2 = (10.5-y_adj2) / 2, center = c(0,(-10.5 + y_adj2)/2), 
+        lwd = 2, res = 100, adjx = ifelse(order_by_counts, 1, 1.1))
+    points(0, 0, pch = -9658, cex = 2)
+  }
+} else {
+  x_adj2 <- x_adj - 2.5
+  y_adj2 <- y_adj - 2.5
+  for(i in 1:length(category_colors)){
+    rect(xleft = 0 + i,
+         xright = 1 + i,
+         ybottom = -10,
+         ytop = -9,
+         col = category_colors[i], border = 1)
+    text(labels = names(category_colors)[i], pos = 4, y = i + y_adj2 - 7, x = ncol(table_to_use) - 1/2 + x_adj2 + 1/3)
+  }
+}
+
+#labels
+#horiz label for total
+segments(x0 = -2, x1 = 0.5, y0 = nrow(table_to_use) + 3 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0),
+         y1 = nrow(table_to_use) + 1 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), lwd = 2)
+segments(x0 = -2, x1 = 0.5, y0 = nrow(table_to_use) + 3 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), 
+         y1 = nrow(table_to_use) + 2.5 + ifelse(use_range_for_maginal_labels, 0, -0.5) + 
+           ifelse(order_by_counts, 0, -0.8) + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0) + 
+           ifelse(subset_to_traits, 1, 1.5), lwd = 2)
+text(x = -2, y = nrow(table_to_use) + 3 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), pos = 2, 
+     labels = paste0(ifelse(use_range_for_maginal_labels, "total", "max"), " # of\nPrediXcan hits"))
+
+#vertical label for total
+segments(x0 = ncol(table_to_use) + 2.5, x1 = ncol(table_to_use) + 1, 
+         y0 = nrow(table_to_use) + 3 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), 
+         y1 = nrow(table_to_use) + 0.75 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), lwd = 2)
+segments(x0 = ncol(table_to_use) + 2.5, x1 = ncol(table_to_use) + 2 + 
+           ifelse(subset_to_traits, 0, 1.25), 
+         y0 = nrow(table_to_use) + 3 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), 
+         y1 = nrow(table_to_use) + 0.75 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), lwd = 2)
+text(x = ncol(table_to_use) + 2 + ifelse(order_by_counts, 0, 2), y = nrow(table_to_use) + 3 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), pos = 3, 
+     labels = paste0(ifelse(use_range_for_maginal_labels, "total", "max"), " # of DEGs"))
+
+
+#legend and title labels
+text(labels = ifelse(use_counts, latex2exp::TeX("$n_{intersect}$"), latex2exp::TeX("‰_{ intersect}")), pos = 3, font = 2, cex = 1.25,
+     x = ncol(table_to_use) + x_adj + 2, y = nrow(table_to_use) + y_adj + 0.875 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0))
+if(use_counts){
+  text(latex2exp::TeX(paste0("number of genes in 8w - F↓M↓+ 8w - F↑M↑ with IHW-significant PrediXcan at $\\alpha$ = 0.05")), 
+       x = 2 + ifelse(subset_to_traits, 0, 20), 
+       y = nrow(table_to_use) + 3.25 + 
+         ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0) + 
+         ifelse(subset_to_traits, 0, 1), pos = 4, cex = 1.5, font = 2)
+} else {
+  text(latex2exp::TeX(paste0("proportion (‰) of IHW significant TWAS hits at $\\alpha$ = 0.05 in 8w - F↓M↓ or 8w - F↑M↑")), 
+       x = 0, y = nrow(table_to_use) + 4.25 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), pos = 4, cex = 2.35, font = 2)
+}
+
+fig_label("a)", shrinkX = 0.85, cex = 2, shrinkY = 0.96, xpd = NA)
+
+
+# ~~~~~~~~~~~~ #
+# scatterplots #
+# ~~~~~~~~~~~~ #
+
+use_focal_vs_compl <- T
+
+traits <- unique(data1$trait)
+tissues <- unique(data1$tissue)
+d <- list(cell_count = data1$count,
+          total = sapply(1:nrow(data1), function(i) total_number_of_possible_hits_matrix[data1$tissue[i], data1$trait[i]]),
+          row_count = sapply(1:nrow(data1), function(i) n_genes_in_nodes_matrix[data1$tissue[i], data1$trait[i]]),
+          col_count = sapply(1:nrow(data1), function(i) sig_twas_by_trait_genes_matrix[data1$tissue[i], data1$trait[i]]),
+          row_index = match(data1$tissue, tissues),
+          col_index = match(data1$trait, traits),
+          row_n = length(unique(data1$tissue)),
+          col_n = length(unique(data1$trait)))
+
+
+
+
+# category_shapes <- setNames(15:19, salient.categories)
+category_shapes <- setNames(15:19, c("Cardiometabolic", "Aging", "Anthropometric", 
+                                     "Immune", "Psychiatric-neurologic")
+)
+category_shapes <- setNames(c(24,19,15,43,23,25)[1:length(focal_traitcats)], focal_traitcats)
+
+
+
+par(mar = mars[[2]])
+# layout(t(c(rep(1,10), rep(2,10), 3)))
+# layout(t(c(1,2,3)), widths = c(1,1,0.1))
+#first plot
+
+
+sapply(1:nrow(signif_df), function(i) adjustcolor(tissue_cols[tissues[d$row_index[i]]], as.numeric(signif_df$signif[i] != 0) * 0.625 + 0.125))
+if(use_focal_vs_compl){
+  xvals <- (d$col_count - d$cell_count) / (d$total - d$row_count)
+  yvals <- d$cell_count / d$row_count
+} else {
+  xvals <- d$row_count / d$total * d$col_count / d$total  
+  yvals <- d$cell_count / d$total
+}
+
+
+
+
+plot(logit(xvals), logit(yvals), xlim = ifelse2(use_focal_vs_compl, c(-14,-1), c(-15,-4.25)), 
+     ylim = ifelse2(use_focal_vs_compl, c(-6, -1), c(-9.5,-4.25)),
+     pch = category_shapes[traitwise_partitions$Category[match(traits[d$col_index], traitwise_partitions$Tag)]], 
+     col = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), bg = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5),
+     cex = 1.5,
+     xlab = "", ylab = "", yaxt = 'n', xaxt = "n")
+box(which = "plot", lwd = 2)
+#axes
+text(labels = "focal logit(frequency)", x = par("usr")[2] + diff(par("usr")[1:2])/8, srt = 270, pos = 1, 
+     y = mean(par("usr")[3:4]), xpd = NA, cex = 1.25)
+text(labels = "complement logit(frequency)", x = mean(par("usr")[1:2]), srt = 0, pos = 1, 
+     y = par("usr")[3] - diff(par("usr")[3:4])/12, xpd = NA, cex = 1.25)
+yaxlocs <- ifelse2(use_focal_vs_compl, c(-6:-1), c(-5:-9))
+segments(x0 = par("usr")[2], x1 = par("usr")[2] + diff(par("usr")[1:2])/100, y0 = yaxlocs, y1 = yaxlocs, lwd = 2, xpd = NA)
+text(labels = yaxlocs, x = par("usr")[2] + diff(par("usr")[1:2])/200, srt = 0, pos = 4, 
+     y = yaxlocs, xpd = NA, cex = 1.25)
+xaxlocs <- ifelse2(use_focal_vs_compl, -7:-1*2, -7:-3*2)
+segments(x0 = xaxlocs, x1 = xaxlocs, y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/80, lwd = 2, xpd = NA)
+text(labels = xaxlocs, x = xaxlocs, srt = 0, pos = 1, 
+     y = par("usr")[3] - diff(par("usr")[3:4])/80, xpd = NA, cex = 1.25)
+#1 to 1 line
+abline(0,1, lty = 2, lwd = 4, col = adjustcolor(1,0.75), xpd = F)
+
+#secondplot
+xl <- par("usr")[1]
+xr <- par("usr")[1] + diff(par("usr")[1:2]) / 2
+yt <- par("usr")[4]
+yb <- par("usr")[4] - diff(par("usr")[3:4]) / 2
+
+buffer <- 0.075
+bx <- (xr-xl) * buffer
+by <- (yt-yb) * buffer
+rect(xleft = xl, ybottom = yb, xright = xr, ytop = yt, lwd = 2, xpd = NA)
+
+points(x = ((xvals - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+       y = ((yvals - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
+       pch = category_shapes[traitwise_partitions$Category[match(traits[d$col_index], traitwise_partitions$Tag)]], 
+       col = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), bg = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), 
+       cex = 1)
+segments(x0 = 0 * (xr - xl - 2*bx) + xl, 
+         y0 = 0 * (yt - yb - 2*by) + yb,
+         x1 = ((max(yvals, na.rm = T) - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+         y1 = ((max(yvals, na.rm = T) - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
+         lty = 2, lwd = 2, col = adjustcolor(1,0.75))
+
+#axes
+text(labels = "focal frequency", x = par("usr")[1] - diff(par("usr")[1:2])/ifelse2(use_focal_vs_compl, 8, 7), srt = 90, pos = 1, 
+     y = par("usr")[4] - diff(par("usr")[3:4])/5, xpd = NA, cex = 1)
+text(labels = "complement frequency", x = par("usr")[1] + diff(par("usr")[1:2])/4, srt = 0, pos = 1, 
+     y = par("usr")[4] + diff(par("usr")[3:4])/8, xpd = NA, cex = 1)
+xaxlocs <- ifelse2(use_focal_vs_compl, c(0:4/20), c(0:6/500))
+yaxlocs <- ifelse2(use_focal_vs_compl, c(0:6/20), c(0:6/500))
+
+segments(x0 = par("usr")[1], x1 = par("usr")[1] - diff(par("usr")[1:2])/100, 
+         y0 = ((yaxlocs - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
+         y1 = ((yaxlocs - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
+         lwd = 2, xpd = NA)
+segments(y0 = par("usr")[4], y1 = par("usr")[4] + diff(par("usr")[3:4])/100, 
+         x0 = ((xaxlocs - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+         x1 = ((xaxlocs - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+         lwd = 2, xpd = NA)
+text(labels = xaxlocs, x = ((xaxlocs - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+     srt = 0, pos = 3, 
+     y = par("usr")[4], xpd = NA, cex = 0.75)
+text(labels = yaxlocs, x = par("usr")[1], 
+     srt = 0, pos = 2, 
+     y = ((yaxlocs - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, xpd = NA, cex = 0.75)
+# text(labels = 0:6/500, x = -7:-3*2, srt = 0, pos = 1, 
+#      y = par("usr")[3] - diff(par("usr")[3:4])/80, xpd = NA, cex = 1.25)
+# abline(0,1, lty = 2, lwd = 6, col = adjustcolor(1,0.75))
+
+#legends
+legend(x = xl, y = yb, legend = names(category_shapes), pch = category_shapes, col = adjustcolor(1, 0.5), pt.bg = adjustcolor(1, 0.5), cex = 0.75, pt.cex = 1.4)
+legend(x = xr, y = yt, legend = tissues, pch = 19, col = adjustcolor(tissue_cols[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
+segments(x0 = par("usr")[1] + diff(par("usr")[1:2]) / 1.55, 
+         y0 = par("usr")[4] - diff(par("usr")[3:4])/50,
+         x1 = par("usr")[1] + diff(par("usr")[1:2]) / 1.45, 
+         y1 = par("usr")[4] - diff(par("usr")[3:4])/50, 
+         lty = 2, lwd = 2, col = adjustcolor(1,0.75))
+text(x = par("usr")[1] + diff(par("usr")[1:2]) / 1.45, 
+     y = par("usr")[4] - diff(par("usr")[3:4])/45, 
+     pos = 4, cex = 0.75, labels = "1-to-1 line")
+
+
+#make second plot with raw proportion data
+par(mar = mars[[3]])
+
+xvals <- data$count_all / data$total_all
+yvals <- data$count_inters / data$total_inters
+
+
+cex_pow <- 1/2
+plot(xvals, yvals, xlim = c(0.48, 0.52), 
+     ylim = c(0,1),
+     pch = category_shapes[traitwise_partitions$Category[match(data$trait, traitwise_partitions$Tag)]], 
+     col = adjustcolor(tissue_cols[data$tissue], 0.5), bg = adjustcolor(tissue_cols[data$tissue], 0.5), 
+     cex = (data$total_inters / max(data$total_inters))^cex_pow * 5,
+     xlab = "", ylab = "", yaxt = 'n', xaxt = "n")
+box(which = "plot", lwd = 2)
+#axes
+text(labels = "focal frequency (+ effects)", x = par("usr")[1] - diff(par("usr")[1:2])/7, srt = 90, pos = 1, 
+     y = mean(par("usr")[3:4]), xpd = NA, cex = 1.25)
+text(labels = "complement frequency (+ effects)", x = mean(par("usr")[1:2]), srt = 0, pos = 1, 
+     y = par("usr")[3] - diff(par("usr")[3:4])/12, xpd = NA, cex = 1.25)
+yaxlocs <- seq(0,1,by=0.1)
+segments(x0 = par("usr")[1], x1 = par("usr")[1] - diff(par("usr")[1:2])/100, y0 = yaxlocs, y1 = yaxlocs, lwd = 2, xpd = NA)
+text(labels = yaxlocs, x = par("usr")[1] - diff(par("usr")[1:2])/200, srt = 0, pos = 2, 
+     y = yaxlocs, xpd = NA, cex = 1.25)
+xaxlocs <- round(seq(par("usr")[1], par("usr")[2], by = 0.01), 2)
+segments(x0 = xaxlocs, x1 = xaxlocs, y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/80, lwd = 2, xpd = NA)
+text(labels = xaxlocs, x = xaxlocs, srt = 0, pos = 1, 
+     y = par("usr")[3] - diff(par("usr")[3:4])/80, xpd = NA, cex = 1.25)
+# abline(0,1, lty = 2, lwd = 6, col = adjustcolor(1,0.75))
+abline(h=0.5,lwd=2,lty=2,col=adjustcolor(1,0.5),xpd=F)
+abline(v=0.5,lwd=2,lty=2,col=adjustcolor(1,0.5),xpd=F)
+
+#legend
+xl <- par("usr")[2]
+xr <- par("usr")[2] + diff(par("usr")[1:2]) / 2
+yt <- par("usr")[4]
+yb <- par("usr")[4] - diff(par("usr")[3:4]) / 2.5
+legend(x = xl, y = yb + (yt-yb)/20, legend = names(category_shapes), bty = "n",
+       pch = category_shapes, col = adjustcolor(1, 0.5), pt.bg = adjustcolor(1, 0.5), cex = 0.75, pt.cex = 1.4, xpd = NA)
+legend(x = xl + (xr-xl)/100, y = yt, legend = tissues, pch = 19, bty = "n", xpd = NA,
+       col = adjustcolor(tissue_cols[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
+
+legcexs <- c(0.5, 1:5)
+legvals <- (round((legcexs / 5) ^ (1/cex_pow) * max(data$total_inters)))
+legcexs <- (legvals / max(data$total_inters))^cex_pow * 5
+# points(x = rep(xl + (xr-xl)/11, 6) + (rev(legcexs)) / 4000, y = yb - (yt-yb) * 1.4 + 
+#          cumsum(rep((yt-yb)/60, length(legcexs))) + cumsum(legcexs + c(0,legcexs[-length(legcexs)])) / 120, 
+#        cex = legcexs, xpd = NA, pch = 19, col = adjustcolor(1, 0.5))
+text(labels = latex2exp::TeX("$n_{intersect}$"), x = xl - (xr-xl)/50, y = yb - (yt-yb) * 0.6, pos = 4, xpd = NA)
+fixed_incr <- (yt-yb)/25
+y_disp <- (yt-yb) * 1.5
+points(x = rep(xl + (xr-xl)/10, 6), y = yb - y_disp + 
+         cumsum(rep(fixed_incr, length(legcexs))) + cumsum(legcexs + c(0,legcexs[-length(legcexs)])) / 120, 
+       cex = legcexs, xpd = NA, pch = 19, col = adjustcolor(1, 0.5))
+text(x = rep(xl + (xr-xl)/10, 6), y = yb - y_disp + 
+       cumsum(rep(fixed_incr, length(legcexs))) + cumsum(legcexs + c(0,legcexs[-length(legcexs)])) / 120, 
+     cex = legcexs / 5, xpd = NA, labels = legvals, col = "white")
+text(labels = legvals[1:2], x = xl + (xr-xl)/15 + cumsum(legcexs)[1:2]/4000, y = yb - y_disp + 
+       cumsum(rep(fixed_incr, length(legcexs)))[1:2] + cumsum(legcexs + c(0,legcexs[-length(legcexs)]))[1:2] / 120, 
+     pos = 4, xpd = NA, cex = 0.5)
+
+
+fig_label("b)", shrinkX = 0.865, cex = 2, shrinkY = 0.95, xpd = NA)
+fig_label("c)", shrinkX = 0.99, shrinkY = 0.95, cex = 2)
+
+
+# ~~~~~~~~~~~~ #
+# violin plots #
+# ~~~~~~~~~~~~ #
+
+par(mar = mars[[4]])
+focal_samps <- subset_samps("row_bias", c("raw", "sd"), samps = samps) + samps$overall_bias
+n_to_trim <- round(nrow(focal_samps) * 0.002)
+focal_samps <- apply(focal_samps, 2, trim_n, n_to_trim)
+
+tissues <- tissues_intersect.model
+colnames(focal_samps) <- tissues
+tord <- order(apply(focal_samps, 2, mean))
+qi_95 <- apply(focal_samps, 2, quantile, probs = c(0.05, 0.95))[,tord]
+qi_100 <- apply(focal_samps, 2, quantile, probs = c(0.0, 1.0))[,tord]
+posterior_means <- apply(focal_samps, 2, mean)[tord]
+inside_cols <- rep("black", length(tord))
+inside_cols[overlaps_with_zero(qi_95)] <- "white"
+tmp <- vioplot::vioplot(x = focal_samps[,tord], T, 
+                        col = tissue_cols[colnames(focal_samps)][tord], outline=FALSE, yaxt = "n",
+                        names = colnames(focal_samps)[tord], range = 0, ylab = "", lineCol = tissue_cols[colnames(focal_samps)][tord],
+                        xlab = "", cex.lab = 2, plotCentre = "point", 
+                        colMed = tissue_cols[colnames(focal_samps)][tord],
+                        horizontal = T)
+
+#axes
+xtickvals <- -1:2/5
+segments(x0 = xtickvals, x1 = xtickvals, y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/100, xpd = NA)
+text(x = xtickvals, y = par("usr")[3] - diff(par("usr")[3:4])/30, labels = xtickvals)
+text(x = mean(par("usr")[1:2]), y = par("usr")[3]-diff(par("usr")[3:4])/10, 
+     labels = "multilevel tissue\nenrichment (logodds-scale)", cex = 1.25, xpd = NA)
+tick <- seq_along(colnames(focal_samps))
+axis(2, at = tick, labels = F)
+for(i in 1:length(colnames(focal_samps))){
+  segments(y0 = i, y1 = i, x0 = qi_95[1,i], x1 = qi_95[2,i], lwd = 4, col = inside_cols[i])
+  points(y = i, x = posterior_means[i], col = inside_cols[i], pch = 19, cex = 1.5)
+  
+  #guiding lines
+  segments(y0 = i, y1 = i, x0 = min(qi_100), x1 = qi_100[1,i], lwd = 1, col = "black", xpd = T, lty = 3)
+  segments(y0 = i, y1 = i, x0 = qi_100[2,i], x1 = max(qi_100), lwd = 1, col = "black", xpd = T, lty = 3)
+  
+}
+#group labels
+text(y = tick, x = rep(par("usr")[1] - 0.01, length(tick)), colnames(focal_samps)[tord], srt = 0, xpd = T, pos = 2,
+     col = tissue_cols[colnames(focal_samps)[tord]], xpd = NA)
+
+abline(v=0,lwd=3,lty=2, col = adjustcolor(1,0.5), xpd = F)
+
+#figure label
+if(T){
+  fig_label("d)", cex = 2, shrinkX = 0.9, shrinkY = 0.97)
+}
+
+#legend for violin plots
+xval <- -0.85
+yval <- 0.5 #2
+yh <- 4
+yt <- yval + yh/2
+yb <- yval - yh/2
+xr <- -30:30/10
+xvals_disp <- (dnorm(xr) / 4)
+xvals <- cbind(xval + xvals_disp, xval - xvals_disp)
+yvals <- seq(yb,yt,length.out = nrow(xvals))
+# lines(xvals[,1], yvals, xpd = NA)
+# lines(xvals[,2], yvals, xpd = NA)
+polygon(x = c(xvals[,1], xvals[,2]), y = c(yvals, rev(yvals)), xpd = NA, col = adjustcolor(1,0.15))
+ybloc <- yb + (qnorm(p = c(0.05,0.95)) - min(xr)) / diff(range(xr)) * yh
+segments(x0 = xval, x1 = xval, y0 = ybloc[1], y1 = ybloc[2], xpd = NA, lwd = 2)
+points(xval, yval, pch = 19, xpd = NA)
+xlab_loc <- max(xvals) + diff(range(xvals)) / 5
+segments(x0 = xval, x1 = xlab_loc, 
+         y0 = c(max(yvals), min(yvals), yval, ybloc),
+         y1 = c(max(yvals), min(yvals), yval, ybloc),
+         xpd = NA, lty = 2)
+violabs <- paste0("$P_{", c("99.9", "0.01", "\\mu", "5", "95"), "}$")
+violabs[[3]] <- "$\\mu$"
+text(latex2exp::TeX(violabs), x = xlab_loc - diff(range(xvals)) / 10, y = c(max(yvals), min(yvals), yval, ybloc), pos = 4, xpd = NA, cex = 0.875)
+
+segments(x0 = min(xvals) - diff(range(xvals))/100, x1 = max(xvals) + diff(range(xvals))/100, 
+         y0 = min(yvals) - diff(range(yvals)) / 8, y1 = min(yvals) - diff(range(yvals)) / 8, xpd = NA, lwd = 3.25)
+points(xval, min(yvals) - diff(range(yvals)) / 8, pch = 19, xpd = NA, cex = 1.2)
+segments(x0 = min(xvals), x1 = max(xvals), y0 = min(yvals) - diff(range(yvals)) / 8, y1 = min(yvals) - diff(range(yvals)) / 8, xpd = NA, lwd = 2, col = "white")
+points(xval, min(yvals) - diff(range(yvals)) / 8, pch = 19, xpd = NA, cex = 1, col = "white")
+text(latex2exp::TeX("$CI_{95}$ includes 0$"), x = max(xvals) + diff(range(xvals))/100, 
+     y = min(yvals) - diff(range(yvals)) / 7, pos = 4, xpd = NA, cex = 0.875)
+
+segments(x0 = min(xvals) - diff(range(xvals))/100, x1 = max(xvals) + diff(range(xvals))/100, 
+         y0 = min(yvals) - diff(range(yvals)) / 8 * 2, y1 = min(yvals) - diff(range(yvals)) / 8 * 2, xpd = NA, lwd = 3.25)
+points(xval, min(yvals) - diff(range(yvals)) / 8 * 2, pch = 19, xpd = NA, cex = 1.2)
+text(latex2exp::TeX("$CI_{95}$ excludes 0$"), x = max(xvals) + diff(range(xvals))/100, 
+     y = min(yvals) - diff(range(yvals)) / 7 - diff(range(yvals)) / 8, 
+     pos = 4, xpd = NA, cex = 0.875)
+
+
+###
+#colcat bias violin plots
+###
+
+salient.categories <- trait_cats
+if(length(salient.categories) < 9){
+  category_colors <- RColorBrewer::brewer.pal(length(salient.categories), "Dark2")
+  names(category_colors) <- sort(salient.categories)  
+} else {
+  category_colors <- RColorBrewer::brewer.pal(5, "Dark2")
+  names(category_colors) <- sort(c("Cardiometabolic", "Aging", "Anthropometric", 
+                                   "Immune", "Psychiatric-neurologic"))
+  cats_leftover <- setdiff(salient.categories, names(category_colors))
+  cols_leftover <- setdiff(RColorBrewer::brewer.pal(8, "Dark2"), category_colors)
+  n_cols_needed <- length(cats_leftover) - length(cols_leftover)
+  if(n_cols_needed > 0){
+    extra_cols <- c(cols_leftover, RColorBrewer::brewer.pal(n_cols_needed, "Set2"))
+  } else {
+    extra_cols <- cols_leftover
+  }
+  names(extra_cols) <- cats_leftover
+  category_colors <- c(category_colors, extra_cols)
+}
+cols$category <- category_colors
+
+par(mar = mars[[5]])
+focal_samps <- subset_samps("colcat_bias", c("raw", "sd"), samps = samps) + samps$overall_bias
+focal_samps <- apply(focal_samps, 2, trim_n, n_to_trim)
+colnames(focal_samps) <- trait_cats
+tord <- order(apply(focal_samps, 2, mean))
+qi_95 <- apply(focal_samps, 2, quantile, probs = c(0.05, 0.95))[,tord]
+qi_100 <- apply(focal_samps, 2, quantile, probs = c(0.0, 1.0))[,tord]
+posterior_means <- apply(focal_samps, 2, mean)[tord]
+inside_cols <- rep("black", length(tord))
+inside_cols[overlaps_with_zero(qi_95)] <- "white"
+tmp <- vioplot::vioplot(x = focal_samps[,tord], T, 
+                        col = cols$category[colnames(focal_samps)][tord], outline=FALSE, yaxt = "n",
+                        names = colnames(focal_samps)[tord], range = 0, ylab = "", lineCol = tissue_cols[colnames(focal_samps)][tord],
+                        xlab = "", cex.lab = 2, plotCentre = "point", 
+                        colMed = cols$category[colnames(focal_samps)][tord],
+                        horizontal = T)
+
+#axes
+xtickvals <- -2:2/5
+segments(x0 = xtickvals, x1 = xtickvals, y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/100, xpd = NA)
+text(x = xtickvals, y = par("usr")[3] - diff(par("usr")[3:4])/30, labels = xtickvals)
+text(x = mean(par("usr")[1:2]), y = par("usr")[3]-diff(par("usr")[3:4])/10, 
+     labels = "multilevel category\nenrichment (logodds-scale)", cex = 1.25, xpd = NA)
+tick <- seq_along(colnames(focal_samps))
+axis(2, at = tick, labels = F)
+for(i in 1:length(colnames(focal_samps))){
+  segments(y0 = i, y1 = i, x0 = qi_95[1,i], x1 = qi_95[2,i], lwd = 4, col = inside_cols[i])
+  points(y = i, x = posterior_means[i], col = inside_cols[i], pch = 19, cex = 1.5)
+  
+  #guiding lines
+  segments(y0 = i, y1 = i, x0 = min(qi_100), x1 = qi_100[1,i], lwd = 1, col = "black", xpd = T, lty = 3)
+  segments(y0 = i, y1 = i, x0 = qi_100[2,i], x1 = max(qi_100), lwd = 1, col = "black", xpd = T, lty = 3)
+  
+}
+text(y = tick, x = rep(par("usr")[1] - 0.01, length(tick)), 
+     labels = colnames(focal_samps)[tord], 
+     srt = 0, xpd = T, pos = 2,
+     col = cols$category[colnames(focal_samps)[tord]], xpd = NA)
+
+gsub("_", "\n", colnames(focal_samps))
+gsub("Gi", "GI", stringr::str_to_title(gsub("_", "\n", colnames(focal_samps))))
+
+abline(v=0,lwd=3,lty=2, col = adjustcolor(1,0.5), xpd = F)
+
+#figure label
+if(T){
+  fig_label("e)", cex = 2, shrinkX = 0.905, shrinkY = 0.985)
+}
+
+##
+# traits
+##
+
+par(mar = mars[[6]])
+trait_subset_bool <- traitwise_partitions$Category[match(traits, traitwise_partitions$Tag)] %in% salient.categories
+focal_samps <- subset_samps("col_bias", c("raw", "sd"), samps = samps) + samps$overall_bias + 
+  subset_samps("colcat_bias", c("raw", "sd"), samps = samps)[,match(trait_categories$Category[match(traits, trait_categories$Tag)], trait_cats)]
+focal_samps <- apply(focal_samps, 2, trim_n, n_to_trim)
+colnames(focal_samps) <- traits
+tord <- order(apply(focal_samps, 2, mean))
+qi_95 <- apply(focal_samps, 2, quantile, probs = c(0.05, 0.95))[,tord]
+qi_100 <- apply(focal_samps, 2, quantile, probs = c(0.0, 1.0))[,tord]
+posterior_means <- apply(focal_samps, 2, mean)[tord]
+inside_cols <- rep("black", length(tord))
+inside_cols[overlaps_with_zero(qi_95)] <- "white"
+tmp <- vioplot::vioplot(x = focal_samps[,tord], T, 
+                        col = cols$category[trait_categories$Category[match(colnames(focal_samps)[trait_subset_bool][tord], trait_categories$Tag)]], 
+                        outline=FALSE, yaxt = "n",
+                        names = colnames(focal_samps)[tord], range = 0, ylab = "", 
+                        lineCol = cols$category[trait_categories$Category[match(colnames(focal_samps)[trait_subset_bool][tord], trait_categories$Tag)]],
+                        xlab = "", cex.lab = 2, plotCentre = "point", 
+                        colMed = cols$category[colnames(focal_samps)][tord],
+                        horizontal = T,
+                        xlim = c(4,ncol(focal_samps)-3))
+
+#axes
+xtickvals <- -2:2/2
+segments(x0 = xtickvals, x1 = xtickvals, y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/200, xpd = NA)
+text(x = xtickvals, y = par("usr")[3] - diff(par("usr")[3:4])/75, labels = xtickvals)
+text(x = mean(par("usr")[1:2]), y = par("usr")[3]-diff(par("usr")[3:4])/25, 
+     labels = "multilevel trait\nenrichment (logodds-scale)", cex = 1.25, xpd = NA)
+tick <- seq_along(colnames(focal_samps))
+axis(2, at = tick, labels = F)
+for(i in 1:length(colnames(focal_samps))){
+  segments(y0 = i, y1 = i, x0 = qi_95[1,i], x1 = qi_95[2,i], lwd = 2, col = inside_cols[i])
+  points(y = i, x = posterior_means[i], col = inside_cols[i], pch = 19, cex = 0.75)
+  
+  #guiding lines
+  segments(y0 = i, y1 = i, x0 = min(qi_100), x1 = qi_100[1,i], lwd = 1, col = "black", xpd = T, lty = 3)
+  segments(y0 = i, y1 = i, x0 = qi_100[2,i], x1 = max(qi_100), lwd = 1, col = "black", xpd = T, lty = 3)
+  
+}
+text(y = tick, x = rep(par("usr")[1] - 0.01, length(tick)), 
+     labels = trait_categories$new_Phenotype[match(colnames(focal_samps)[trait_subset_bool][tord], trait_categories$Tag)], 
+     srt = 0, xpd = T, pos = 2, cex = 0.75,
+     col = cols$category[trait_categories$Category[match(colnames(focal_samps)[trait_subset_bool][tord], trait_categories$Tag)]], xpd = NA)
+
+
+
+
+abline(v=0,lwd=3,lty=2, col = adjustcolor(1,0.5), xpd = F)
+
+#figure label
+if(T){
+  fig_label("f)", cex = 2, shrinkX = 0.95, shrinkY = 0.9855)
+}
+dev.off()
+
+#### fig4, redux ####
+
+#load appropriate model fit
+if(base != "deviation_from_expected_logodds_split_the_difference"){
+  
+  base = "deviation_from_expected_logodds_split_the_difference"
+  load(paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
+  
+  samps <- data.frame(as_draws_df(out$draws()))
+  prop_greater_than_0 <- function(x) mean(x>0)
+  cellbias <- apply(subset_samps("cell_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+  celltotalbias <- apply(subset_samps("cell_total_prob_bias", c("raw", "sd", "logodds"), samps = samps), 2, prop_greater_than_0)
+  rowbias <- apply(subset_samps("row_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+  colbias <- apply(subset_samps("col_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+  trait_key <- setNames(trait_categories$new_Phenotype, trait_categories$Tag)
+  colcatbias <- apply(subset_samps("colcat_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+  
+  #generate a "significance" matrix
+  signif_threshold <- 0.05
+  signif_df <- data_subset[1:(nrow(data_subset)), c("tissue", "trait")]
+  signif_df$prob_diff_is_positive <- apply(subset_samps("cell_total_prob_bias", c("raw", "sd", "logodds"), samps = samps), 2, prop_greater_than_0)
+  signif_df$signif <- 0
+  signif_df$signif[signif_df$prob_diff_is_positive > (1-signif_threshold)] <- 1
+  signif_df$signif[signif_df$prob_diff_is_positive < signif_threshold] <- -1
+  
+  signif_df[signif_df$signif != 0,]
+  
+  signif_matrix <- reshape(signif_df[,-match("prob_diff_is_positive", colnames(signif_df))], idvar = "tissue", timevar = "trait", direction = "wide")
+  rownames(signif_matrix) <- signif_matrix$tissue
+  signif_matrix <- signif_matrix[,-match("tissue", colnames(signif_matrix))]
+  colnames(signif_matrix) <- gsub(colnames(signif_matrix), pattern = "signif.", replacement = "")
+  
+  #add back in the HYPOTHALAMUS if we removed it
+  if(nrow(signif_matrix) != nrow(n_deg_sigtwas_intersect)){
+    signif_matrix <- signif_matrix[rownames(n_deg_sigtwas_intersect),]
+    rownames(signif_matrix) <- rownames(n_deg_sigtwas_intersect)
+    signif_matrix[is.na(signif_matrix)] <- 0
+  }
+  
+  if(!all(colnames(signif_matrix) == colnames(n_deg_sigtwas_intersect)) & all(rownames(signif_matrix) == rownames(n_deg_sigtwas_intersect))){
+    stop("something's wrong with the significance matrix")
+  }
+}
+
+
+cols = list(Tissue=tissue_cols[names(motrpac_gtex_map)], 
+            Time=group_cols[paste0(c(1,2,4,8), "w")],
+            Sex=sex_cols[c('male','female')])
+mars <- list(c(6,
+               0 + ifelse(subset_to_traits, 2, 0),
+               6 + ifelse(group_by_tissue_type, disp_amount * 4.5, 0),
+               6.5 + ifelse(subset_to_traits, 1, 0)),
+             c(3.5,7,3,7)+0.5, 
+             c(3.5,1,3,14)+0.5,
+             c(4.25,2.5,2.5,2.5), 
+             c(4.25,2.5,2.5,2.5), 
+             c(10,6.5,1.5,2.5))
+
+cairo_pdf(paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/fig4_intersect-enrichment_redux.pdf"), 
+          width = 2000 / 72 * ncol(table_to_use) / 80, 
+          height = 1200 / 72 + ifelse(group_by_tissue_type, disp_amount * 0.75, 0), 
+          family="Arial Unicode MS", pointsize = 18.5)
+par(xpd = T, 
+    mar = mars[[1]])
+
+layout(rbind(
+  c(1,1,1,1,4),
+  c(2,2,3,3,5),
+  c(6,6,6,6,6)
+), heights = c(1,1,0.6))
+
+#counts or props?
+incl_significance <- T
+incl_cell_totals <- F
+trait_category_legend_below = T
+use_tissue_cols_for_cols <- F
+opacity_power_scaler <- 0.25
+opacity_white_threshold <- 0.85
+use_counts <- T
+prop_TWAS <- T
+order_by_counts <- F
+order_by_posterior_enrichment <- T
+group_by_tissue_type <- T
+use_range_for_maginal_labels <- F
+
+subset_to_traits <- T
+focal_traitcats <- c("Cardiometabolic", "Immune", "Endocrine system", "Anthropometric", "Allergy", "Aging")
+if(subset_to_traits){
+  trait_subset <- colnames(n_deg_sigtwas_intersect)[
+    traitwise_partitions$Category[match(colnames(n_deg_sigtwas_intersect), traitwise_partitions$Tag)] %in% 
+      focal_traitcats]
+  categories_represented <- unique(traitwise_partitions$Category[match(trait_subset, traitwise_partitions$Tag)])
+} else {
+  trait_subset <- colnames(n_deg_sigtwas_intersect)
+}
+categories_represented <- unique(traitwise_partitions$Category[match(trait_subset, traitwise_partitions$Tag)])
+
+if(use_counts){
+  table_to_use <- n_deg_sigtwas_intersect  
+} else {
+  if(prop_TWAS){
+    table_to_use <- round(prop_twas_are_degs * 1000)  
+  } else{
+    table_to_use <- round(prop_degs_are_twas * 1000)  
+  }
+}
+
+if(subset_to_traits){
+  table_to_use <- table_to_use[,trait_subset]
+  signif_matrix_to_use <- signif_matrix_to_use[,trait_subset]
+}
+
+
+if(order_by_counts){
+  table_to_use <- table_to_use[,colnames(n_deg_sigtwas_intersect)]
+  signif_matrix_to_use <- signif_matrix[,colnames(n_deg_sigtwas_intersect)]
+} else if(order_by_posterior_enrichment) {
+  trait_order <- traits[order(colbias, decreasing = T)]
+  trait_order <- trait_order[trait_order %in% colnames(table_to_use)]
+  table_to_use <- table_to_use[,trait_order]
+  signif_matrix_to_use <- signif_matrix[,match(trait_order, colnames(signif_matrix))]
+} else {
+  table_to_use <- table_to_use[,colnames(prop_twas_are_degs)]
+  signif_matrix_to_use <- signif_matrix[,colnames(prop_twas_are_degs)]
+}
+
+if(group_by_tissue_type){
+  tissue_cats <- list(circulation = c("BLOOD", "HEART", "SPLEEN"),
+                      skeletal_muscle = c("SKM-GN", "SKM-VL"),
+                      other = rev(c("ADRNL", "KIDNEY", "LUNG", "LIVER")),
+                      adipose = c("WAT−SC"),
+                      brain = c("CORTEX", "HYPOTH", "HIPPOC"),
+                      GI = c("SMLINT", "COLON"))
+  tissue_cats <- rev(tissue_cats)
+  disp_amount <- 0.5
+  tissue_disps <- unlist(lapply(1:length(tissue_cats), function(tci) rep(disp_amount * (tci), length(tissue_cats[[tci]]))))
+  tissue_cats_bars_ylocs <- cbind(start = (c(0, cumsum(unlist(lapply(tissue_cats, function(tc) length(tc))) + disp_amount)) + 2 * disp_amount)[-(length(tissue_cats)+1)], 
+                                  end = cumsum(unlist(lapply(tissue_cats, function(tc) length(tc))) + disp_amount) + disp_amount)
+  
+}
+
+if(use_range_for_maginal_labels){
+  n_genes_in_nodes_label <- apply(apply(n_genes_in_nodes_matrix, 1, range), 2, paste0, collapse = " - ")
+  sig_twas_by_trait_genes_label <- apply(apply(sig_twas_by_trait_genes_matrix, 2, range), 2, paste0, collapse = " - ")
+} else {
+  n_genes_in_nodes_label <- apply(n_genes_in_nodes_matrix, 1, max)
+  sig_twas_by_trait_genes_label <- apply(sig_twas_by_trait_genes_matrix, 2, max)
+}
+
+
+
+if(length(salient.categories) < 9){
+  category_colors <- RColorBrewer::brewer.pal(length(salient.categories), "Dark2")
+  names(category_colors) <- sort(salient.categories)  
+} else {
+  category_colors <- RColorBrewer::brewer.pal(5, "Dark2")
+  names(category_colors) <- sort(c("Cardiometabolic", "Aging", "Anthropometric", 
+                                   "Immune", "Psychiatric-neurologic"))
+  cats_leftover <- setdiff(salient.categories, names(category_colors))
+  cols_leftover <- setdiff(RColorBrewer::brewer.pal(8, "Dark2"), category_colors)
+  n_cols_needed <- length(cats_leftover) - length(cols_leftover)
+  if(n_cols_needed > 0){
+    extra_cols <- c(cols_leftover, RColorBrewer::brewer.pal(n_cols_needed, "Set2"))
+  } else {
+    extra_cols <- cols_leftover
+  }
+  names(extra_cols) <- cats_leftover
+  category_colors <- c(category_colors, extra_cols)
+}
+cols$category <- category_colors
+
+plot(1, xaxt="n",yaxt="n",bty="n",pch="",ylab="",xlab="", main="", sub="", 
+     xlim= c(-5,ncol(table_to_use)), ylim = c(-5,nrow(table_to_use)))
+
+if(group_by_tissue_type){
+  tissue_cats_bars_xlocs <- sapply(tissue_cats, function(tc) max(strwidth(tc, units = "user"))) + 0.2
+  tissue_cats_bars_xlocs <- rep(max(tissue_cats_bars_xlocs), length(tissue_cats_bars_xlocs))
+}
+
+
+if(use_tissue_cols_for_cols){
+  heatmap_cols <- sapply((1:max(table_to_use) / max(table_to_use))^opacity_power_scaler, function(opcty) 
+    adjustcolor("black", opcty))
+} else {
+  heatmap_cols <- viridisLite::viridis(n = max(table_to_use, na.rm = T)*100+1)
+  heatmap_cols <- heatmap_cols[round(log(1:max(table_to_use, na.rm = T)) / log(max(table_to_use, na.rm = T)) * max(table_to_use, na.rm = T) * 100 + 1)]
+}
+for(ri in 1:nrow(table_to_use)){
+  # text(x = 0.5, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0), pos = 2, labels = rownames(table_to_use)[ri], col = tissue_cols[rownames(table_to_use)[ri]])
+  text(x = 0.5, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0), pos = 2, labels = rownames(table_to_use)[ri], col = 1)
+  for(ci in 1:ncol(table_to_use)){
+    if(ri == 1){
+      #trait names
+      text(x = ci+0.5, y = -0.9, pos = 2, srt = 45, cex = 0.85,
+           labels = gsub("_Scatter", "", trait_categories$new_Phenotype[match(colnames(table_to_use)[ci], trait_categories$Tag)]))
+      rect(xleft = ci + 1/2,
+           xright = ci - 1/2,
+           ybottom = ri - 1/2 - 1,
+           ytop =  ri + 1/2 - 1,
+           col = category_colors[trait_categories$Category[match(colnames(table_to_use)[ci], trait_categories$Tag)]])
+    }
+    
+    #vertical total # options
+    if(ri == nrow(table_to_use)){
+      text(x = ci-0.5, y = ri+1 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), pos = 4, srt = 45,
+           labels = sig_twas_by_trait_genes_label[colnames(table_to_use)[ci]], cex = 0.9)
+    }
+    
+    #horiz total # of options
+    if(ci == ncol(table_to_use)){
+      text(x = ci+0.45, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0), pos = 4,
+           labels = n_genes_in_nodes_label[rownames(table_to_use)[ri]])
+    }
+    
+    #the actual cells
+    if(use_tissue_cols_for_cols){
+      rect(xleft = ci + 1/2,
+           xright = ci - 1/2,
+           ybottom = ri - 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0),
+           ytop =  ri + 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0),
+           col = adjustcolor(MotrpacBicQC::tissue_cols[rownames(table_to_use)[ri]], (table_to_use[ri, ci] / max(table_to_use, na.rm = T))^opacity_power_scaler ))  
+    } else {
+      rect(xleft = ci + 1/2,
+           xright = ci - 1/2,
+           ybottom = ri - 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0),
+           ytop =  ri + 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0),
+           col = heatmap_cols[table_to_use[ri, ci]])
+    }
+    
+    
+    
+    # rect(xleft = ci + 1/2,
+    #      xright = ci - 1/2,
+    #      ybottom = ri - 0.475,
+    #      ytop =  ri + 0.475,
+    #      col = heatmap_cols[table_to_use[ri, ci]],
+    #      border = MotrpacBicQC::tissue_cols[rownames(table_to_use)[ri]])
+    
+    #text inside of cells
+    if(table_to_use[ri, ci] != 0){
+      text_in_cell <- table_to_use[ri, ci]
+      ndigs <- nchar(text_in_cell)
+      if(incl_significance){
+        signif_dir <- c("₋", "","⁺")[match(signif_matrix_to_use[ri, ci], -1:1)]
+        # text_in_cell <- paste0(text_in_cell, signif_dir)
+        
+        #try using corner triangles
+        ctr <- corner_triangle_ratio <- 1/3
+        cxr = ci + 1/2
+        cxl = ci - 1/2
+        cyb = ri - 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0)
+        cyt =  ri + 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0)
+        if(signif_dir == "⁺"){
+          polygon(x = c(cxl * (ctr) + cxr * (1-ctr), cxr, cxr),
+                  y = c(cyt, cyt, cyt * (1-ctr) + cyb * ctr),
+                  col = "red")  
+        }
+        if(signif_dir == "₋"){
+          polygon(x = c(cxl * (ctr) + cxr * (1-ctr), cxr, cxr),
+                  y = c(cyb, cyb, cyb * (1-ctr) + cyt * ctr),
+                  col = "lightblue")  
+        }
+      }
+      text(text_in_cell, x = ci, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0), 
+           col = ifelse((table_to_use[ri, ci] / max(table_to_use, na.rm = T))^opacity_power_scaler > opacity_white_threshold, "black", "white"), 
+           cex = 0.85 + ifelse(subset_to_traits, 0.1, 0) - (ndigs-1)/6)
+      if(incl_cell_totals){
+        text(sig_twas_by_trait_genes_matrix[,colnames(table_to_use)][ri, ci], 
+             x = ci - 0.7375, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0) - 0.325, 
+             col = "black", cex = 0.2, pos = 4, srt = 90)
+        text(n_genes_in_nodes_matrix[,colnames(table_to_use)][ri, ci], 
+             x = ci - 0.7, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0) - 0.4, 
+             col = "black", cex = 0.2, pos = 4, srt = 0)
+      }
+    }
+    
+  }
+}
+
+#tissue category bars
+if(group_by_tissue_type){
+  for(bi in 1:length(tissue_cats_bars_xlocs)){
+    segments(x0 = -tissue_cats_bars_xlocs[bi],
+             x1 = -tissue_cats_bars_xlocs[bi],
+             y0 = tissue_cats_bars_ylocs[bi,1],
+             y1 = tissue_cats_bars_ylocs[bi,2],
+             lwd = 3)
+    bracket_length <- 0.2
+    segments(x0 = -tissue_cats_bars_xlocs[bi],
+             x1 = -tissue_cats_bars_xlocs[bi]+bracket_length,
+             y0 = tissue_cats_bars_ylocs[bi,1],
+             y1 = tissue_cats_bars_ylocs[bi,1],
+             lwd = 3)
+    segments(x0 = -tissue_cats_bars_xlocs[bi],
+             x1 = -tissue_cats_bars_xlocs[bi]+bracket_length,
+             y0 = tissue_cats_bars_ylocs[bi,2],
+             y1 = tissue_cats_bars_ylocs[bi,2],
+             lwd = 3)
+    
+    text(x = -tissue_cats_bars_xlocs[bi], y = mean(tissue_cats_bars_ylocs[bi,]) + ifelse(grepl("_", names(tissue_cats)[bi]), -0.25, 0), pos = 2, 
+         labels = gsub("Gi", "GI", stringr::str_to_title(gsub("_", "\n", names(tissue_cats)[bi]))), cex = 1.25)
+  }  
+}
+
+#legend for heatmap
+x_adj <- 2.25
+y_adj <- 0
+yb_adjust <- ifelse(incl_significance, 3, 0)
+n_legend_rects_to_use <- 30
+n_legend_labels_to_use <- 10
+legend_yvals <- round(seq(0, max(table_to_use), length.out = n_legend_labels_to_use))
+legend_ylocs <- seq(yb_adjust, 1 + nrow(table_to_use) + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), length.out = n_legend_rects_to_use)
+legend_ycols <- round(seq(1, max(table_to_use), length.out = n_legend_rects_to_use))
+for(i in 1:(n_legend_rects_to_use-1)){
+  yb = legend_ylocs[i]
+  yt = legend_ylocs[i+1]
+  print(paste(c(yb,yt)))
+  rect(xleft = ncol(table_to_use) + x_adj + 2 + 1/2,
+       xright = ncol(table_to_use) + x_adj + 2 - 1/2,
+       ybottom = yb,
+       ytop =  yt,
+       col = heatmap_cols[legend_ycols[i]], border = NA)
+}
+for(i in 1:n_legend_labels_to_use){
+  text(labels = legend_yvals[i], x = ncol(table_to_use) + x_adj + 2.4, pos = 4, cex = 0.75,
+       y = -0.25 + yb_adjust + legend_yvals[i] / max(table_to_use) * (1+nrow(table_to_use) - yb_adjust + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0)))
+}
+
+#overall rect for 0
+rect(xleft = ncol(table_to_use) + x_adj + 2 + 1/2,
+     xright = ncol(table_to_use) + x_adj + 2 - 1/2,
+     ybottom = min(legend_ylocs) - diff(range(legend_ylocs))/50,
+     ytop =  max(legend_ylocs))
+
+#legend for significance
+if(incl_significance){
+  # text(labels = paste0("Pr(Enr.) > ", (1 - signif_threshold), " : X⁺\nPr(Dep.) > ", (1 - signif_threshold), " : X₋"),
+  #      x = ncol(table_to_use) + x_adj - 1.75,
+  #      y = yb_adjust-3.25, pos = 4, cex = 0.75)
+  
+  signif_label <- paste0("Pr(Dep.) > ", (1 - signif_threshold), " : ")
+  ctr <- 0.5
+  cxr = ncol(table_to_use) + x_adj - 2.25 + strwidth(signif_label) + 0.45
+  cxl = ncol(table_to_use) + x_adj - 2.25 + strwidth(signif_label) - 0.45
+  cyb = yb_adjust - 3.75 - 0.45
+  cyt = yb_adjust - 3.75 + 0.45
+  
+  text(labels = signif_label,
+       x = ncol(table_to_use) + x_adj - 1.75,
+       y = cyb * 0.325 + cyt * 0.675, pos = 4, cex = 0.75)
+  rect(xleft = cxl,
+       xright = cxr,
+       ybottom = cyb,
+       ytop =  cyt)
+  polygon(x = c(cxl * (ctr) + cxr * (1-ctr), cxr, cxr),
+          y = c(cyb, cyb, cyb * (1-ctr) + cyt * ctr),
+          col = "lightblue")  
+  
+  cyb <- cyb + 1.25
+  cyt <- cyt + 1.25
+  # cxl <- cxl - 0.125
+  # cxr <- cxr - 0.125
+  
+  signif_label2 <- paste0("Pr(Enr.) > ", (1 - signif_threshold), " : ")
+  text(labels = signif_label2,
+       x = ncol(table_to_use) + x_adj - 1.75,
+       y = cyb * 0.675 + cyt * 0.325, pos = 4, cex = 0.75 * strwidth(signif_label) / strwidth(signif_label2))
+  rect(xleft = cxl,
+       xright = cxr,
+       ybottom = cyb,
+       ytop =  cyt)
+  polygon(x = c(cxl * (ctr) + cxr * (1-ctr), cxr, cxr),
+          y = c(cyt, cyt, cyt * (1-ctr) + cyb * ctr),
+          col = "red")  
+  
+} else {
+  text(labels = paste0("* indicate \nIHW-adj. \np-vals < 0.05 \nfrom Fisher's Exact Test"),
+       x = ncol(table_to_use) + x_adj - 1.75,
+       y = yb_adjust-1.25, pos = 4, cex = 0.75, )
+}
+
+
+
+#legend for trait categories
+if(trait_category_legend_below){
+  x_adj2 <- 0
+  y_adj2 <- -0.5
+  for(i in 1:length(categories_represented)){
+    rect(xleft = -1/2 + i + cumsum(c(0,strwidth(categories_represented, units = "user") + 1))[i] + x_adj2,
+         xright = 1/2 + i + cumsum(c(0,strwidth(categories_represented, units = "user") + 1))[i] + x_adj2,
+         ybottom = -11 + y_adj2,
+         ytop = -10 + y_adj2,
+         col = category_colors[categories_represented[i]], border = 1)
+    text(labels = categories_represented[i], pos = 4, y = -10.5 + y_adj2, x = x_adj2 + 0.35 + i + cumsum(c(0,strwidth(categories_represented, units = "user") + 1))[i])
+    #draw circle?
+    arc(t1 = 3*pi/2, t2 = pi/2, r1 = (10.5-y_adj2) / 2, r2 = (10.5-y_adj2) / 2, center = c(0,(-10.5 + y_adj2)/2), 
+        lwd = 2, res = 100, adjx = ifelse(order_by_counts, 1, 1.1))
+    points(0, 0, pch = -9658, cex = 2)
+  }
+} else {
+  x_adj2 <- x_adj - 2.5
+  y_adj2 <- y_adj - 2.5
+  for(i in 1:length(category_colors)){
+    rect(xleft = 0 + i,
+         xright = 1 + i,
+         ybottom = -10,
+         ytop = -9,
+         col = category_colors[i], border = 1)
+    text(labels = names(category_colors)[i], pos = 4, y = i + y_adj2 - 7, x = ncol(table_to_use) - 1/2 + x_adj2 + 1/3)
+  }
+}
+
+#labels
+#horiz label for total
+segments(x0 = -2, x1 = 0.5, y0 = nrow(table_to_use) + 3 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0),
+         y1 = nrow(table_to_use) + 1 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), lwd = 2)
+segments(x0 = -2, x1 = 0.5, y0 = nrow(table_to_use) + 3 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), 
+         y1 = nrow(table_to_use) + 2.5 + ifelse(use_range_for_maginal_labels, 0, -0.5) + 
+           ifelse(order_by_counts, 0, -0.8) + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0) + 
+           ifelse(subset_to_traits, 1, 1.5), lwd = 2)
+text(x = -2, y = nrow(table_to_use) + 3 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), pos = 2, 
+     labels = paste0(ifelse(use_range_for_maginal_labels, "total", "max"), " # of\nPrediXcan hits"))
+
+#vertical label for total
+segments(x0 = ncol(table_to_use) + 2.5, x1 = ncol(table_to_use) + 1, 
+         y0 = nrow(table_to_use) + 3 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), 
+         y1 = nrow(table_to_use) + 0.75 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), lwd = 2)
+segments(x0 = ncol(table_to_use) + 2.5, x1 = ncol(table_to_use) + 2 + 
+           ifelse(subset_to_traits, 0, 1.25), 
+         y0 = nrow(table_to_use) + 3 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), 
+         y1 = nrow(table_to_use) + 0.75 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), lwd = 2)
+text(x = ncol(table_to_use) + 2 + ifelse(order_by_counts, 0, 2), y = nrow(table_to_use) + 3 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), pos = 3, 
+     labels = paste0(ifelse(use_range_for_maginal_labels, "total", "max"), " # of DEGs"))
+
+
+#legend and title labels
+text(labels = ifelse(use_counts, latex2exp::TeX("$n_{intersect}$"), latex2exp::TeX("‰_{ intersect}")), pos = 3, font = 2, cex = 1.25,
+     x = ncol(table_to_use) + x_adj + 2, y = nrow(table_to_use) + y_adj + 0.875 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0))
+if(use_counts){
+  text(latex2exp::TeX(paste0("number of genes in 8w - F↓M↓+ 8w - F↑M↑ with IHW-significant PrediXcan at $\\alpha$ = 0.05")), 
+       x = 2 + ifelse(subset_to_traits, 0, 20), 
+       y = nrow(table_to_use) + 3.25 + 
+         ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0) + 
+         ifelse(subset_to_traits, 0, 1), pos = 4, cex = 1.5, font = 2)
+} else {
+  text(latex2exp::TeX(paste0("proportion (‰) of IHW significant TWAS hits at $\\alpha$ = 0.05 in 8w - F↓M↓ or 8w - F↑M↑")), 
+       x = 0, y = nrow(table_to_use) + 4.25 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), pos = 4, cex = 2.35, font = 2)
+}
+
+fig_label("a)", shrinkX = 0.85, cex = 2, shrinkY = 0.96, xpd = NA)
+
+
+# ~~~~~~~~~~~~ #
+# scatterplots #
+# ~~~~~~~~~~~~ #
+
+use_focal_vs_compl <- T
+
+traits <- unique(data1$trait)
+tissues <- unique(data1$tissue)
+d <- list(cell_count = data1$count,
+          total = sapply(1:nrow(data1), function(i) total_number_of_possible_hits_matrix[data1$tissue[i], data1$trait[i]]),
+          row_count = sapply(1:nrow(data1), function(i) n_genes_in_nodes_matrix[data1$tissue[i], data1$trait[i]]),
+          col_count = sapply(1:nrow(data1), function(i) sig_twas_by_trait_genes_matrix[data1$tissue[i], data1$trait[i]]),
+          row_index = match(data1$tissue, tissues),
+          col_index = match(data1$trait, traits),
+          row_n = length(unique(data1$tissue)),
+          col_n = length(unique(data1$trait)))
+
+
+
+
+# category_shapes <- setNames(15:19, salient.categories)
+category_shapes <- setNames(15:19, c("Cardiometabolic", "Aging", "Anthropometric", 
+                                     "Immune", "Psychiatric-neurologic")
+)
+category_shapes <- setNames(c(24,19,15,43,23,25)[1:length(focal_traitcats)], focal_traitcats)
+
+
+
+par(mar = mars[[2]])
+# layout(t(c(rep(1,10), rep(2,10), 3)))
+# layout(t(c(1,2,3)), widths = c(1,1,0.1))
+#first plot
+
+
+sapply(1:nrow(signif_df), function(i) adjustcolor(tissue_cols[tissues[d$row_index[i]]], as.numeric(signif_df$signif[i] != 0) * 0.625 + 0.125))
+if(use_focal_vs_compl){
+  xvals <- (d$col_count - d$cell_count) / (d$total - d$row_count)
+  yvals <- d$cell_count / d$row_count
+} else {
+  xvals <- d$row_count / d$total * d$col_count / d$total  
+  yvals <- d$cell_count / d$total
+}
+
+
+
+
+plot(logit(xvals), logit(yvals), xlim = ifelse2(use_focal_vs_compl, c(-14,-1), c(-15,-4.25)), 
+     ylim = ifelse2(use_focal_vs_compl, c(-6, -1), c(-9.5,-4.25)),
+     pch = category_shapes[traitwise_partitions$Category[match(traits[d$col_index], traitwise_partitions$Tag)]], 
+     col = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), bg = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5),
+     cex = 1.5,
+     xlab = "", ylab = "", yaxt = 'n', xaxt = "n")
+box(which = "plot", lwd = 2)
+#axes
+text(labels = "focal logit(frequency)", x = par("usr")[2] + diff(par("usr")[1:2])/8, srt = 270, pos = 1, 
+     y = mean(par("usr")[3:4]), xpd = NA, cex = 1.25)
+text(labels = "complement logit(frequency)", x = mean(par("usr")[1:2]), srt = 0, pos = 1, 
+     y = par("usr")[3] - diff(par("usr")[3:4])/12, xpd = NA, cex = 1.25)
+yaxlocs <- ifelse2(use_focal_vs_compl, c(-6:-1), c(-5:-9))
+segments(x0 = par("usr")[2], x1 = par("usr")[2] + diff(par("usr")[1:2])/100, y0 = yaxlocs, y1 = yaxlocs, lwd = 2, xpd = NA)
+text(labels = yaxlocs, x = par("usr")[2] + diff(par("usr")[1:2])/200, srt = 0, pos = 4, 
+     y = yaxlocs, xpd = NA, cex = 1.25)
+xaxlocs <- ifelse2(use_focal_vs_compl, -7:-1*2, -7:-3*2)
+segments(x0 = xaxlocs, x1 = xaxlocs, y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/80, lwd = 2, xpd = NA)
+text(labels = xaxlocs, x = xaxlocs, srt = 0, pos = 1, 
+     y = par("usr")[3] - diff(par("usr")[3:4])/80, xpd = NA, cex = 1.25)
+#1 to 1 line
+abline(0,1, lty = 2, lwd = 4, col = adjustcolor(1,0.75), xpd = F)
+
+#add arrows for enriched vs depleted
+arrow_locs_enrich <- c(-3, -3.5, -2.25, -1.5)
+grad_arrow(arrow_locs_enrich, cols = c("white", "red"))
+text(x = mean(arrow_locs_enrich[1:2]), y = sum(arrow_locs_enrich[3:4] * c(0.35,0.65)), 
+     labels = "enriched", col = "white", srt = 90, cex = 0.5)
+
+arrow_locs_deplete <- c(-2, -2.5, -3.5, -4.25)
+grad_arrow(arrow_locs_deplete, cols = c("white", "blue"))
+text(x = mean(arrow_locs_deplete[1:2]), y = sum(arrow_locs_deplete[3:4] * c(0.35,0.65)), 
+     labels = "depleted", col = "white", srt = 270, cex = 0.5)
+
+
+
+#secondplot
+xl <- par("usr")[1]
+xr <- par("usr")[1] + diff(par("usr")[1:2]) / 2
+yt <- par("usr")[4]
+yb <- par("usr")[4] - diff(par("usr")[3:4]) / 2
+
+buffer <- 0.075
+bx <- (xr-xl) * buffer
+by <- (yt-yb) * buffer
+rect(xleft = xl, ybottom = yb, xright = xr, ytop = yt, lwd = 2, xpd = NA)
+
+points(x = ((xvals - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+       y = ((yvals - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
+       pch = category_shapes[traitwise_partitions$Category[match(traits[d$col_index], traitwise_partitions$Tag)]], 
+       col = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), bg = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), 
+       cex = 1)
+segments(x0 = 0 * (xr - xl - 2*bx) + xl, 
+         y0 = 0 * (yt - yb - 2*by) + yb,
+         x1 = ((max(yvals, na.rm = T) - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+         y1 = ((max(yvals, na.rm = T) - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
+         lty = 2, lwd = 2, col = adjustcolor(1,0.75))
+
+#axes
+text(labels = "focal frequency", x = par("usr")[1] - diff(par("usr")[1:2])/ifelse2(use_focal_vs_compl, 8, 7), srt = 90, pos = 1, 
+     y = par("usr")[4] - diff(par("usr")[3:4])/5, xpd = NA, cex = 1)
+text(labels = "complement frequency", x = par("usr")[1] + diff(par("usr")[1:2])/4, srt = 0, pos = 1, 
+     y = par("usr")[4] + diff(par("usr")[3:4])/8, xpd = NA, cex = 1)
+xaxlocs <- ifelse2(use_focal_vs_compl, c(0:4/20), c(0:6/500))
+yaxlocs <- ifelse2(use_focal_vs_compl, c(0:6/20), c(0:6/500))
+
+segments(x0 = par("usr")[1], x1 = par("usr")[1] - diff(par("usr")[1:2])/100, 
+         y0 = ((yaxlocs - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
+         y1 = ((yaxlocs - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
+         lwd = 2, xpd = NA)
+segments(y0 = par("usr")[4], y1 = par("usr")[4] + diff(par("usr")[3:4])/100, 
+         x0 = ((xaxlocs - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+         x1 = ((xaxlocs - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+         lwd = 2, xpd = NA)
+text(labels = xaxlocs, x = ((xaxlocs - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
+     srt = 0, pos = 3, 
+     y = par("usr")[4], xpd = NA, cex = 0.75)
+text(labels = yaxlocs, x = par("usr")[1], 
+     srt = 0, pos = 2, 
+     y = ((yaxlocs - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, xpd = NA, cex = 0.75)
+# text(labels = 0:6/500, x = -7:-3*2, srt = 0, pos = 1, 
+#      y = par("usr")[3] - diff(par("usr")[3:4])/80, xpd = NA, cex = 1.25)
+# abline(0,1, lty = 2, lwd = 6, col = adjustcolor(1,0.75))
+
+#legends
+legend(x = xl, y = yb, legend = names(category_shapes), pch = category_shapes, col = adjustcolor(1, 0.5), pt.bg = adjustcolor(1, 0.5), cex = 0.75, pt.cex = 1.4)
+legend(x = xr, y = yt, legend = tissues, pch = 19, col = adjustcolor(tissue_cols[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
+segments(x0 = par("usr")[1] + diff(par("usr")[1:2]) / 1.55, 
+         y0 = par("usr")[4] - diff(par("usr")[3:4])/50,
+         x1 = par("usr")[1] + diff(par("usr")[1:2]) / 1.45, 
+         y1 = par("usr")[4] - diff(par("usr")[3:4])/50, 
+         lty = 2, lwd = 2, col = adjustcolor(1,0.75))
+text(x = par("usr")[1] + diff(par("usr")[1:2]) / 1.45, 
+     y = par("usr")[4] - diff(par("usr")[3:4])/45, 
+     pos = 4, cex = 0.75, labels = "1-to-1 line")
+
+
+#make second plot with raw proportion data
+par(mar = mars[[3]])
+
+xvals <- data$count_all / data$total_all
+yvals <- data$count_inters / data$total_inters
+
+
+cex_pow <- 1/2
+plot(xvals, yvals, xlim = c(0.48, 0.52), 
+     ylim = c(0,1),
+     pch = category_shapes[traitwise_partitions$Category[match(data$trait, traitwise_partitions$Tag)]], 
+     col = adjustcolor(tissue_cols[data$tissue], 0.5), bg = adjustcolor(tissue_cols[data$tissue], 0.5), 
+     cex = (data$total_inters / max(data$total_inters))^cex_pow * 5,
+     xlab = "", ylab = "", yaxt = 'n', xaxt = "n")
+box(which = "plot", lwd = 2)
+#axes
+text(labels = "focal frequency (+ effects)", x = par("usr")[1] - diff(par("usr")[1:2])/7, srt = 90, pos = 1, 
+     y = mean(par("usr")[3:4]), xpd = NA, cex = 1.25)
+text(labels = "complement frequency (+ effects)", x = mean(par("usr")[1:2]), srt = 0, pos = 1, 
+     y = par("usr")[3] - diff(par("usr")[3:4])/12, xpd = NA, cex = 1.25)
+yaxlocs <- seq(0,1,by=0.1)
+segments(x0 = par("usr")[1], x1 = par("usr")[1] - diff(par("usr")[1:2])/100, y0 = yaxlocs, y1 = yaxlocs, lwd = 2, xpd = NA)
+text(labels = yaxlocs, x = par("usr")[1] - diff(par("usr")[1:2])/200, srt = 0, pos = 2, 
+     y = yaxlocs, xpd = NA, cex = 1.25)
+xaxlocs <- round(seq(par("usr")[1], par("usr")[2], by = 0.01), 2)
+segments(x0 = xaxlocs, x1 = xaxlocs, y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/80, lwd = 2, xpd = NA)
+text(labels = xaxlocs, x = xaxlocs, srt = 0, pos = 1, 
+     y = par("usr")[3] - diff(par("usr")[3:4])/80, xpd = NA, cex = 1.25)
+# abline(0,1, lty = 2, lwd = 6, col = adjustcolor(1,0.75))
+abline(h=0.5,lwd=2,lty=2,col=adjustcolor(1,0.5),xpd=F)
+abline(v=0.5,lwd=2,lty=2,col=adjustcolor(1,0.5),xpd=F)
+
+#legend
+xl <- par("usr")[2]
+xr <- par("usr")[2] + diff(par("usr")[1:2]) / 2
+yt <- par("usr")[4]
+yb <- par("usr")[4] - diff(par("usr")[3:4]) / 2.5
+legend(x = xl, y = yb + (yt-yb)/20, legend = names(category_shapes), bty = "n",
+       pch = category_shapes, col = adjustcolor(1, 0.5), pt.bg = adjustcolor(1, 0.5), cex = 0.75, pt.cex = 1.4, xpd = NA)
+legend(x = xl + (xr-xl)/100, y = yt, legend = tissues, pch = 19, bty = "n", xpd = NA,
+       col = adjustcolor(tissue_cols[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
+
+legcexs <- c(0.5, 1:5)
+legvals <- (round((legcexs / 5) ^ (1/cex_pow) * max(data$total_inters)))
+legcexs <- (legvals / max(data$total_inters))^cex_pow * 5
+# points(x = rep(xl + (xr-xl)/11, 6) + (rev(legcexs)) / 4000, y = yb - (yt-yb) * 1.4 + 
+#          cumsum(rep((yt-yb)/60, length(legcexs))) + cumsum(legcexs + c(0,legcexs[-length(legcexs)])) / 120, 
+#        cex = legcexs, xpd = NA, pch = 19, col = adjustcolor(1, 0.5))
+text(labels = latex2exp::TeX("$n_{intersect}$"), x = xl - (xr-xl)/50, y = yb - (yt-yb) * 0.6, pos = 4, xpd = NA)
+fixed_incr <- (yt-yb)/25
+y_disp <- (yt-yb) * 1.5
+points(x = rep(xl + (xr-xl)/10, 6), y = yb - y_disp + 
+         cumsum(rep(fixed_incr, length(legcexs))) + cumsum(legcexs + c(0,legcexs[-length(legcexs)])) / 120, 
+       cex = legcexs, xpd = NA, pch = 19, col = adjustcolor(1, 0.5))
+text(x = rep(xl + (xr-xl)/10, 6), y = yb - y_disp + 
+       cumsum(rep(fixed_incr, length(legcexs))) + cumsum(legcexs + c(0,legcexs[-length(legcexs)])) / 120, 
+     cex = legcexs / 5, xpd = NA, labels = legvals, col = "white")
+text(labels = legvals[1:2], x = xl + (xr-xl)/15 + cumsum(legcexs)[1:2]/4000, y = yb - y_disp + 
+       cumsum(rep(fixed_incr, length(legcexs)))[1:2] + cumsum(legcexs + c(0,legcexs[-length(legcexs)]))[1:2] / 120, 
+     pos = 4, xpd = NA, cex = 0.5)
+
+#add arrows for enriched vs depleted
+arrow_locs_enrich <- c(0.519, 0.521, 0.525, 0.7)
+grad_arrow(arrow_locs_enrich, cols = c("white", "red"))
+text(x = mean(arrow_locs_enrich[1:2]), y = sum(arrow_locs_enrich[3:4] * c(0.35,0.65)), 
+     labels = "enriched", col = "white", srt = 90, cex = 0.65)
+
+arrow_locs_deplete <- c(0.519, 0.521, 0.475, 0.3)
+grad_arrow(arrow_locs_deplete, cols = c("white", "blue"))
+text(x = mean(arrow_locs_deplete[1:2]), y = sum(arrow_locs_deplete[3:4] * c(0.35,0.65)), 
+     labels = "depleted", col = "white", srt = 270, cex = 0.65)
+
+
+fig_label("b)", shrinkX = 0.865, cex = 2, shrinkY = 0.95, xpd = NA)
+fig_label("c)", shrinkX = 0.99, shrinkY = 0.95, cex = 2)
+
+
+# ~~~~~~~~~~~~ #
+# violin plots #
+# ~~~~~~~~~~~~ #
+
+par(mar = mars[[4]])
+focal_samps <- subset_samps("row_bias", c("raw", "sd"), samps = samps) + samps$overall_bias
+n_to_trim <- round(nrow(focal_samps) * 0.002)
+focal_samps <- apply(focal_samps, 2, trim_n, n_to_trim)
+
+tissues <- tissues_intersect.model
+colnames(focal_samps) <- tissues
+tord <- order(apply(focal_samps, 2, mean))
+qi_95 <- apply(focal_samps, 2, quantile, probs = c(0.05, 0.95))[,tord]
+qi_100 <- apply(focal_samps, 2, quantile, probs = c(0.0, 1.0))[,tord]
+posterior_means <- apply(focal_samps, 2, mean)[tord]
+inside_cols <- rep("black", length(tord))
+inside_cols[overlaps_with_zero(qi_95)] <- "white"
+tmp <- vioplot::vioplot(x = focal_samps[,tord], T, 
+                        col = tissue_cols[colnames(focal_samps)][tord], outline=FALSE, yaxt = "n",
+                        names = colnames(focal_samps)[tord], range = 0, ylab = "", lineCol = tissue_cols[colnames(focal_samps)][tord],
+                        xlab = "", cex.lab = 2, plotCentre = "point", 
+                        colMed = tissue_cols[colnames(focal_samps)][tord],
+                        horizontal = T)
+
+#axes
+xtickvals <- -1:2/5
+segments(x0 = xtickvals, x1 = xtickvals, y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/100, xpd = NA)
+text(x = xtickvals, y = par("usr")[3] - diff(par("usr")[3:4])/30, labels = xtickvals)
+text(x = mean(par("usr")[1:2]), y = par("usr")[3]-diff(par("usr")[3:4])/10, 
+     labels = "multilevel tissue\nenrichment (logodds-scale)", cex = 1.25, xpd = NA)
+tick <- seq_along(colnames(focal_samps))
+axis(2, at = tick, labels = F)
+for(i in 1:length(colnames(focal_samps))){
+  segments(y0 = i, y1 = i, x0 = qi_95[1,i], x1 = qi_95[2,i], lwd = 4, col = inside_cols[i])
+  points(y = i, x = posterior_means[i], col = inside_cols[i], pch = 19, cex = 1.5)
+  
+  #guiding lines
+  segments(y0 = i, y1 = i, x0 = min(qi_100), x1 = qi_100[1,i], lwd = 1, col = "black", xpd = T, lty = 3)
+  segments(y0 = i, y1 = i, x0 = qi_100[2,i], x1 = max(qi_100), lwd = 1, col = "black", xpd = T, lty = 3)
+  
+}
+#group labels
+text(y = tick, x = rep(par("usr")[1] - 0.01, length(tick)), colnames(focal_samps)[tord], srt = 0, xpd = T, pos = 2,
+     col = tissue_cols[colnames(focal_samps)[tord]], xpd = NA, cex = 1.25)
+
+abline(v=0,lwd=3,lty=2, col = adjustcolor(1,0.5), xpd = F)
+
+#figure label
+if(T){
+  fig_label("d)", cex = 2, shrinkX = 0.9, shrinkY = 0.97)
+}
+
+#legend for violin plots
+xval <- -0.75
+yval <- 0.5 #2
+yh <- 4
+yt <- yval + yh/2
+yb <- yval - yh/2
+xr <- -30:30/10
+xvals_disp <- (dnorm(xr) / 6)
+xvals <- cbind(xval + xvals_disp, xval - xvals_disp)
+yvals <- seq(yb,yt,length.out = nrow(xvals))
+# lines(xvals[,1], yvals, xpd = NA)
+# lines(xvals[,2], yvals, xpd = NA)
+polygon(x = c(xvals[,1], xvals[,2]), y = c(yvals, rev(yvals)), xpd = NA, col = adjustcolor(1,0.15))
+ybloc <- yb + (qnorm(p = c(0.05,0.95)) - min(xr)) / diff(range(xr)) * yh
+segments(x0 = xval, x1 = xval, y0 = ybloc[1], y1 = ybloc[2], xpd = NA, lwd = 2)
+points(xval, yval, pch = 19, xpd = NA)
+xlab_loc <- max(xvals) + diff(range(xvals)) / 5
+segments(x0 = xval, x1 = xlab_loc, 
+         y0 = c(max(yvals), min(yvals), yval, ybloc),
+         y1 = c(max(yvals), min(yvals), yval, ybloc),
+         xpd = NA, lty = 2)
+violabs <- paste0("$P_{", c("99.9", "0.01", "\\mu", "5", "95"), "}$")
+violabs[[3]] <- "$\\mu$"
+text(latex2exp::TeX(violabs), x = xlab_loc - diff(range(xvals)) / 10, y = c(max(yvals), min(yvals), yval, ybloc), pos = 4, xpd = NA, cex = 0.875)
+
+segments(x0 = min(xvals) - diff(range(xvals))/100, x1 = max(xvals) + diff(range(xvals))/100, 
+         y0 = min(yvals) - diff(range(yvals)) / 8, y1 = min(yvals) - diff(range(yvals)) / 8, xpd = NA, lwd = 3.25)
+points(xval, min(yvals) - diff(range(yvals)) / 8, pch = 19, xpd = NA, cex = 1.2)
+segments(x0 = min(xvals), x1 = max(xvals), y0 = min(yvals) - diff(range(yvals)) / 8, y1 = min(yvals) - diff(range(yvals)) / 8, xpd = NA, lwd = 2, col = "white")
+points(xval, min(yvals) - diff(range(yvals)) / 8, pch = 19, xpd = NA, cex = 1, col = "white")
+text(latex2exp::TeX("$CI_{95}$ includes 0$"), x = max(xvals) + diff(range(xvals))/100, 
+     y = min(yvals) - diff(range(yvals)) / 7, pos = 4, xpd = NA, cex = 0.875)
+
+segments(x0 = min(xvals) - diff(range(xvals))/100, x1 = max(xvals) + diff(range(xvals))/100, 
+         y0 = min(yvals) - diff(range(yvals)) / 8 * 2, y1 = min(yvals) - diff(range(yvals)) / 8 * 2, xpd = NA, lwd = 3.25)
+points(xval, min(yvals) - diff(range(yvals)) / 8 * 2, pch = 19, xpd = NA, cex = 1.2)
+text(latex2exp::TeX("$CI_{95}$ excludes 0$"), x = max(xvals) + diff(range(xvals))/100, 
+     y = min(yvals) - diff(range(yvals)) / 7 - diff(range(yvals)) / 8, 
+     pos = 4, xpd = NA, cex = 0.875)
+
+
+###
+#colcat bias violin plots
+###
+
+salient.categories <- trait_cats
+if(length(salient.categories) < 9){
+  category_colors <- RColorBrewer::brewer.pal(length(salient.categories), "Dark2")
+  names(category_colors) <- sort(salient.categories)  
+} else {
+  category_colors <- RColorBrewer::brewer.pal(5, "Dark2")
+  names(category_colors) <- sort(c("Cardiometabolic", "Aging", "Anthropometric", 
+                                   "Immune", "Psychiatric-neurologic"))
+  cats_leftover <- setdiff(salient.categories, names(category_colors))
+  cols_leftover <- setdiff(RColorBrewer::brewer.pal(8, "Dark2"), category_colors)
+  n_cols_needed <- length(cats_leftover) - length(cols_leftover)
+  if(n_cols_needed > 0){
+    extra_cols <- c(cols_leftover, RColorBrewer::brewer.pal(n_cols_needed, "Set2"))
+  } else {
+    extra_cols <- cols_leftover
+  }
+  names(extra_cols) <- cats_leftover
+  category_colors <- c(category_colors, extra_cols)
+}
+cols$category <- category_colors
+
+par(mar = mars[[5]])
+focal_samps <- subset_samps("colcat_bias", c("raw", "sd"), samps = samps) + samps$overall_bias
+focal_samps <- apply(focal_samps, 2, trim_n, n_to_trim)
+colnames(focal_samps) <- trait_cats
+tord <- order(apply(focal_samps, 2, mean))
+qi_95 <- apply(focal_samps, 2, quantile, probs = c(0.05, 0.95))[,tord]
+qi_100 <- apply(focal_samps, 2, quantile, probs = c(0.0, 1.0))[,tord]
+posterior_means <- apply(focal_samps, 2, mean)[tord]
+inside_cols <- rep("black", length(tord))
+inside_cols[overlaps_with_zero(qi_95)] <- "white"
+tmp <- vioplot::vioplot(x = focal_samps[,tord], T, 
+                        col = cols$category[colnames(focal_samps)][tord], outline=FALSE, yaxt = "n",
+                        names = colnames(focal_samps)[tord], range = 0, ylab = "", lineCol = tissue_cols[colnames(focal_samps)][tord],
+                        xlab = "", cex.lab = 2, plotCentre = "point", 
+                        colMed = cols$category[colnames(focal_samps)][tord],
+                        horizontal = T)
+
+#axes
+xtickvals <- -2:2/5
+segments(x0 = xtickvals, x1 = xtickvals, y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/100, xpd = NA)
+text(x = xtickvals, y = par("usr")[3] - diff(par("usr")[3:4])/30, labels = xtickvals)
+text(x = mean(par("usr")[1:2]), y = par("usr")[3]-diff(par("usr")[3:4])/10, 
+     labels = "multilevel category\nenrichment (logodds-scale)", cex = 1.25, xpd = NA)
+tick <- seq_along(colnames(focal_samps))
+axis(2, at = tick, labels = F)
+for(i in 1:length(colnames(focal_samps))){
+  segments(y0 = i, y1 = i, x0 = qi_95[1,i], x1 = qi_95[2,i], lwd = 4, col = inside_cols[i])
+  points(y = i, x = posterior_means[i], col = inside_cols[i], pch = 19, cex = 1.5)
+  
+  #guiding lines
+  segments(y0 = i, y1 = i, x0 = min(qi_100), x1 = qi_100[1,i], lwd = 1, col = "black", xpd = T, lty = 3)
+  segments(y0 = i, y1 = i, x0 = qi_100[2,i], x1 = max(qi_100), lwd = 1, col = "black", xpd = T, lty = 3)
+  
+}
+catlabs <- colnames(focal_samps)[tord]
+catlabs <- gsub("system ", "system\n", gsub("-", "-\n", catlabs))
+text(y = tick, x = rep(par("usr")[1] - 0.01, length(tick)), 
+     labels = catlabs, 
+     srt = 0, xpd = T, pos = 2, cex = 1.25,
+     col = cols$category[colnames(focal_samps)[tord]], xpd = NA)
+
+
+gsub("_", "\n", colnames(focal_samps))
+gsub("Gi", "GI", stringr::str_to_title(gsub("_", "\n", colnames(focal_samps))))
+
+abline(v=0,lwd=3,lty=2, col = adjustcolor(1,0.5), xpd = F)
+
+#figure label
+if(T){
+  fig_label("e)", cex = 2, shrinkX = 0.905, shrinkY = 0.985)
+}
+
+##
+# traits
+##
+
+par(mar = mars[[6]])
+trait_subset_bool <- traitwise_partitions$Category[match(traits, traitwise_partitions$Tag)] %in% salient.categories
+focal_samps <- subset_samps("col_bias", c("raw", "sd"), samps = samps) + samps$overall_bias +
+  subset_samps("colcat_bias", c("raw", "sd"), samps = samps)[,match(trait_categories$Category[match(traits, trait_categories$Tag)], trait_cats)]
+focal_samps <- apply(focal_samps, 2, trim_n, n_to_trim)
+colnames(focal_samps) <- traits
+tord <- order(apply(focal_samps, 2, mean))
+qi_95 <- apply(focal_samps, 2, quantile, probs = c(0.05, 0.95))[,tord]
+qi_100 <- apply(focal_samps, 2, quantile, probs = c(0.0, 1.0))[,tord]
+posterior_means <- apply(focal_samps, 2, mean)[tord]
+inside_cols <- rep("black", length(tord))
+inside_cols[overlaps_with_zero(qi_95)] <- "white"
+
+tmp <- vioplot::vioplot(x = focal_samps[,tord], T,
+                        col = cols$category[trait_categories$Category[match(colnames(focal_samps)[trait_subset_bool][tord], trait_categories$Tag)]],
+                        outline=FALSE, yaxt = "n",
+                        names = colnames(focal_samps)[tord], range = 0, ylab = "",
+                        lineCol = cols$category[trait_categories$Category[match(colnames(focal_samps)[trait_subset_bool][tord], trait_categories$Tag)]],
+                        xlab = "", cex.lab = 2, plotCentre = "point",
+                        colMed = cols$category[colnames(focal_samps)][tord],
+                        horizontal = F,
+                        xlim = c(4,ncol(focal_samps)-3))
+
+ytickvals <- -2:2/2
+segments(y0 = ytickvals, y1 = ytickvals, x0 = par("usr")[1], x1 = par("usr")[1] - diff(par("usr")[1:2])/200, xpd = NA)
+text(y = ytickvals, x = par("usr")[1] - diff(par("usr")[1:2])/75, labels = ytickvals)
+text(y = mean(par("usr")[3:4]), x = par("usr")[1]-diff(par("usr")[1:2])/25,
+     labels = "multilevel trait enrichment\n(logodds-scale)", cex = 1.25, xpd = NA, srt = 90)
+tick <- seq_along(colnames(focal_samps))
+
+
+tick <- seq_along(traits[trait_subset_bool])
+axis(1, at = tick, labels = F)
+for(i in 1:length(traits[trait_subset_bool])){
+  segments(x0 = i, x1 = i, y0 = qi_95[1,i], y1 = qi_95[2,i], lwd = 2, col = inside_cols[i])
+  points(x = i, y = posterior_means[i], col = inside_cols[i], pch = 19)
+  #guiding lines
+  segments(x0 = i, x1 = i, y0 = min(qi_100) - diff(range(qi_100)) / 30, y1 = qi_100[1,i], lwd = 1, col = "black", xpd = T, lty = 3)
+  segments(x0 = i, x1 = i, y0 = qi_100[2,i], y1 = max(qi_100) * 0.75 + 1 * 0.25, lwd = 1, col = "black", xpd = T, lty = 3)
+}
+text(tick + 0.55, par("usr")[3] - diff(par("usr")[3:4])/12, cex = 0.8,
+     labels = trait_categories$new_Phenotype[match(colnames(focal_samps)[trait_subset_bool][tord], trait_categories$Tag)], 
+     srt = 45, xpd = T, pos = 2,
+     col = cols$category[trait_categories$Category[match(colnames(focal_samps)[trait_subset_bool][tord], trait_categories$Tag)]], xpd = NA)
+fig_label("f)", cex = 2, shrinkX = 0.4)
+abline(h=0,lwd=3,lty=2, col = adjustcolor(1,0.5), xpd = F)
 
 dev.off()
 
-# 
-# #plot eigenvector loadings and scree plot
-# wiou_eigen <- eigen(gcor_mat)
-# 
-# par(mar = c(3.5,0.5,0.5,0.5), xpd = NA)
-# for(i in 1:length(traits)){
-#   plot(100,100,xlim = c(0,length(traits)), ylim = c(0,max(abs(wiou_eigen$vectors[,i]))), 
-#        col = "white", xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "")
-#   text(paste0("PC ", i, " Loadings"), x = length(traits) / 2, y = 0.95*max(abs(wiou_eigen$vectors[,i])), cex = 1.25)
-#   rect(xleft = 1:length(traits)-1/2, xright = 1:length(traits)+1/2, 
-#        ybottom = 0, ytop = abs(wiou_eigen$vectors[,i])[order(abs(wiou_eigen$vectors[,i]), decreasing = T)], 
-#        col = cols$Tissue[order(abs(wiou_eigen$vectors[,i]), decreasing = T)])
-#   text(labels = traits[order(abs(wiou_eigen$vectors[,i]), decreasing = T)], x = 1:length(traits) - 0.75, 
-#        y = -max(abs(wiou_eigen$vectors[,i]))*0.01, col = cols$Tissue[order(abs(wiou_eigen$vectors[,i]), decreasing = T)], 
-#        pos = 4, srt = 270)
-# }
-# 
-# par(mar = c(5,3,1,2))
-# plot(cex.lab = 1.5, x = 1:length(traits), y = wiou_eigen$values, type = "l", xlab = "ordered eigenvalue indices", ylab = "eigenvalue", lwd = 2)
-# dev.off()
-
-
-# for(i in 1:nrow(log_files)){
-#   logfile <- readLines(ldsc_log_paths[[log_files$gwas[i]]][grep(pattern = paste0(cluster_names[log_files$cluster[i]], ".log"), ldsc_log_paths[[log_files$gwas[i]]])][1])
-#   h2 <- logfile[grep(logfile, pattern = "Total Observed scale h2")]
-#   log_files$h2[i] <- as.numeric(strsplit(h2, " ")[[1]][5])
-#   log_files$h2se[i] <- as.numeric(substr(x = strsplit(h2, " ")[[1]][6], start = 2, stop = nchar(strsplit(h2, " ")[[1]][6]) - 1))
-#   chi2 <- as.numeric(strsplit(logfile[grep(logfile, pattern = "Mean Chi")], split = " ")[[1]][3])
-#   log_files$chi2[i] <- chi2
-# }
-# 
-
-
-#### ldsc cts results ####
-ldsc_results_dir <- "~/repos/ldsc/output/cts/"
-gwas_dir <- "~/data/smontgom/imputed_gwas_hg38_1.1/"
-gwas_summary_files <- list.files(gwas_dir)
-gwas_summary_files <- gwas_summary_files[-grep(gwas_summary_files, pattern = "README")]
-orig_clusters <- paste0("Cluster_", 1:15)
-
-#snag gwas log files
-log_files <- as.data.frame(matrix(data = NA, ncol = 5, nrow = length(gwas_names) * length(cluster_names)))
-colnames(log_files) <- c("h2", "h2se", "chi2", "gwas", "cluster")
-log_files$cluster <- rep(1:length(cluster_names), length(gwas_names))
-log_files$gwas <- c(sapply(gwas_names, function(gwas_name) rep(gwas_name, length(cluster_names))))
-for(i in 1:nrow(log_files)){
-  logfile <- readLines(ldsc_log_paths[[log_files$gwas[i]]][grep(pattern = paste0(cluster_names[log_files$cluster[i]], ".log"), ldsc_log_paths[[log_files$gwas[i]]])][1])
-  h2 <- logfile[grep(logfile, pattern = "Total Observed scale h2")]
-  log_files$h2[i] <- as.numeric(strsplit(h2, " ")[[1]][5])
-  log_files$h2se[i] <- as.numeric(substr(x = strsplit(h2, " ")[[1]][6], start = 2, stop = nchar(strsplit(h2, " ")[[1]][6]) - 1))
-  chi2 <- as.numeric(strsplit(logfile[grep(logfile, pattern = "Mean Chi")], split = " ")[[1]][3])
-  log_files$chi2[i] <- chi2
-}
-log_files$gwas <- stringr::str_replace_all(log_files$gwas, "imputed_", "")
-total_h2_sigma_thresh <- 7
-traits_with_satisfactory_heritaility <- unique(log_files$gwas[log_files$h2 / log_files$h2se > total_h2_sigma_thresh])
-
-
-
-#take 2
-new_clusters <- c("t53-cortex",  "t56-vastus-lateralis",  "t58-heart",  "t61-colon",  "t62-spleen",  "t64-ovaries",  "t65-aorta",  "t66-lung",  "t67-small-intestine",  "t69-brown-adipose",  "t70-white-adipose",  "t30-blood-rna",  "t52-hippocampus",  "t54-hypothalamus",  "t63-testes",  "t55-gastrocnemius",  "t60-adrenal",  "t59-kidney",  "t68-liver",  "1w",  "2w",  "4w",  "8w",  "female-1w",  "male-2w",  "female-4w",  "male-8w",  "all_DE")
-
-#take 3
-geneset_info <- expand.grid(c(7,15), c("t55-gastrocnemius", "t68-liver", "t58-heart"))
-new_clusters <- paste0("Cluster_", trimws(apply(geneset_info, 1, paste0, collapse = "-")), "")
-
-#take 4
-tissue_abbrev <- unique(MotrpacBicQC::bic_animal_tissue_code$abbreviation)
-tissue_abbrev <- tissue_abbrev[!is.na(tissue_abbrev)]
-tissue_abbrev <- setdiff(tissue_abbrev, c("PLASMA", "HYPOTH", "TESTES", "OVARY", "VENACV"))
-cluster_names <- paste0(tissue_abbrev, "-sex_homogeneous_changing")
-new_clusters <- sort(paste0(tissue_abbrev, "-sex_homogeneous_changing"))
-
-output_files <- c(sapply(c("_Cluster_Addenda.cell_type_results.txt", "_Cluster_1-15.cell_type_results.txt"), 
-                         function(x) paste0(stringr::str_remove_all(gwas_summary_files, ".txt.gz"), x)))
-output_files <- paste0(stringr::str_remove_all(gwas_summary_files, ".txt.gz"), c("_Cluster_1-15.cell_type_results.txt"))
-output_files <- paste0(stringr::str_remove_all(gwas_summary_files, ".txt.gz"), c("_Cluster_Addenda.cell_type_results.txt"))
-output_files <- paste0(stringr::str_remove_all(gwas_summary_files, ".txt.gz"), "_cluster_", 
-                       paste0(new_clusters[1], "-", new_clusters[length(new_clusters)]), 
-                       ".cell_type_results.txt")
-
-ldsc_results <- do.call(rbind, lapply(1:length(output_files), function(i) 
-  cbind(fread(paste0(ldsc_results_dir, output_files[i])),  trait = strsplit(output_files[i], "_Cluster")[[1]][1])))
-
-ldsc_results$twoTailedPVal <- ldsc_results$Coefficient_P_value
-ldsc_results$twoTailedPVal[ldsc_results$twoTailedPVal > 0.5] <- 1 - ldsc_results$twoTailedPVal[ldsc_results$twoTailedPVal > 0.5]
-ldsc_results$twoTailedPVal <- ldsc_results$twoTailedPVal * 2
-
-#filter by category
-trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
-traitwise_partitions <- trait_categories[,c("Tag", "Category")]
-ldsc_results$trait_name <- gsub(ldsc_results$trait, pattern = "imputed_", replacement = "")
-ldsc_results$trait_name <- gsub(ldsc_results$trait_name, pattern = "_cluster.*", replacement = "")
-
-ldsc_results$trait_category <- traitwise_partitions$Category[match(ldsc_results$trait_name, traitwise_partitions$Tag)]
-ldsc_results <- ldsc_results[ldsc_results$trait_category %in% 
-                               c("Cardiometabolic", "Aging", "Anthropometric", "Immune", "Psychiatric-neurologic")]
-
-#filter by heritability threshold
-ldsc_results <- ldsc_results[ldsc_results$trait_name %in% traits_with_satisfactory_heritaility,]
-
-
-hist(log(ldsc_results$Coefficient_P_value), xlab = "log 1-tailed p-value", main = "", breaks = -200:0/10)
-abline(v = log(0.05 / nrow(ldsc_results)), col = 2, lwd = 4)
-text(x = log(0.05 / nrow(ldsc_results)), y = 200, 
-     labels = latex2exp::TeX("Bonferroni-adjusted $\\alpha$"), srt = 90, pos = 2)
-hist(ldsc_results$Coefficient_P_value)
-hist(log(ldsc_results$twoTailedPVal), breaks = -200:0/10)
-abline(v = log(0.05 / nrow(ldsc_results)), col = 2, lwd = 4)
-hist((ldsc_results$twoTailedPVal))
-qvalue::pi0est(ldsc_results$Coefficient_P_value)
-qvalue::pi0est(ldsc_results$twoTailedPVal)
-sum(log(ldsc_results$Coefficient_P_value) < log(0.05 / nrow(ldsc_results)))
-head(ldsc_results[order(ldsc_results$Coefficient_P_value, decreasing = F),], 20)
-head(ldsc_results[order(ldsc_results$twoTailedPVal, decreasing = F),], 20)
-head(ldsc_results[order(ldsc_results$Coefficient, decreasing = T),], 20)
-
-
+#### end ####
