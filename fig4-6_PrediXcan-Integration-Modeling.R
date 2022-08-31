@@ -1,7 +1,8 @@
 #specify settings
-use_random_DE_genes <- T
+use_random_DE_genes <- F
 use_random_Pred_genes <- F
-collapse_skeletal_muscles <- T
+collapse_skeletal_muscles <- F
+use_panther_map <- F
 
 #### load libraries ####
 library(ensembldb)
@@ -37,7 +38,6 @@ source(file = "~/scripts/montgomery_lab/deg-trait_functions.R")
 gencode_gene_map <- fread("~/data/smontgom/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
 gencode_gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID <- gsub(gencode_gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID, pattern = "\\..*", replacement = "")
 
-use_panther_map = F
 if(use_panther_map){
   panther_gene_map <- fread("~/data/smontgom/PANTHER17_human_rat_ref_genome_orthologs.tsv", sep = "\t", header = F)
   colnames(panther_gene_map) <- c("human_ID", "rat_ID", "type", "superorder", "ID") 
@@ -251,6 +251,13 @@ if(collapse_skeletal_muscles){
   node_metadata_list$`8w`[node_metadata_list$`8w`$tissue == "SKM-VL",]
 }
 
+#look at overlap between tissues
+DE_genes_x_tissue <- split(node_metadata_list$`8w`$human_ensembl_gene, node_metadata_list$`8w`$tissue)
+na.remove <- function(x) x[!is.na(x)]
+DE_genes_x_tissue <- lapply(lapply(DE_genes_x_tissue, na.remove), unique)
+all_genes_x_tissue <- lapply(rna_dea_ensembl, function(x) unique(na.remove(gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID[match(x, gene_map$RAT_ENSEMBL_ID)])))
+tissue_corr_mat <- estimate_correlations(y = DE_genes_x_tissue, t = all_genes_x_tissue, print_progress = T)
+pheatmap::pheatmap(tissue_corr_mat, breaks = -10:10/10, color = colorspace::diverging_hcl(21))
 
 #find set intersect
 n_deg_sigtwas_intersect <- as.data.frame(matrix(0, nrow = length(names(motrpac_gtex_map)), 
@@ -261,98 +268,101 @@ adj_pvalue_alpha <- 0.05
 sig_twas_by_tissue <- lapply(setNames(names(motrpac_gtex_map), names(motrpac_gtex_map)), 
                              function(tissue_i) some.twas[some.twas$tissue == tissue_i & some.twas$adj_pvalue < adj_pvalue_alpha,])
 
-#look at overlap between traits
-all_pairwise_jaccard_inds <- do.call(rbind, mclapply(sig_twas_by_tissue, function(x){
-  mcprint(paste0(x$tissue[1]))
-  
-  gene_names_test <- split(x$gene_name, x$trait)
-  jacmat <- sapply(gene_names_test, function(x1) sapply(gene_names_test, function(x2) jaccard(x1, x2)))
-  arrinds <- which(upper.tri(jacmat), arr.ind = T)
-  data.frame(trait_1 = rownames(jacmat)[arrinds[,"row"]], 
-             trait_2 = colnames(jacmat)[arrinds[,"col"]], 
-             jaccard_index = jacmat[upper.tri(jacmat)],
-             tissue = x$tissue[1])
-}, mc.cores = 8))
-
-twas_by_tissue <- split(some.twas, some.twas$tissue)
-# all_pairwise_chi2_pvals <- do.call(rbind, mclapply(names(sig_twas_by_tissue), function(tiss){
-#   x = sig_twas_by_tissue[[tiss]]
-#   mcprint(paste0(x$tissue[1]))
-#   
-#   gene_names_test <- split(x$gene_name, x$trait)
-#   all_tested_genes <- split(twas_by_tissue[[tiss]]$gene_name, twas_by_tissue[[tiss]]$trait)
-#   chi2mat <- sapply(names(gene_names_test), function(trait1) sapply(names(gene_names_test), function(trait2){
-#     x1 <- unlist(gene_names_test[trait1])
-#     x2 <- unlist(gene_names_test[trait2])
-#     d2x2 <- matrix(c(length(intersect(x1, x2)), 
-#                      length(setdiff(x1, x2)), 
-#                      length(setdiff(x2, x2)), 
-#                      length(union(unlist(all_tested_genes[trait1]), unlist(all_tested_genes[trait2]))) - length(union(x1, x2))), 2, 2)
-#     suppressWarnings(chisq.test(d2x2)$p.value)
-#   }))
-#   
-#   arrinds <- which(upper.tri(chi2mat), arr.ind = T)
-#   data.frame(trait_1 = rownames(chi2mat)[arrinds[,"row"]], 
-#              trait_2 = colnames(chi2mat)[arrinds[,"col"]], 
-#              jaccard_index = chi2mat[upper.tri(chi2mat)],
-#              tissue = x$tissue[1])
-# }, mc.cores = 8))
-
-hist(all_pairwise_jaccard_inds$jaccard_index, breaks = 0:100/100)
-mean(all_pairwise_jaccard_inds$jaccard_index > 0.1)
-all_pairwise_jaccard_inds <- all_pairwise_jaccard_inds[order(all_pairwise_jaccard_inds$jaccard_index, decreasing = T),]
-sort(sapply(unique(all_pairwise_jaccard_inds$trait_1), function(trait_i) 
-  sum(all_pairwise_jaccard_inds$jaccard_index[all_pairwise_jaccard_inds$trait_1 == trait_i | all_pairwise_jaccard_inds$trait_2 == trait_i])
-), decreasing = T)
-
-#take the union of pairs with jaccard index > some threshold in any tissue
-jac_thresh <- 0.5
-keep_pruning <- T
-n_traits_pruned <- 1
-twas_x_tissue <- lapply(sig_twas_by_tissue, function(x) split(x$gene_name, x$trait))
-twas_x_tissue <- twas_x_tissue[setdiff(names(twas_x_tissue), c("t54-hypothalamus", "t63-testes", "t64-ovaries"))]
-combos <- list()
-pairwise_jaccard_inds <- all_pairwise_jaccard_inds
-
-while(keep_pruning){
-  cat(paste0("(n_traits_pruned: ", n_traits_pruned, ", ", "max_jac: ", round(pairwise_jaccard_inds$jaccard_index[1], 2), ")\n"))
-  
-  #find which traits to combine
-  combos <- c(combos, list(pairwise_jaccard_inds[1,c("trait_1", "trait_2")]))
-  
-  #combine traits
-  twas_x_tissue <- lapply(twas_x_tissue, function(x){
-    temp <- union(x[[unlist(combos[[length(combos)]][1])]], x[[unlist(combos[[length(combos)]][2])]])
-    x <- x[setdiff(names(x), unlist(combos[[length(combos)]]))]
-    x <- c(x, list(temp))
-    names(x)[length(x)] <- paste0(unlist(combos[[length(combos)]]), collapse = " ~ ")
-    x
-  })
-  
-  #calculate new jaccard matrix
-  pairwise_jaccard_inds <- do.call(rbind, mclapply(setNames(names(twas_x_tissue), names(twas_x_tissue)), function(tiss_i){
-    # mcprint(tiss_i)
-    gene_names_test <- twas_x_tissue[[tiss_i]]
+#### look at overlap between traits ####
+perform_jaccard_pruning <- F
+if(perform_jaccard_pruning){
+    
+  all_pairwise_jaccard_inds <- do.call(rbind, mclapply(sig_twas_by_tissue, function(x){
+    mcprint(paste0(x$tissue[1]))
+    
+    gene_names_test <- split(x$gene_name, x$trait)
     jacmat <- sapply(gene_names_test, function(x1) sapply(gene_names_test, function(x2) jaccard(x1, x2)))
     arrinds <- which(upper.tri(jacmat), arr.ind = T)
     data.frame(trait_1 = rownames(jacmat)[arrinds[,"row"]], 
                trait_2 = colnames(jacmat)[arrinds[,"col"]], 
                jaccard_index = jacmat[upper.tri(jacmat)],
-               tissue = tiss_i)
+               tissue = x$tissue[1])
   }, mc.cores = 8))
   
-  pairwise_jaccard_inds <- pairwise_jaccard_inds[order(pairwise_jaccard_inds$jaccard_index, decreasing = T),]
+  twas_by_tissue <- split(some.twas, some.twas$tissue)
+  # all_pairwise_chi2_pvals <- do.call(rbind, mclapply(names(sig_twas_by_tissue), function(tiss){
+  #   x = sig_twas_by_tissue[[tiss]]
+  #   mcprint(paste0(x$tissue[1]))
+  #   
+  #   gene_names_test <- split(x$gene_name, x$trait)
+  #   all_tested_genes <- split(twas_by_tissue[[tiss]]$gene_name, twas_by_tissue[[tiss]]$trait)
+  #   chi2mat <- sapply(names(gene_names_test), function(trait1) sapply(names(gene_names_test), function(trait2){
+  #     x1 <- unlist(gene_names_test[trait1])
+  #     x2 <- unlist(gene_names_test[trait2])
+  #     d2x2 <- matrix(c(length(intersect(x1, x2)), 
+  #                      length(setdiff(x1, x2)), 
+  #                      length(setdiff(x2, x2)), 
+  #                      length(union(unlist(all_tested_genes[trait1]), unlist(all_tested_genes[trait2]))) - length(union(x1, x2))), 2, 2)
+  #     suppressWarnings(chisq.test(d2x2)$p.value)
+  #   }))
+  #   
+  #   arrinds <- which(upper.tri(chi2mat), arr.ind = T)
+  #   data.frame(trait_1 = rownames(chi2mat)[arrinds[,"row"]], 
+  #              trait_2 = colnames(chi2mat)[arrinds[,"col"]], 
+  #              jaccard_index = chi2mat[upper.tri(chi2mat)],
+  #              tissue = x$tissue[1])
+  # }, mc.cores = 8))
   
-  #decide to keep going or stop
-  if(pairwise_jaccard_inds$jaccard_index[1] < jac_thresh){
-    keep_pruning <- F
-  } else {
-    n_traits_pruned <- n_traits_pruned + 1
+  hist(all_pairwise_jaccard_inds$jaccard_index, breaks = 0:100/100)
+  mean(all_pairwise_jaccard_inds$jaccard_index > 0.1)
+  all_pairwise_jaccard_inds <- all_pairwise_jaccard_inds[order(all_pairwise_jaccard_inds$jaccard_index, decreasing = T),]
+  sort(sapply(unique(all_pairwise_jaccard_inds$trait_1), function(trait_i) 
+    sum(all_pairwise_jaccard_inds$jaccard_index[all_pairwise_jaccard_inds$trait_1 == trait_i | all_pairwise_jaccard_inds$trait_2 == trait_i])
+  ), decreasing = T)
+  
+  #take the union of pairs with jaccard index > some threshold in any tissue
+  jac_thresh <- 0.5
+  keep_pruning <- T
+  n_traits_pruned <- 1
+  twas_x_tissue <- lapply(sig_twas_by_tissue, function(x) split(x$gene_name, x$trait))
+  twas_x_tissue <- twas_x_tissue[setdiff(names(twas_x_tissue), c("t54-hypothalamus", "t63-testes", "t64-ovaries"))]
+  combos <- list()
+  pairwise_jaccard_inds <- all_pairwise_jaccard_inds
+  
+  while(keep_pruning){
+    cat(paste0("(n_traits_pruned: ", n_traits_pruned, ", ", "max_jac: ", round(pairwise_jaccard_inds$jaccard_index[1], 2), ")\n"))
+    
+    #find which traits to combine
+    combos <- c(combos, list(pairwise_jaccard_inds[1,c("trait_1", "trait_2")]))
+    
+    #combine traits
+    twas_x_tissue <- lapply(twas_x_tissue, function(x){
+      temp <- union(x[[unlist(combos[[length(combos)]][1])]], x[[unlist(combos[[length(combos)]][2])]])
+      x <- x[setdiff(names(x), unlist(combos[[length(combos)]]))]
+      x <- c(x, list(temp))
+      names(x)[length(x)] <- paste0(unlist(combos[[length(combos)]]), collapse = " ~ ")
+      x
+    })
+    
+    #calculate new jaccard matrix
+    pairwise_jaccard_inds <- do.call(rbind, mclapply(setNames(names(twas_x_tissue), names(twas_x_tissue)), function(tiss_i){
+      # mcprint(tiss_i)
+      gene_names_test <- twas_x_tissue[[tiss_i]]
+      jacmat <- sapply(gene_names_test, function(x1) sapply(gene_names_test, function(x2) jaccard(x1, x2)))
+      arrinds <- which(upper.tri(jacmat), arr.ind = T)
+      data.frame(trait_1 = rownames(jacmat)[arrinds[,"row"]], 
+                 trait_2 = colnames(jacmat)[arrinds[,"col"]], 
+                 jaccard_index = jacmat[upper.tri(jacmat)],
+                 tissue = tiss_i)
+    }, mc.cores = 8))
+    
+    pairwise_jaccard_inds <- pairwise_jaccard_inds[order(pairwise_jaccard_inds$jaccard_index, decreasing = T),]
+    
+    #decide to keep going or stop
+    if(pairwise_jaccard_inds$jaccard_index[1] < jac_thresh){
+      keep_pruning <- F
+    } else {
+      n_traits_pruned <- n_traits_pruned + 1
+    }
+    
   }
-  
+
 }
-
-
 
 tissue_code <- MotrpacBicQC::bic_animal_tissue_code
 for(tissue_i in names(motrpac_gtex_map)){
@@ -434,6 +444,33 @@ prop_degs_are_twas <- (sapply(colnames(n_deg_sigtwas_intersect), function(trait)
 prop_degs_are_twas <- apply(prop_degs_are_twas, 2, unlist)
 prop_degs_are_twas <- prop_degs_are_twas[,order(apply(prop_degs_are_twas, 2, mean), decreasing = T)]
 
+
+#look at overlap between traits
+adj_pvalue_alpha <- 0.05
+twas_tiss <- some.twas$tissue[1]
+tissues <- setNames(unique(some.twas$tissue), unique(some.twas$tissue))
+trait_corr_mats <- lapply(tissues, function(twas_tiss){
+  twas_sub <- some.twas[some.twas$tissue == twas_tiss,]
+  twas_sub$gene <- gsub(twas_sub$gene, pattern = "\\..*", replacement = "")
+  twas_sub_hits <- twas_sub[twas_sub$adj_pvalue < adj_pvalue_alpha,]
+  na.remove <- function(x) x[!is.na(x)]
+  twas_genes_x_trait <- lapply(lapply(split(twas_sub_hits$gene, twas_sub_hits$trait), na.remove), unique)
+  all_genes_x_trait <- lapply(lapply(split(twas_sub$gene, twas_sub$trait), na.remove), unique)
+  trait_corr_mat <- estimate_correlations(y = twas_genes_x_trait, t = all_genes_x_trait, print_progress = T)
+  trait_corr_mat
+})
+
+pheatmap::pheatmap(trait_corr_mats[[1]], breaks = -10:10/10, color = colorspace::diverging_hcl(21))
+
+plot(trait_corr_mats[[15]][colnames(n_deg_sigtwas_intersect), colnames(n_deg_sigtwas_intersect)], 
+     trait_corr_mats[[12]][colnames(n_deg_sigtwas_intersect), colnames(n_deg_sigtwas_intersect)])
+
+#obtain an average across traits
+traitset <- colnames(n_deg_sigtwas_intersect)
+sapply(traitset, function(ti1) sapply(traitset, function(ti1) 1+1))
+trait_corr_mat <- trait_corr_mats[[1]]
+
+
 #### obtain a bayesian estimate of the twas proportion and perform an 'enrichment' analysis ####
 
 #get total number of possible hits
@@ -448,7 +485,7 @@ rna_dea_genes <- lapply(setNames(tissues, tissues), function(tiss){
   genesymbols <- genesymbols[!is.na(genesymbols)]
 })
 
-total_number_of_possible_hits_matrix <- t(sapply(tissues, function(tiss){
+total_number_of_possible_hits_matrix <- t(sapply(setNames(tissues, tissues), function(tiss){
   print(tiss)
   sapply(setNames(salient_twas, salient_twas), function(trait_i){
     twas_genes_tested <- twas_by_tissue[[tiss]]$gene_name[twas_by_tissue[[tiss]]$trait == trait_i]
@@ -574,10 +611,229 @@ d <- list(cell_count = data_subset$count,
 par(mfrow = c(1,1))
 plot(d$cell_count / d$row_count, (d$col_count - d$cell_count) / (d$total - d$row_count), pch = 19, col = adjustcolor(1,0.5),
      cex = sqrt(d$row_count / max(d$row_count))); abline(0,1,lwd=2,lty=2,col=2)
+plot(log10(d$cell_count / d$row_count), log10((d$col_count - d$cell_count) / (d$total - d$row_count)), pch = 19, col = adjustcolor(1,0.5),
+     cex = sqrt(d$row_count / max(d$row_count))); abline(0,1,lwd=2,lty=2,col=2)
 data_subset[order(d$cell_count / d$row_count, decreasing = T),]
 
 
-base = paste0("deviation_from_expected_logodds_split_the_difference", ifelse(use_random_DE_genes, "_randomgenes", ""))
+# base = paste0("deviation_from_expected_logodds_split_the_difference", ifelse(use_random_DE_genes, "_randomgenes", ""))
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1> colcat_n;
+#     int<lower=0> total[row_n * col_n];
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=1,upper=colcat_n> colcat_index[col_n];
+#     int<lower=0> row_count[row_n * col_n];
+#     int<lower=0> col_count[row_n * col_n];
+#     int<lower=0> cell_count[row_n * col_n];
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+#     int<lower=0> cell_count_compl[n];
+#     int<lower=0> row_count_compl[n];
+#     for(i in 1:n){
+#       cell_count_compl[i] = col_count[i] - cell_count[i];
+#       row_count_compl[i] = total[i] - row_count[i];
+#     }
+# }
+# parameters {
+#     //col params
+#     real col_mean;
+#     real<lower=0> col_sd;
+#     vector[colcat_n] raw_colcat_logodds;
+#     real<lower=0> colcat_sd;
+#     vector[col_n] raw_col_logodds;
+#     real<lower=0> cell_sd;
+#     vector[n] raw_cell_logodds;
+# 
+#     //biases in deviations terms
+#     real overall_bias;
+#     vector[row_n] raw_row_bias;
+#     vector[col_n] raw_col_bias;
+#     vector[colcat_n] raw_colcat_bias;
+#     vector[n] raw_cell_bias;
+#     real<lower=0> row_bias_sd;
+#     real<lower=0> col_bias_sd;
+#     real<lower=0> colcat_bias_sd;
+#     real<lower=0> cell_bias_sd;
+# }
+# transformed parameters {
+#     //recenter params
+#     vector[colcat_n] colcat_logodds = raw_colcat_logodds * colcat_sd + col_mean;
+#     vector[col_n] col_logodds = raw_col_logodds * col_sd + colcat_logodds[colcat_index];
+#     vector[n] cell_logodds = raw_cell_logodds * cell_sd + col_logodds[col_index];
+# 
+#     //incorporate bias
+#     vector[colcat_n] colcat_bias = raw_colcat_bias * colcat_bias_sd;
+#     vector[col_n] col_bias = raw_col_bias * col_bias_sd + colcat_bias[colcat_index];
+#     vector[row_n] row_bias = raw_row_bias * row_bias_sd;
+#     vector[n] cell_bias = raw_cell_bias * cell_bias_sd;
+#     vector[n] cell_logodds_focal = cell_logodds +
+#               (overall_bias + row_bias[row_index] + col_bias[col_index] + cell_bias) / 2;
+#     vector[n] cell_logodds_compl = cell_logodds -
+#               (overall_bias + row_bias[row_index] + col_bias[col_index] + cell_bias) / 2;
+# }
+# model {
+#     //priors and hyperpriors
+# 
+#     //marginal params
+#     col_mean ~ normal(0,2);
+#     col_sd ~ std_normal();
+#     raw_colcat_logodds ~ std_normal();
+#     colcat_sd ~ std_normal();
+#     raw_col_logodds ~ std_normal();
+#     raw_cell_logodds ~ std_normal();
+#     cell_sd ~ std_normal();
+# 
+#     //bias params
+#     overall_bias ~ std_normal();
+# 
+#     raw_colcat_bias ~ std_normal();
+#     colcat_bias_sd ~ std_normal();
+# 
+#     raw_col_bias ~ std_normal();
+#     col_bias_sd ~ std_normal();
+# 
+#     raw_row_bias ~ std_normal();
+#     row_bias_sd ~ std_normal();
+# 
+#     raw_cell_bias ~ std_normal();
+#     cell_bias_sd ~ std_normal();
+# 
+#     //likelihood
+#     cell_count ~ binomial_logit(row_count, cell_logodds_focal);
+#     cell_count_compl ~ binomial_logit(row_count_compl, cell_logodds_compl);
+# 
+# }
+# generated quantities {
+#     vector[n] cell_total_prob_bias = inv_logit(cell_logodds_focal) - inv_logit(cell_logodds_compl);
+# }
+# '
+
+# base = paste0("deviation_from_expected_logodds_split_the_difference_MVN_priors", ifelse(use_random_DE_genes, "_randomgenes", ""))
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1> colcat_n;
+#     int<lower=0> total[row_n * col_n];
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=1,upper=colcat_n> colcat_index[col_n];
+#     int<lower=0> row_count[row_n * col_n];
+#     int<lower=0> col_count[row_n * col_n];
+#     int<lower=0> cell_count[row_n * col_n];
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+#     int<lower=0> cell_count_compl[n];
+#     int<lower=0> row_count_compl[n];
+#     for(i in 1:n){
+#       cell_count_compl[i] = col_count[i] - cell_count[i];
+#       row_count_compl[i] = total[i] - row_count[i];
+#     }
+# }
+# parameters {
+#     //col params
+#     real col_mean;
+#     real<lower=0> col_sd;
+#     vector[colcat_n] raw_colcat_logodds;
+#     real<lower=0> colcat_sd;
+#     vector[col_n] raw_col_logodds;
+#     real<lower=0> cell_sd;
+#     vector[n] raw_cell_logodds;
+# 
+#     //biases in deviations terms
+#     real overall_bias;
+#     vector[row_n] raw_row_bias;
+#     vector[col_n] raw_col_bias;
+#     vector[colcat_n] raw_colcat_bias;
+#     vector[n] raw_cell_bias;
+#     real<lower=0> row_bias_sd;
+#     real<lower=0> col_bias_sd;
+#     real<lower=0> colcat_bias_sd;
+#     real<lower=0> cell_bias_sd;
+#     
+#     //correlation params pre-multiply raw bias terms
+#     cholesky_factor_corr[col_n] L_col_bias;
+#     cholesky_factor_corr[row_n] L_row_bias;
+# }
+# transformed parameters {
+#     //recenter params
+#     vector[colcat_n] colcat_logodds = raw_colcat_logodds * colcat_sd + col_mean;
+#     vector[col_n] col_logodds = raw_col_logodds * col_sd + colcat_logodds[colcat_index];
+#     vector[n] cell_logodds = raw_cell_logodds * cell_sd + col_logodds[col_index];
+# 
+#     //incorporate bias
+#     vector[colcat_n] colcat_bias = raw_colcat_bias * colcat_bias_sd;
+#     vector[col_n] col_bias = L_col_bias * raw_col_bias * col_bias_sd + colcat_bias[colcat_index];
+#     vector[row_n] row_bias = L_row_bias * raw_row_bias * row_bias_sd;
+#     vector[n] cell_bias = raw_cell_bias * cell_bias_sd;
+#     vector[n] cell_logodds_focal = cell_logodds +
+#               (overall_bias + row_bias[row_index] + col_bias[col_index] + cell_bias) / 2;
+#     vector[n] cell_logodds_compl = cell_logodds -
+#               (overall_bias + row_bias[row_index] + col_bias[col_index] + cell_bias) / 2;
+# }
+# model {
+#     //priors and hyperpriors
+# 
+#     //marginal params
+#     col_mean ~ normal(0,2);
+#     col_sd ~ std_normal();
+#     raw_colcat_logodds ~ std_normal();
+#     colcat_sd ~ std_normal();
+#     raw_col_logodds ~ std_normal();
+#     raw_cell_logodds ~ std_normal();
+#     cell_sd ~ std_normal();
+# 
+#     //bias params
+#     overall_bias ~ std_normal();
+# 
+#     raw_colcat_bias ~ std_normal();
+#     colcat_bias_sd ~ std_normal();
+# 
+#     raw_col_bias ~ std_normal();
+#     col_bias_sd ~ std_normal();
+# 
+#     raw_row_bias ~ std_normal();
+#     row_bias_sd ~ std_normal();
+# 
+#     raw_cell_bias ~ std_normal();
+#     cell_bias_sd ~ std_normal();
+#     
+#     //bias correlation params
+#     L_col_bias ~ lkj_corr_cholesky(1.0);
+#     L_row_bias ~ lkj_corr_cholesky(1.0);
+#     
+#     //likelihood
+#     cell_count ~ binomial_logit(row_count, cell_logodds_focal);
+#     cell_count_compl ~ binomial_logit(row_count_compl, cell_logodds_compl);
+# 
+# }
+# generated quantities {
+#     vector[n] cell_total_prob_bias = inv_logit(cell_logodds_focal) - inv_logit(cell_logodds_compl);
+# }
+# '
+
+#data goes tiss1-trait1, tiss2-trait1, tiss3-trait1...
+
+d <- list(cell_count = data_subset$count,
+          total = sapply(1:nrow(data_subset), function(i) total_number_of_possible_hits_matrix[data_subset$tissue[i], data_subset$trait[i]]),
+          row_count = sapply(1:nrow(data_subset), function(i) n_genes_in_nodes_matrix[data_subset$tissue[i], data_subset$trait[i]]),
+          col_count = sapply(1:nrow(data_subset), function(i) sig_twas_by_trait_genes_matrix[data_subset$tissue[i], data_subset$trait[i]]),
+          row_index = match(data_subset$tissue, tissues),
+          col_index = match(data_subset$trait, traits),
+          colcat_index = match(traitwise_partitions$Category[match(traits, traitwise_partitions$Tag)] , trait_cats),
+          row_n = length(tissues),
+          col_n = length(traits),
+          colcat_n = length(trait_cats),
+          L_interaction = t(chol(kronecker(trait_corr_mat[traits,traits], tissue_corr_mat[tissues, tissues])))
+      )
+
+base = paste0("deviation_from_expected_logodds_split_the_difference_informative-matrix-normal_priors", ifelse(use_random_DE_genes, "_randomgenes", ""))
 stan_program <- '
 data {
     int<lower=1> row_n;
@@ -590,6 +846,7 @@ data {
     int<lower=0> row_count[row_n * col_n];
     int<lower=0> col_count[row_n * col_n];
     int<lower=0> cell_count[row_n * col_n];
+    cholesky_factor_corr[row_n * col_n] L_interaction;
 }
 transformed data {
     int<lower=1> n = row_n * col_n;
@@ -620,18 +877,19 @@ parameters {
     real<lower=0> col_bias_sd;
     real<lower=0> colcat_bias_sd;
     real<lower=0> cell_bias_sd;
+    
 }
 transformed parameters {
     //recenter params
     vector[colcat_n] colcat_logodds = raw_colcat_logodds * colcat_sd + col_mean;
     vector[col_n] col_logodds = raw_col_logodds * col_sd + colcat_logodds[colcat_index];
-    vector[n] cell_logodds = raw_cell_logodds * cell_sd + col_logodds[col_index];
+    vector[n] cell_logodds = L_interaction * raw_cell_logodds * cell_sd + col_logodds[col_index];
 
     //incorporate bias
     vector[colcat_n] colcat_bias = raw_colcat_bias * colcat_bias_sd;
     vector[col_n] col_bias = raw_col_bias * col_bias_sd + colcat_bias[colcat_index];
     vector[row_n] row_bias = raw_row_bias * row_bias_sd;
-    vector[n] cell_bias = raw_cell_bias * cell_bias_sd;
+    vector[n] cell_bias = L_interaction * raw_cell_bias * cell_bias_sd;
     vector[n] cell_logodds_focal = cell_logodds +
               (overall_bias + row_bias[row_index] + col_bias[col_index] + cell_bias) / 2;
     vector[n] cell_logodds_compl = cell_logodds -
@@ -663,7 +921,7 @@ model {
 
     raw_cell_bias ~ std_normal();
     cell_bias_sd ~ std_normal();
-
+    
     //likelihood
     cell_count ~ binomial_logit(row_count, cell_logodds_focal);
     cell_count_compl ~ binomial_logit(row_count_compl, cell_logodds_compl);
@@ -673,84 +931,82 @@ generated quantities {
     vector[n] cell_total_prob_bias = inv_logit(cell_logodds_focal) - inv_logit(cell_logodds_compl);
 }
 '
-
-
-base = paste0("deviation_from_expected_logodds_split_the_difference", ifelse(use_random_DE_genes, "_randomgenes", ""))
-stan_program <- '
-data {
-    int<lower=1> row_n;
-    int<lower=1> col_n;
-    int<lower=1> colcat_n;
-    int<lower=0> total[row_n * col_n];
-    int<lower=1,upper=row_n> row_index[row_n * col_n];
-    int<lower=1,upper=col_n> col_index[row_n * col_n];
-    int<lower=1,upper=colcat_n> colcat_index[col_n];
-    int<lower=0> row_count[row_n * col_n];
-    int<lower=0> col_count[row_n * col_n];
-    int<lower=0> cell_count[row_n * col_n];
-}
-transformed data {
-    int<lower=1> n = row_n * col_n;
-    int<lower=0> cell_count_compl[n];
-    int<lower=0> row_count_compl[n];
-    for(i in 1:n){
-      cell_count_compl[i] = col_count[i] - cell_count[i];
-      row_count_compl[i] = total[i] - row_count[i];
-    }
-}
-parameters {
-    //col params
-    real col_mean;
-    real<lower=0> col_sd;
-    vector[col_n] raw_col_logodds;
-    real<lower=0> cell_sd;
-    vector[n] raw_cell_logodds;
-
-    //biases in deviations terms
-    vector[col_n] raw_col_bias;
-    vector[n] raw_cell_bias;
-    real<lower=0> col_bias_sd;
-    real<lower=0> cell_bias_sd;
-}
-transformed parameters {
-    //recenter params
-    vector[col_n] col_logodds = raw_col_logodds * col_sd;
-    vector[n] cell_logodds = raw_cell_logodds * cell_sd + col_logodds[col_index];
-
-    //incorporate bias
-    vector[col_n] col_bias = raw_col_bias * col_bias_sd;
-    vector[n] cell_bias = raw_cell_bias * cell_bias_sd;
-    vector[n] cell_logodds_focal = cell_logodds +
-              (col_bias[col_index] + cell_bias) / 2;
-    vector[n] cell_logodds_compl = cell_logodds -
-              (col_bias[col_index] + cell_bias) / 2;
-}
-model {
-    //priors and hyperpriors
-
-    //marginal params
-    col_mean ~ normal(0,2);
-    col_sd ~ std_normal();
-    raw_col_logodds ~ std_normal();
-    raw_cell_logodds ~ std_normal();
-    cell_sd ~ std_normal();
-
-    //bias params
-    raw_col_bias ~ std_normal();
-    col_bias_sd ~ std_normal();
-
-    raw_cell_bias ~ std_normal();
-    cell_bias_sd ~ std_normal();
-
-    //likelihood
-    cell_count ~ binomial_logit(row_count, cell_logodds_focal);
-    cell_count_compl ~ binomial_logit(row_count_compl, cell_logodds_compl);
-
-}
-generated quantities {
-    vector[n] cell_total_prob_bias = inv_logit(cell_logodds_focal) - inv_logit(cell_logodds_compl);
-}
-'
+# base = paste0("deviation_from_expected_logodds_split_the_difference", ifelse(use_random_DE_genes, "_randomgenes", ""))
+# stan_program <- '
+# data {
+#     int<lower=1> row_n;
+#     int<lower=1> col_n;
+#     int<lower=1> colcat_n;
+#     int<lower=0> total[row_n * col_n];
+#     int<lower=1,upper=row_n> row_index[row_n * col_n];
+#     int<lower=1,upper=col_n> col_index[row_n * col_n];
+#     int<lower=1,upper=colcat_n> colcat_index[col_n];
+#     int<lower=0> row_count[row_n * col_n];
+#     int<lower=0> col_count[row_n * col_n];
+#     int<lower=0> cell_count[row_n * col_n];
+# }
+# transformed data {
+#     int<lower=1> n = row_n * col_n;
+#     int<lower=0> cell_count_compl[n];
+#     int<lower=0> row_count_compl[n];
+#     for(i in 1:n){
+#       cell_count_compl[i] = col_count[i] - cell_count[i];
+#       row_count_compl[i] = total[i] - row_count[i];
+#     }
+# }
+# parameters {
+#     //col params
+#     real col_mean;
+#     real<lower=0> col_sd;
+#     vector[col_n] raw_col_logodds;
+#     real<lower=0> cell_sd;
+#     vector[n] raw_cell_logodds;
+# 
+#     //biases in deviations terms
+#     vector[col_n] raw_col_bias;
+#     vector[n] raw_cell_bias;
+#     real<lower=0> col_bias_sd;
+#     real<lower=0> cell_bias_sd;
+# }
+# transformed parameters {
+#     //recenter params
+#     vector[col_n] col_logodds = raw_col_logodds * col_sd;
+#     vector[n] cell_logodds = raw_cell_logodds * cell_sd + col_logodds[col_index];
+# 
+#     //incorporate bias
+#     vector[col_n] col_bias = raw_col_bias * col_bias_sd;
+#     vector[n] cell_bias = raw_cell_bias * cell_bias_sd;
+#     vector[n] cell_logodds_focal = cell_logodds +
+#               (col_bias[col_index] + cell_bias) / 2;
+#     vector[n] cell_logodds_compl = cell_logodds -
+#               (col_bias[col_index] + cell_bias) / 2;
+# }
+# model {
+#     //priors and hyperpriors
+# 
+#     //marginal params
+#     col_mean ~ normal(0,2);
+#     col_sd ~ std_normal();
+#     raw_col_logodds ~ std_normal();
+#     raw_cell_logodds ~ std_normal();
+#     cell_sd ~ std_normal();
+# 
+#     //bias params
+#     raw_col_bias ~ std_normal();
+#     col_bias_sd ~ std_normal();
+# 
+#     raw_cell_bias ~ std_normal();
+#     cell_bias_sd ~ std_normal();
+# 
+#     //likelihood
+#     cell_count ~ binomial_logit(row_count, cell_logodds_focal);
+#     cell_count_compl ~ binomial_logit(row_count_compl, cell_logodds_compl);
+# 
+# }
+# generated quantities {
+#     vector[n] cell_total_prob_bias = inv_logit(cell_logodds_focal) - inv_logit(cell_logodds_compl);
+# }
+# '
 
 #try the even simpler model out again
 # data_subset <- data1
@@ -880,37 +1136,57 @@ samps <- data.frame(as_draws_df(out$draws()))
 
 dev.off()
 hist(samps$overall_bias)
-mean(samps$overall_bias < 0)
+mean(samps$overall_bias > 0)
 
 prop_greater_than_0 <- function(x) mean(x>0)
 
-cellbias <- apply(subset_samps("cell_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+cellbias <- apply(subset_samps("cell_bias", c("raw", "sd", "L"), samps = samps), 2, prop_greater_than_0)
 sum(cellbias > 0.9)
 sum(cellbias < 0.1)
 hist(cellbias, breaks = 100)
 
-celltotalbias <- apply(subset_samps("cell_total_prob_bias", c("raw", "sd", "logodds"), samps = samps), 2, prop_greater_than_0)
+celltotalbias <- apply(subset_samps("cell_total_prob_bias", c("raw", "sd", "logodds", "L"), samps = samps), 2, prop_greater_than_0)
 sum(celltotalbias > 0.9)
 sum(celltotalbias < 0.1)
 hist(celltotalbias, breaks = 100)
 cbind(data1$tissue, data1$trait, celltotalbias)[celltotalbias > 0.95 | celltotalbias < 0.05,]
 
-rowbias <- apply(subset_samps("row_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+rowbias <- apply(subset_samps("row_bias", c("raw", "sd", "L"), samps = samps) + samps$overall_bias, 2, prop_greater_than_0)
 sum(rowbias > 0.9)
 sum(rowbias < 0.1)
 cbind(tissues[order(rowbias)], sort(rowbias))
 
-colbias <- apply(subset_samps("col_bias", c("raw", "sd"), samps = samps) + samps$overall_bias, 2, prop_greater_than_0)
-colbias <- apply(subset_samps("col_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+colbias <- apply(subset_samps("col_bias", c("raw", "sd", "L"), samps = samps) + samps$overall_bias, 2, prop_greater_than_0)
+# colbias <- apply(subset_samps("col_bias", c("raw", "sd", "L"), samps = samps), 2, prop_greater_than_0)
+hist(colbias)
 sum(colbias > 0.9)
 sum(colbias < 0.1)
 trait_key <- setNames(trait_categories$new_Phenotype, trait_categories$Tag)
 cbind(trait_key[traits[order(colbias)]], sort(colbias))
 
-colcatbias <- apply(subset_samps("colcat_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+# colcatbias <- apply(subset_samps("colcat_bias", c("raw", "sd", "L"), samps = samps), 2, prop_greater_than_0)
+colcatbias <- apply(subset_samps("colcat_bias", c("raw", "sd", "L"), samps = samps) + samps$overall_bias, 2, prop_greater_than_0)
+hist(colcatbias)
 sum(colcatbias > 0.9)
 sum(colcatbias < 0.1)
 cbind(trait_cats[order(colcatbias)], sort(colcatbias))
+
+#process correlation matrices
+#columns
+L_col_bias_samps <- subset_samps("L_col_bias", c("raw"), samps = samps)
+col_bias_corrs_samps <- do.call(abind::abind, list(lapply(1:nrow(samps), function(i){L <- matrix(unlist(L_col_bias_samps[i,]), length(traits), length(traits)); L %*% t(L)}), along = 3))
+col_bias_corrs_mean <- apply(col_bias_corrs_samps, c(1,2), mean)
+col_bias_corrs_gr0.5 <- apply(col_bias_corrs_samps, c(1,2), prop_greater_than_0)
+hist(col_bias_corrs_gr0.5[upper.tri(col_bias_corrs_gr0.5)])
+
+#rows
+L_row_bias_samps <- subset_samps("L_row_bias", c("raw"), samps = samps)
+row_bias_corrs_samps <- do.call(abind::abind, list(lapply(1:nrow(samps), function(i){L <- matrix(unlist(L_row_bias_samps[i,]), length(tissues), length(tissues)); L %*% t(L)}), along = 3))
+row_bias_corrs_mean <- apply(row_bias_corrs_samps, c(1,2), mean)
+row_bias_corrs_gr0.5 <- apply(row_bias_corrs_samps, c(1,2), prop_greater_than_0)
+hist(row_bias_corrs_gr0.5[upper.tri(row_bias_corrs_gr0.5)])
+hist(row_bias_corrs_mean[upper.tri(row_bias_corrs_mean)])
+
 
 # rowcatbias <- apply(subset_samps("rowcat_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
 # sum(rowcatbias > 0.95)
