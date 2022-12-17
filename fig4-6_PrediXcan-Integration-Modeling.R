@@ -172,6 +172,7 @@ if(use_all_cats){
   if(!file.exists("~/data/smontgom/ihw_results_all.twas.RData")){
     ihw_twas <- as.data.frame(cbind(trait_tissue = as.factor(paste0(some.twas$trait, "~", some.twas$tissue)), pvalue = some.twas$pvalue))
     ihw_results <- IHW::ihw(pvalue ~ trait_tissue, data = ihw_twas, alpha = 0.05)  
+    save(some.twas, file = "~/data/smontgom/PrediXcan_output_all.twas.RData")
     save(ihw_results, file = "~/data/smontgom/ihw_results_all.twas.RData")
   } else {
     load("~/data/smontgom/ihw_results_all.twas.RData")
@@ -446,34 +447,77 @@ prop_degs_are_twas <- prop_degs_are_twas[,order(apply(prop_degs_are_twas, 2, mea
 
 
 #look at overlap between traits
-adj_pvalue_alpha <- 0.05
-twas_tiss <- some.twas$tissue[1]
-tissues <- setNames(unique(some.twas$tissue), unique(some.twas$tissue))
-trait_corr_mats <- lapply(tissues, function(twas_tiss){
-  twas_sub <- some.twas[some.twas$tissue == twas_tiss,]
-  twas_sub$gene <- gsub(twas_sub$gene, pattern = "\\..*", replacement = "")
-  twas_sub_hits <- twas_sub[twas_sub$adj_pvalue < adj_pvalue_alpha,]
-  na.remove <- function(x) x[!is.na(x)]
-  twas_genes_x_trait <- lapply(lapply(split(twas_sub_hits$gene, twas_sub_hits$trait), na.remove), unique)
-  all_genes_x_trait <- lapply(lapply(split(twas_sub$gene, twas_sub$trait), na.remove), unique)
-  trait_corr_mat <- estimate_correlations(y = twas_genes_x_trait, t = all_genes_x_trait, print_progress = T)
-  trait_corr_mat
-})
+estimate_trait_corr_mats <- F
+if(estimate_trait_corr_mats){
+  adj_pvalue_alpha <- 0.05
+  twas_tiss <- some.twas$tissue[1]
+  tissues <- setNames(unique(some.twas$tissue), unique(some.twas$tissue))
+  trait_corr_mats <- lapply(tissues, function(twas_tiss){
+    twas_sub <- some.twas[some.twas$tissue == twas_tiss,]
+    twas_sub$gene <- gsub(twas_sub$gene, pattern = "\\..*", replacement = "")
+    twas_sub_hits <- twas_sub[twas_sub$adj_pvalue < adj_pvalue_alpha,]
+    na.remove <- function(x) x[!is.na(x)]
+    twas_genes_x_trait <- lapply(lapply(split(twas_sub_hits$gene, twas_sub_hits$trait), na.remove), unique)
+    all_genes_x_trait <- lapply(lapply(split(twas_sub$gene, twas_sub$trait), na.remove), unique)
+    trait_corr_mat <- estimate_correlations(y = twas_genes_x_trait, t = all_genes_x_trait, print_progress = T)
+    trait_corr_mat
+  })
+  save(trait_corr_mats, file = paste0("~/data/smontgom/trait_corr_mats", ifelse(use_random_Pred_genes, "_random-genes", ""), ".RData"))  
+} else {
+  load(file = paste0("~/data/smontgom/trait_corr_mats", ifelse(use_random_Pred_genes, "_random-genes", ""), ".RData"))
+}
+tissue_abbr <- MotrpacBicQC::tissue_abbr[grep("t[0-9][0-9]", x = names(MotrpacBicQC::tissue_abbr))]
+tissue_abbr_rev <- setNames(names(tissue_abbr), tissue_abbr)
+trait_corr_mats <- trait_corr_mats[tissue_abbr_rev[rownames(n_deg_sigtwas_intersect)]]
 
-pheatmap::pheatmap(trait_corr_mats[[1]], breaks = -10:10/10, color = colorspace::diverging_hcl(21))
+sapply(trait_corr_mats, dim)
 
-plot(trait_corr_mats[[15]][colnames(n_deg_sigtwas_intersect), colnames(n_deg_sigtwas_intersect)], 
+plot(trait_corr_mats[[5]][colnames(n_deg_sigtwas_intersect), colnames(n_deg_sigtwas_intersect)], 
      trait_corr_mats[[12]][colnames(n_deg_sigtwas_intersect), colnames(n_deg_sigtwas_intersect)])
 
-#obtain an average across traits
+#obtain an average across traits?
 traitset <- colnames(n_deg_sigtwas_intersect)
 sapply(traitset, function(ti1) sapply(traitset, function(ti1) 1+1))
 trait_corr_mat <- trait_corr_mats[[1]]
 
 
+#estimate composite trait corr mat?
+estimate_composite_corrmat <- F
+if(estimate_composite_corrmat){
+  adj_pvalue_alpha <- 0.05
+  tissues <- setNames(tissue_abbr_rev[rownames(n_deg_sigtwas_intersect)], tissue_abbr_rev[rownames(n_deg_sigtwas_intersect)])
+  
+  #get lists of genes
+  trait_x_tissue_data <- lapply(tissues, function(twas_tiss){
+    cat(paste0(twas_tiss, " "))
+    twas_sub <- some.twas[some.twas$tissue == twas_tiss,]
+    twas_sub$gene <- gsub(twas_sub$gene, pattern = "\\..*", replacement = "")
+    twas_sub_hits <- twas_sub[twas_sub$adj_pvalue < adj_pvalue_alpha,]
+    na.remove <- function(x) x[!is.na(x)]
+    twas_genes_x_trait <- lapply(lapply(split(twas_sub_hits$gene, twas_sub_hits$trait), na.remove), unique)
+    all_genes_x_trait <- lapply(lapply(split(twas_sub$gene, twas_sub$trait), na.remove), unique)
+    list(hits = twas_genes_x_trait, all = all_genes_x_trait)
+  })
+  
+  #reorder lists by trait
+  traits <- setNames(colnames(n_deg_sigtwas_intersect), colnames(n_deg_sigtwas_intersect))
+  trait_hits <- lapply(traits, function(trait_i) lapply(tissues, function(twas_tiss) trait_x_tissue_data[[twas_tiss]]$hits[[trait_i]]))
+  trait_all <- lapply(traits, function(trait_i) lapply(tissues, function(twas_tiss) trait_x_tissue_data[[twas_tiss]]$all[[trait_i]]))
+  
+  trait_corr_mat_multi <- estimate_correlations_multi(y = trait_hits, t = trait_all, print_progress = T)
+
+  save(trait_corr_mat_multi, file = paste0("~/data/smontgom/trait_corr_mat_multi", ifelse(use_random_Pred_genes | use_random_DE_genes, "_random-genes", ""), ".RData"))  
+} else {
+  load(file = paste0("~/data/smontgom/trait_corr_mat_multi", ifelse(use_random_Pred_genes | use_random_DE_genes, "_random-genes", ""), ".RData"))
+}
+
+trait_corr_mat <- trait_corr_mat_multi
+pheatmap::pheatmap(trait_corr_mat, breaks = -10:10/10, color = colorspace::diverging_hcl(21))
+
 #### obtain a bayesian estimate of the twas proportion and perform an 'enrichment' analysis ####
 
 #get total number of possible hits
+tissues <- setNames(rownames(n_deg_sigtwas_intersect), rownames(n_deg_sigtwas_intersect))
 total_number_of_possible_hits <- length(intersect(all_orthologs_tested, all_twas_genes_tested))
 
 load('~/data/smontgom/transcript_rna_seq_20211008.RData')
@@ -826,14 +870,16 @@ d <- list(cell_count = data_subset$count,
           col_count = sapply(1:nrow(data_subset), function(i) sig_twas_by_trait_genes_matrix[data_subset$tissue[i], data_subset$trait[i]]),
           row_index = match(data_subset$tissue, tissues),
           col_index = match(data_subset$trait, traits),
-          colcat_index = match(traitwise_partitions$Category[match(traits, traitwise_partitions$Tag)] , trait_cats),
+          colcat_index = match(traitwise_partitions$Category[match(traits, traitwise_partitions$Tag)], trait_cats),
           row_n = length(tissues),
           col_n = length(traits),
           colcat_n = length(trait_cats),
-          L_interaction = t(chol(kronecker(trait_corr_mat[traits,traits], tissue_corr_mat[tissues, tissues])))
+          L_interaction = t(chol(kronecker(trait_corr_mat[traits,traits], tissue_corr_mat[tissues, tissues]))),
+          L_col = t(chol(trait_corr_mat[traits,traits])),
+          L_row = t(chol(tissue_corr_mat[tissues, tissues]))
       )
 
-base = paste0("deviation_from_expected_logodds_split_the_difference_informative-matrix-normal_priors", ifelse(use_random_DE_genes, "_randomgenes", ""))
+base = paste0("deviation_from_expected_logodds_split_the_difference_informative-MVN-matrix-normal_priors", ifelse(use_random_DE_genes, "_randomgenes", ""))
 stan_program <- '
 data {
     int<lower=1> row_n;
@@ -847,6 +893,8 @@ data {
     int<lower=0> col_count[row_n * col_n];
     int<lower=0> cell_count[row_n * col_n];
     cholesky_factor_corr[row_n * col_n] L_interaction;
+    cholesky_factor_corr[col_n] L_col;
+    cholesky_factor_corr[row_n] L_row;
 }
 transformed data {
     int<lower=1> n = row_n * col_n;
@@ -877,18 +925,17 @@ parameters {
     real<lower=0> col_bias_sd;
     real<lower=0> colcat_bias_sd;
     real<lower=0> cell_bias_sd;
-    
 }
 transformed parameters {
     //recenter params
     vector[colcat_n] colcat_logodds = raw_colcat_logodds * colcat_sd + col_mean;
-    vector[col_n] col_logodds = raw_col_logodds * col_sd + colcat_logodds[colcat_index];
+    vector[col_n] col_logodds = L_col * raw_col_logodds * col_sd + colcat_logodds[colcat_index];
     vector[n] cell_logodds = L_interaction * raw_cell_logodds * cell_sd + col_logodds[col_index];
 
     //incorporate bias
     vector[colcat_n] colcat_bias = raw_colcat_bias * colcat_bias_sd;
-    vector[col_n] col_bias = raw_col_bias * col_bias_sd + colcat_bias[colcat_index];
-    vector[row_n] row_bias = raw_row_bias * row_bias_sd;
+    vector[col_n] col_bias = L_col * raw_col_bias * col_bias_sd + colcat_bias[colcat_index];
+    vector[row_n] row_bias = L_row * raw_row_bias * row_bias_sd;
     vector[n] cell_bias = L_interaction * raw_cell_bias * cell_bias_sd;
     vector[n] cell_logodds_focal = cell_logodds +
               (overall_bias + row_bias[row_index] + col_bias[col_index] + cell_bias) / 2;
@@ -1107,7 +1154,7 @@ generated quantities {
 # }
 # '
 
-fit_model <- T
+fit_model <- F
 if(fit_model){
   
   #compile model
@@ -1122,16 +1169,18 @@ if(fit_model){
   write_stan_json(d, paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".json"))
   
   #fit model
-  out <- mod$sample(chains = 4, iter_sampling = 1E3, iter_warmup = 1E3, data = d, parallel_chains = 4, 
+  out <- mod$sample(chains = 4, iter_sampling = 5E3, iter_warmup = 5E3, data = d, parallel_chains = 4, 
                     adapt_delta = 0.95, refresh = 50, init = 0.1, max_treedepth = 15, thin = 2)
-  # summ <- out$summary()
-  # summ[order(summ$ess_bulk),]
-  # summ[order(summ$rhat, decreasing = T),]
+  summ <- out$summary()
+  summ[order(summ$ess_bulk),]
+  summ[order(summ$rhat, decreasing = T),]
   save(out, file = paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
+  save(summ, file = paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.summ"))
 } else {
   load(paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
 }
 
+#NOTE -- MAYBE COMPLEMENTARY SET SHOULD BE SET OF NON-DEGS?
 samps <- data.frame(as_draws_df(out$draws()))
 
 dev.off()
@@ -1149,7 +1198,7 @@ celltotalbias <- apply(subset_samps("cell_total_prob_bias", c("raw", "sd", "logo
 sum(celltotalbias > 0.9)
 sum(celltotalbias < 0.1)
 hist(celltotalbias, breaks = 100)
-cbind(data1$tissue, data1$trait, celltotalbias)[celltotalbias > 0.95 | celltotalbias < 0.05,]
+cbind(data_subset$tissue, data_subset$trait, celltotalbias)[celltotalbias > 0.95 | celltotalbias < 0.05,]
 
 rowbias <- apply(subset_samps("row_bias", c("raw", "sd", "L"), samps = samps) + samps$overall_bias, 2, prop_greater_than_0)
 sum(rowbias > 0.9)
@@ -3668,12 +3717,13 @@ if(fit_model){
   write_stan_json(d, paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".json"))
   
   #fit model
-  out <- mod$sample(chains = 4, iter_sampling = 2E3, iter_warmup = 2E3, data = d, parallel_chains = 4, 
+  out <- mod$sample(chains = 4, iter_sampling = 5E3, iter_warmup = 5E3, data = d, parallel_chains = 4, 
                     adapt_delta = 0.99, refresh = 50, init = 0.1, max_treedepth = 20, thin = 2)
   summ <- out$summary()
   summ[order(summ$ess_bulk),]
   summ[order(summ$rhat, decreasing = T),]
   save(out, file = paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
+  save(summ, file = paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.summ"))
 } else {
   load(paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
 }
@@ -6298,9 +6348,9 @@ dev.off()
 #### fig4, redux ####
 
 #load appropriate model fit
-if(base != "deviation_from_expected_logodds_split_the_difference"){
+if(base != "deviation_from_expected_logodds_split_the_difference_informative-MVN-matrix-normal_priors"){
   
-  base = "deviation_from_expected_logodds_split_the_difference"
+  base = "deviation_from_expected_logodds_split_the_difference_informative-MVN-matrix-normal_priors"
   load(paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
   
   samps <- data.frame(as_draws_df(out$draws()))
@@ -6353,7 +6403,7 @@ mars <- list(c(6,
              c(4.25,2.5,2.5,2.5), 
              c(10,6.5,1.5,2.5))
 
-cairo_pdf(paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/fig4_intersect-enrichment_redux.pdf"), 
+cairo_pdf(paste0("~/repos/MoTrPAC_Complex_Traits/figures/fig4_intersect-enrichment_redux.pdf"), 
           width = 2000 / 72 * ncol(table_to_use) / 80, 
           height = 1200 / 72 + ifelse(group_by_tissue_type, disp_amount * 0.75, 0), 
           family="Arial Unicode MS", pointsize = 18.5)
@@ -6425,7 +6475,7 @@ if(group_by_tissue_type){
   tissue_cats <- list(circulation = c("BLOOD", "HEART", "SPLEEN"),
                       skeletal_muscle = c("SKM-GN", "SKM-VL"),
                       other = rev(c("ADRNL", "KIDNEY", "LUNG", "LIVER")),
-                      adipose = c("WAT−SC"),
+                      adipose = c("WAT-SC"),
                       brain = c("CORTEX", "HYPOTH", "HIPPOC"),
                       GI = c("SMLINT", "COLON"))
   tissue_cats <- rev(tissue_cats)
@@ -6433,6 +6483,10 @@ if(group_by_tissue_type){
   tissue_disps <- unlist(lapply(1:length(tissue_cats), function(tci) rep(disp_amount * (tci), length(tissue_cats[[tci]]))))
   tissue_cats_bars_ylocs <- cbind(start = (c(0, cumsum(unlist(lapply(tissue_cats, function(tc) length(tc))) + disp_amount)) + 2 * disp_amount)[-(length(tissue_cats)+1)], 
                                   end = cumsum(unlist(lapply(tissue_cats, function(tc) length(tc))) + disp_amount) + disp_amount)
+  
+  #get in correct order
+  table_to_use <- table_to_use[unlist(tissue_cats),]
+  signif_matrix_to_use <- signif_matrix_to_use[unlist(tissue_cats),]
   
 }
 
@@ -6992,7 +7046,7 @@ tmp <- vioplot::vioplot(x = focal_samps[,tord], T,
                         horizontal = T)
 
 #axes
-xtickvals <- -1:2/5
+xtickvals <- seq3(range(qi_100), 5, 0)
 segments(x0 = xtickvals, x1 = xtickvals, y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/100, xpd = NA)
 text(x = xtickvals, y = par("usr")[3] - diff(par("usr")[3:4])/30, labels = xtickvals)
 text(x = mean(par("usr")[1:2]), y = par("usr")[3]-diff(par("usr")[3:4])/10, 
@@ -7020,7 +7074,7 @@ if(T){
 }
 
 #legend for violin plots
-xval <- -0.75
+xval <- -0.9
 yval <- 0.5 #2
 yh <- 4
 yt <- yval + yh/2
@@ -7103,7 +7157,7 @@ tmp <- vioplot::vioplot(x = focal_samps[,tord], T,
                         horizontal = T)
 
 #axes
-xtickvals <- -2:2/5
+xtickvals <- seq3(range(qi_100), 5, 0)
 segments(x0 = xtickvals, x1 = xtickvals, y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/100, xpd = NA)
 text(x = xtickvals, y = par("usr")[3] - diff(par("usr")[3:4])/30, labels = xtickvals)
 text(x = mean(par("usr")[1:2]), y = par("usr")[3]-diff(par("usr")[3:4])/10, 
@@ -7120,7 +7174,8 @@ for(i in 1:length(colnames(focal_samps))){
   
 }
 catlabs <- colnames(focal_samps)[tord]
-catlabs <- gsub("system ", "system\n", gsub("-", "-\n", catlabs))
+# catlabs <- gsub("system ", "system\n", gsub("-", "-\n", catlabs))
+catlabs <- gsub("system ", "", gsub("-neurologic", "", catlabs))
 text(y = tick, x = rep(par("usr")[1] - 0.01, length(tick)), 
      labels = catlabs, 
      srt = 0, xpd = T, pos = 2, cex = 1.25,
@@ -7164,7 +7219,7 @@ tmp <- vioplot::vioplot(x = focal_samps[,tord], T,
                         horizontal = F,
                         xlim = c(4,ncol(focal_samps)-3))
 
-ytickvals <- -2:2/2
+ytickvals <- seq3(range(qi_100), 5, 0)
 segments(y0 = ytickvals, y1 = ytickvals, x0 = par("usr")[1], x1 = par("usr")[1] - diff(par("usr")[1:2])/200, xpd = NA)
 text(y = ytickvals, x = par("usr")[1] - diff(par("usr")[1:2])/75, labels = ytickvals)
 text(y = mean(par("usr")[3:4]), x = par("usr")[1]-diff(par("usr")[1:2])/25,
@@ -7181,8 +7236,11 @@ for(i in 1:length(traits[trait_subset_bool])){
   segments(x0 = i, x1 = i, y0 = min(qi_100) - diff(range(qi_100)) / 30, y1 = qi_100[1,i], lwd = 1, col = "black", xpd = T, lty = 3)
   segments(x0 = i, x1 = i, y0 = qi_100[2,i], y1 = max(qi_100) * 0.75 + 1 * 0.25, lwd = 1, col = "black", xpd = T, lty = 3)
 }
+trait_labs <- trait_categories$new_Phenotype[match(colnames(focal_samps)[trait_subset_bool][tord], trait_categories$Tag)]
+trait_labs[which.max(nchar(trait_labs))]
+trait_labs[trait_labs == "Attention_Deficit_Hyperactivity_Disorder"] <- "ADHD"
 text(tick + 0.55, par("usr")[3] - diff(par("usr")[3:4])/12, cex = 0.8,
-     labels = trait_categories$new_Phenotype[match(colnames(focal_samps)[trait_subset_bool][tord], trait_categories$Tag)], 
+     labels = trait_labs, 
      srt = 45, xpd = T, pos = 2,
      col = cols$category[trait_categories$Category[match(colnames(focal_samps)[trait_subset_bool][tord], trait_categories$Tag)]], xpd = NA)
 fig_label("f)", cex = 2, shrinkX = 0.4)

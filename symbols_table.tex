@@ -1,0 +1,166 @@
+\documentclass{article}
+\usepackage{booktabs,tabularx}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{amssymb}
+\mathchardef\mhyphen="2D
+
+\usepackage[margin=1in]{geometry} % set margins to meet your document's needs
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X} 
+   % use ragged-right, not fully-justified, look in narrow columns
+
+\usepackage[table,svgnames]{xcolor} % provides the \rowcolors command 
+\usepackage{caption} % for improved spacing around the caption
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{makecell}
+
+\setcounter{secnumdepth}{0}
+\numberwithin{equation}{section}
+
+
+\begin{document}
+
+\begin{center}{Intersect Enrichment Model}\end{center}
+{\setcounter{section}{1}\setcounter{equation}{0}
+\begin{align}
+y^{DEG}_{i,j} \sim Binomial(n^{DEG}_{i,j}, f(\pi^{DEG}_{i,j}))\\
+y^{\neg DEG}_{i,j} \sim Binomial(n^{\neg DEG}_{i,j}, f(\pi^{\neg DEG}_{i,j}))\\
+\pi^{DEG}_{i,j} = \pi_{i,j} + \frac{\alpha + \beta_i + \gamma_j + \epsilon_{i,j}}{2}\\
+\pi^{\neg DEG}_{i,j} = \pi_{i,j} - \frac{\alpha + \beta_i + \gamma_j + \epsilon_{i,j}}{2}\\
+\alpha \sim normal(0, 1)\\
+\beta_i \sim multi{\text -}normal(\vec{0}, \sigma_{\beta}^2\Sigma_{i})\\
+\gamma_j \sim multi{\text -}normal(\vec{\mu_k}, \sigma_{\gamma}^2\Sigma_{j})\\
+\epsilon_{i,j} \sim matrix{\text -}normal(0, \sigma_{\epsilon}\Sigma_{i}, \sigma_{\epsilon} \Sigma_{j})\\
+\mu_k \sim normal(0, \sigma_{\mu})\\
+\pi_{i,j} \sim matrix{\text -}normal(\eta_j, \sigma_{\pi}\Sigma_{i}, \sigma_{\pi} \Sigma_{j})\\
+\eta_j \sim multi{\text -}normal(\vec{\lambda_k}, \sigma_{\eta}^2\Sigma_{j})\\
+\lambda_k \sim normal(\mu, \sigma_{\lambda})\\
+\mu \sim normal(0, 2)\\
+\sigma_{\beta, \gamma, \epsilon, \mu, \pi, \eta, \lambda} \sim half\mhyphen normal(0,1)
+\end{align}}
+
+
+\begin{center}{Directionality Enrichment Model}\end{center}
+\setcounter{section}{2}\setcounter{equation}{0}
+\begin{align}
+y_{i,j} \sim Binomial(n_{i,j}, f(\pi_{i,j}))\\
+\pi_{i,j} \sim normal(\vec{\mu_j}, \sigma_j)\\
+\vec{\mu_j} \sim multi{\text -}normal(\vec{0}, SRS^T)\\
+R = G_{SNP} \times \theta + I \times (1-\theta)\\
+\theta \sim Beta(1,1)\\
+diag(S) = \delta e^{\gamma_k}\\
+\gamma_k \sim normal(0, \sigma_{\gamma})\\
+\sigma_j = \rho e^{\lambda_j}\\
+\lambda_j \sim normal(0, \sigma_{\lambda})\\
+\rho, \delta \sim half\mhyphen normal(0,2)\\
+\sigma_{\gamma, \lambda} \sim half\mhyphen normal(0,1)
+\end{align}
+
+\begin{table}[htbp]
+\caption{Intersect Enrichment Model Key}
+\centering
+\begin{tabular}{l r p{12cm}r}
+\toprule 
+Symbol & Support & Interpretation \\
+\midrule
+$i$ & $\{1,2,...,15\}$ & tissue index  \\
+$j$ & $\{1,2,...,99\}$ & trait index  \\
+$k$ & $\{1,2,...,12\}$ & trait category index  \\
+$n^{DEG}_{i,j}$ & $\mathbb{N}^0$ & observed \# of Differentially Expressed Genes (DEG) for tissue $i$ and trait $j$\\
+$n^{\neg DEG}_{i,j}$ & $\mathbb{N}^0$ & observed \# of non-DEGs for tissue $i$ and trait $j$\\
+$y_{i,j}$ & $\{1,2,...,n_{i,j}\}$ & observed \# of PrediXcan hits for tissue $i$ and trait $j$\\
+$f$ & & $f: \mathbb{R} \rightarrow (0, 1)$, logit function (maps log-odds to probabilities)  \\
+$\pi_{i,j}$ & $\mathbb{R}$ & mean log-odds of observing a PrediXcan hit for tissue $i$ and trait $j$\\
+$\alpha$ & $\mathbb{R}$ & average difference in log-odds between DEGs and non-DEGs\\
+$\beta_i$ & $\mathbb{R}$ & relative deviation to difference in log-odds between DEGs and non-DEGs for tissue $i$\\
+$\gamma_j$ & $\mathbb{R}$ & relative deviation to difference in log-odds between DEGs and non-DEGs for trait $j$\\
+$\mu_k$ & $\mathbb{R}$ &  relative deviation to difference in log-odds between DEGs and non-DEGs for trait category $k$\\
+$\epsilon_{i,j}$ & $\mathbb{R}$ &  relative deviation to difference in log-odds between DEGs and non-DEGs for trait $i$ $\times$ tissue $j$\\
+$\sigma^{*}$ & $\mathbb{R}_{>0}$ & various scale hyperparameters (for normal priors)\\
+$\Sigma_{*}$ & & externally estimated correlation matrix\\
+$\lambda_k$ & $\mathbb{R}$ & mean log-odds of observing a PrediXcan hit for trait in category $k$\\
+$\eta_j$ & $\mathbb{R}$ & mean log-odds of observing a PrediXcan hit for trait $j$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\caption{Directionality Enrichment Model Key}
+\centering
+\begin{tabular}{l r p{12cm}r}
+\toprule 
+Symbol & Support & Interpretation \\
+\midrule
+$i$ & $\{1,2,...,15\}$ & tissue index  \\
+$j$ & $\{1,2,...,99\}$ & trait index  \\
+$k$ & $\{1,2,...,12\}$ & trait category index  \\
+$n_{i,j}$ & $\mathbb{N}^0$ & observed \# of Differentially Expressed Genes (DEG) $\cap$ PrediXcan hits for tissue $i$ and trait $j$\\
+$y_{i,j}$ & $\{1,2,...,n_{i,j}\}$ & observed \# of positive associations in the set of DEGs $\cap$ PrediXcan hits for tissue $i$ and trait $j$\\
+$f$ & & $f: \mathbb{R} \rightarrow (0, 1)$, logit function (maps log-odds to probabilities)  \\
+$\pi_{i,j}$ & $\mathbb{R}$ & mean log-odds of observing a positive association for tissue $i$ and trait $j$\\
+$\vec{\mu_j}$ & $\mathbb{R}$ & mean log-odds of observing a positive association for trait $j$\\
+$S$ & $\mathbb{R}_{>0}$ & diagonal matrix of standard deviations of trait-wise log-odds enrichments in positive effects\\
+$R$ & Correlation Matrices & correlation matrix of mean positive association log-odds across traits\\
+$G$ & Correlation Matrices & externally estimated SNP correlation matrix across traits\\
+$I$ & & $j \times j$ identity matrix\\
+$\theta$ & $\in$ [0,1] & weight proportion between G and I\\
+$\delta$ & $\mathbb{R}_{>0}$ & geometric average standard deviation of trait-wise enrichment in positive effects\\
+$\gamma_k$ & $\mathbb{R}$ & multiplicative category deviation to $\delta$ for trait category $k$\\
+$\rho$ & $\mathbb{R}_{>0}$ & geometric average standard deviation of tissue-wise enrichment in positive effects for a given trait\\
+$\lambda_j$ & $\mathbb{R}_{>0}$ & multiplicative category deviation to $\rho$ for trait $j$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\caption{General Notation for Acronyms and Abbreviations}
+\centering
+\begin{tabular}{l p{12cm}r}
+\toprule 
+Symbol & Interpretation\\
+\midrule
+MoTrPAC & Molecular Transducers of Physical Activity Consortium\\
+EET & Endurance Exercise Training\\
+F344 & Fischer 344 Inbred Rats\\
+GTEx & Genotype{\text -}Tissue Expression project\\
+GWAS & Genome{\text -}Wide Association Study\\
+GCTA & Genome-wide Complex Trait Analysis\\
+TWAS & Transcriptome{\text -}Wide Association Study\\
+LDSC & Linkage Disequilibrium Score Regression\\
+SNP & Single Nucleotide Polymorphism\\
+MESC & Mediated Expression Score Regression\\
+eQTL & Expression Quantitative Trait Loci\\
+$h^2_{SNP}$& narrow{\text -}sense heritability captured by variation at SNPs\\
+8w\_F1\_M1 & upregulated DEGs in both males and females after 8 weeks of training\\ 
+8w\_F-1\_M-1 & downregulated DEGs in both males and females after 8 weeks of training\\ 
+IHW & Independent Hypothesis Weighting\\
+BF\% & Body Fat Percentage\\
+\midrule
+\textcolor[HTML]{DDA0DD}{ADRNL} & Adrenals\\
+\textcolor[HTML]{8c5220}{BAT} & Brown Adipose\\
+\textcolor[HTML]{5a2e15}{COLON} & Colon\\
+\textcolor[HTML]{f2e751}{CORTEX} & Cortex\\
+\textcolor[HTML]{088c03}{SKM-GN} & Gastrocnemius\\
+\textcolor[HTML]{f28b2f}{HEART} & Heart\\
+\textcolor[HTML]{bf7534}{HIPPOC} & Hippocampus\\
+\textcolor[HTML]{f2b443}{HYPOTH} & Hypothalmus\\
+\textcolor[HTML]{7553a7}{KIDNEY} & Kidney\\
+\textcolor[HTML]{da6c75}{LIVER} & Liver\\
+\textcolor[HTML]{04bf8a}{LUNG} & Lung\\
+\textcolor[HTML]{d92c04}{BLOOD} & Blood Rna\\
+\textcolor[HTML]{A18277}{SMLINT} & Small Intestine\\
+\textcolor[HTML]{f3c288}{SPLEEN} & Spleen\\
+\textcolor[HTML]{025939}{SKM-VL} & Vastus Lateralis\\
+\textcolor[HTML]{214da6}{WAT-SC} & White Adipose\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%In this model, the intersect size $y^{DEG}_{i,j}$ in tissue $i \in \{1, 2, ..., 15\}$ and trait $j \in \{1, 2, ..., 99\}$ was binomially distributed, with $n^{DEG}_{i,j}$ giving the total number of genes in that tissue that were differentially expressed at 8W \textit{and} expressed at any level in the PrediXcan analysis (i.e., disregarding genes that were not expressed in both samples). The function $f()$ can be any function mapping $\mathbb{R} \rightarrow (0,1)$, but here was the inverse-logit function. On the logit-scale, $\pi^{DEG}_{i,j}$ was expressed as a deviation from a mean $\pi_{i,j}$, with an equal and opposite deviation to the log-odds of observing a PrediXcan hit in the complementary set, defined as all expressed genes that were not differentially expressed at 8W in a sex-consistent manner. This deviation term had four components: a tissue difference $\beta_i$, a trait difference $\gamma_j$, a tissue x trait difference $\epsilon_{i,j}$, and an overall difference $\alpha$. Adding and subtracting half from $\pi_{i,j}$ to produce $\pi^{DEG}_{i,j}$ and $\pi^{\neg DEG}_{i,j}$, respectively, was done to prevent specifying greater prior uncertainty on one of the two composite probability parameters.
+%
+%The various scale parameters, $\sigma$, served to adaptively regularize estimates of each difference term towards their mean. Otherwise, we nested trait difference effects $\gamma_j$ in trait category difference effects $\mu_k$, where $k \in \{1, 2, ..., 12\}$ indexes previously designated trait categories \autocite{barbeira_exploiting_2021}, i.e. members of the set \{Psychiatric, Aging, Cardiometabolic, Allergy, Digestive, Immune, Endocrine, Skeletal, Anthropometric, Hair, Blood, Cancer\}. If traits in a particular category showed consistent evidence of deviation, partial pooling shrunk estimates towards their respective hyperparameters, allowing them to share information to the extent that there was information to be shared. We use a similar model structure to express the overall location parameter, $\pi_{i,j}$. 
+%
+%Pseudo-replication across tissues and traits amplifies signal visible to higher-level parameters, causing inference of the latter to mistake interdependent effects as independent evidence for enrichment. As aggregating to a Binomial removes all signal of gene interdependence, we introduce parameters $\Sigma_{i}$ and $\Sigma_{j}$, corresponding to $i \times i$ tissue and $j \times j$ trait correlation matrices, respectively. For tractability, we then fix these to maximum-likelihood estimates of each respective gene-wise correlation matrix under a bivariate probit, which we fit marginally across all tissues using the \textit{nlm} (non-linear minimization) algorithm \autocite{schnabel_modular_1985} implemented in and accessed through the R-packages \textit{stats} and \textit{optimx} \autocite{nash_optimx_2022}. As we fit these correlations marginally, rather than jointly, there is no guarantee that the resulting correlation matrix is positive semi-definite. To ensure this constraint is met, we transform the pairwise-estimated correlation matrices with Higham's algorithm \autocite{higham_computing_2002} implemented in the R-package \textit{Matrix} \autocite{bates_matrix_2022-1} function \texttt{nearPD()} before proceeding further.
+
+\end{document}
