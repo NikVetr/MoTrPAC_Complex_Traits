@@ -4339,7 +4339,8 @@ gene_cex <- 0.75
 gene_location <- 5.5
 f_offset <- 7.15
 
-MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV["all_tissues"] <- "ALL"
+my_tissue_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV
+my_tissue_abbr["all_tissues"] <- "ALL"
 for(trait_patt in trait_patts){
   trait <- intersect(twas_with_hits, 
                      trait_categories$Tag[grep(trait_categories$new_Phenotype, pattern = trait_patt, ignore.case = T)])[1]
@@ -4513,7 +4514,7 @@ for(trait_patt in trait_patts){
           #plot connecting lines
           for(gene_i in 1:nrow(tissue_genes)){
             segments(x0 = xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] + 
-                       strwidth(paste0(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue], " (", dn[tissue,"8w"], ")   "), cex = tissue_name_cex, units = "user"), 
+                       strwidth(paste0(my_tissue_abbr[tissue], " (", dn[tissue,"8w"], ")   "), cex = tissue_name_cex, units = "user"), 
                      y0 = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue],
                      x1 = tissue_genes$x[gene_i] + gene_cex*strwidth("  ", cex = tissue_name_cex, units = "user"),
                      y1 = tissue_genes$y[gene_i],
@@ -4533,7 +4534,7 @@ for(trait_patt in trait_patts){
       for(tissue in rownames(d)){
         text(x = xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue], cex = tissue_name_cex,
              y = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue], 
-             labels = paste0(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue], " (", dn[tissue,"8w"], ")"), col = cols$Tissue[tissue], pos = 4)
+             labels = paste0(my_tissue_abbr[tissue], " (", dn[tissue,"8w"], ")"), col = cols$Tissue[tissue], pos = 4)
         segments(x0 = 4, y0 = d[tissue,"8w"], 
                  x1 = xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] + 0.075, 
                  y1 = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue],
@@ -4586,7 +4587,7 @@ for(trait_patt in trait_patts){
       for(tissue in rownames(d)){
         text(x = -(xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] - 4) + f_offset + 1 - 0.025, cex = tissue_name_cex,
              y = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue], 
-             labels = paste0("(", dn[tissue,"8w"], ") ", MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue]), col = cols$Tissue[tissue], pos = 2)
+             labels = paste0("(", dn[tissue,"8w"], ") ", my_tissue_abbr[tissue]), col = cols$Tissue[tissue], pos = 2)
         segments(x0 = 1+f_offset, y0 = d[tissue,"8w"], 
                  x1 = -(xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] - 4) + f_offset + 1 - 0.075, 
                  y1 = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue],
@@ -4601,7 +4602,7 @@ for(trait_patt in trait_patts){
         
         for(gene_i in 1:nrow(tissue_genes)){
           segments(x0 = -(xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] - 4) + f_offset + 1 - 0.075 - 
-                     strwidth(paste0(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue], " (", dn[tissue,"8w"], ")  "), cex = tissue_name_cex, units = "user"), 
+                     strwidth(paste0(my_tissue_abbr[tissue], " (", dn[tissue,"8w"], ")  "), cex = tissue_name_cex, units = "user"), 
                    y0 = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue],
                    x1 = tissue_genes$x[gene_i] + gene_cex*strwidth("  ", cex = tissue_name_cex, units = "user") + 
                      (maxwidth_genename - strwidth(tissue_genes$gene[gene_i], units = "user", cex = gene_cex)) + 
