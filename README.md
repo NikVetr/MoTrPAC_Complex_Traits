@@ -2,6 +2,8 @@
 
 This is the GitHub repository associated with the publication: [insert publication here] 
 
+>**If this line is still here, it's still a WiP, so apologies for any missing components!**
+
 It primarily hosts scripts written in the R programming language that were used to 
 generate all of the paper figures. The names of these scripts are given in figure order, 
 i.e. `fig*_`. Software and data dependencies are listed below. Data dependencies are 
