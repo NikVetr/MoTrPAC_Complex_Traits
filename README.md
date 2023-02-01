@@ -75,14 +75,20 @@ included in `/data`.
 * `/Volumes/SSD500GB/gtex-pipeline/GTEx_Analysis_v8_eQTL_covariates/`:  
 * `/Volumes/SSD500GB/gtex-pipeline/GTEx_Analysis_v8_eQTL_expression_matrices/`:  
 * `/Volumes/SSD500GB/gtex-pipeline/log2-normalized-expression/log2-normalized-expression_*.expression.bed.gz`:  
-* `~/data/smontgom/41467_2021_23579_MOESM6_ESM.csv`:  
+* `~/data/smontgom/41467_2021_23579_MOESM6_ESM.csv`: [Dataset 5](https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-021-23579-x/MediaObjects/41467_2021_23579_MOESM6_ESM.xlsx)
+from the human exercise meta-analysis by Amar et al.: <https://pubmed.ncbi.nlm.nih.gov/34108459/> 
+* `~/data/smontgom/eqtl/spredixcan_igwas_gtexmashrv8_*`: Barbeira et al. `S-PrediXcan` results
+available [here](https://zenodo.org/record/3518299#.Y9rPqezMIUE), provided as a 
+supplement to their manuscript: <https://pubmed.ncbi.nlm.nih.gov/33499903/>   
 * `~/data/smontgom/est_gcor_mat.RData`:  
 * `~/data/smontgom/GENES_HUMAN.txt`:  
 * `~/data/smontgom/GENES_RAT.txt`:  
 * `~/data/smontgom/GTEx_Analysis_v8_sbgenes/signif.sbgenes.txt`:  
 * `~/data/smontgom/GTEx_v8_ExpressionScores/tissues/`:  
 * `~/data/smontgom/gwas_metadata.csv`:  
-* `~/data/smontgom/imputed_gwas_hg38_1.1/`:   
+* `~/data/smontgom/imputed_gwas_hg38_1.1/`: GWAS imputed and harmonized for colocalization 
+analysis with GTEx v8. Provided [here](https://zenodo.org/record/3629742#.Y9rTQOzMIUF) by Barbeira et al. as a supplement to their 
+manuscript: <https://pubmed.ncbi.nlm.nih.gov/33499903/>  
 * `~/data/smontgom/meta_analysis_results.RData`:  
 * `~/data/smontgom/old_dea_deseq_20201121/*_training-dea_20201121.RData`:  
 * `~/data/smontgom/open-targets_tissue-x-disease_*`:  
@@ -90,8 +96,8 @@ included in `/data`.
 * `~/data/smontgom/opentargets/associationByOverallIndirect.csv`:  
 * `~/data/smontgom/PANTHER17_human_rat_ref_genome_orthologs.tsv`:  
 * `~/data/smontgom/relative_expression_motrpac_gtex`:  
-* `~/data/smontgom/RGD_ORTHOLOGS_20201001.txt`: 
-Data downloaded from RGD FTP website on 10/01/2020 by Pierre Jean (<ftp://ftp.rgd.mcw.edu/pub/data_release/orthologs/>). 
+* `~/data/smontgom/RGD_ORTHOLOGS_20201001.txt`: Data downloaded from RGD FTP website 
+on 10/01/2020 by Pierre Jean (<ftp://ftp.rgd.mcw.edu/pub/data_release/orthologs/>). 
 This file contain mapping between rat, human, and mouse primarily through NCBI gene IDs.  
 * `~/data/smontgom/RSID_POS_MAP_*.txt`:  
 * `~/data/smontgom/zcor_transcriptome_pass1b.tsv`:  
