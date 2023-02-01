@@ -1,13 +1,21 @@
-library(MotrpacBicQC)
+# library(MotrpacBicQC)
 library(data.table)
 library(EnsDb.Hsapiens.v79)
+library(MotrpacRatTraining6mo) # v1.6.0
+# also attaches MotrpacRatTraining6moData v1.8.0
 
 #read in rat-human mapping
+# Data downloaded from RGD FTP website on 10/01/2020 by Pierre Jean. 
+# This file contain mapping between rat, human, and mouse primarily through NCBI gene IDs.
+# ftp://ftp.rgd.mcw.edu/pub/data_release/orthologs/
+# Alternatively, use MotrpacRatTraining6moData::FEATURE_TO_GENE_FILT, though this may result in slightly different mappings
 rgd_orthologs <- fread("~/data/smontgom/RGD_ORTHOLOGS_20201001.txt", header = T, sep = "\t")
-gencode_gene_map <- rdg_mapping <- fread("~/data/smontgom/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
+# gencode_gene_map <- rdg_mapping <- fread("~/data/smontgom/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
+gencode_gene_map <- rdg_mapping <- MotrpacRatTraining6moData::RAT_TO_HUMAN_GENE
 gencode_gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID <- gsub(gencode_gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID, pattern = "\\..*", replacement = "")
 gene_map <- gencode_gene_map
 # feature_to_gene_map <- fread("~/data/smontgom/motrpac-mappings-master_feature_to_gene.txt", header = T, sep = "\t", fill = T)
+feature_to_gene_map = MotrpacRatTraining6moData::FEATURE_TO_GENE_FILT
 
 motrpac_gtex_map = c('t30-blood-rna'='Whole_Blood',
                      't52-hippocampus'='Brain_Hippocampus',
@@ -27,7 +35,7 @@ motrpac_gtex_map = c('t30-blood-rna'='Whole_Blood',
                      't68-liver'='Liver',
                      't70-white-adipose'='Adipose_Subcutaneous')
 
-#read in human sex-biased genes from gtex
+#read in human sex-biased genes from gtex v8
 sexbg <- read.table(file = "~/data/smontgom/GTEx_Analysis_v8_sbgenes/signif.sbgenes.txt", header = T)
 sexbg$ENSG <- gsub('\\..*','',sexbg$gene)
 
@@ -47,18 +55,20 @@ sex_DE_humans[[length(sex_DE_humans) + 1]] <- sex_DE_humans$`t55-gastrocnemius`
 names(sex_DE_humans)[length(sex_DE_humans)] <- "t56-vastus-lateralis"
 
 #read in motrpac data
-bic_animal_tissue_code = as.data.table(MotrpacBicQC::bic_animal_tissue_code)
-bic_animal_tissue_code = bic_animal_tissue_code[tissue_name_release!='']
-bic_animal_tissue_code[,my_tissue := tolower(gsub(" Powder", "", bic_tissue_name))]
-bic_animal_tissue_code[,my_tissue := gsub(' ','_',my_tissue)]
-bic_animal_tissue_code[my_tissue == 'blood_rna', my_tissue := 'paxgene_rna']
-tissue_codes = bic_animal_tissue_code[, tissue_name_release]
-tissue_codes = tissue_codes[tissue_codes != '']
+# bic_animal_tissue_code = as.data.table(MotrpacBicQC::bic_animal_tissue_code)
+# bic_animal_tissue_code = bic_animal_tissue_code[tissue_name_release!='']
+# bic_animal_tissue_code[,my_tissue := tolower(gsub(" Powder", "", bic_tissue_name))]
+# bic_animal_tissue_code[,my_tissue := gsub(' ','_',my_tissue)]
+# bic_animal_tissue_code[my_tissue == 'blood_rna', my_tissue := 'paxgene_rna']
+# tissue_codes = bic_animal_tissue_code[, tissue_name_release]
+# tissue_codes = tissue_codes[tissue_codes != '']
+tissue_codes = names(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV)
 
 sex_DE_rats <- lapply(setNames(setdiff(names(motrpac_gtex_map), c("t63-testes", "t64-ovaries")), 
                                setdiff(names(motrpac_gtex_map), c("t63-testes", "t64-ovaries"))), function(x) NULL)
 for(tissue in setdiff(names(motrpac_gtex_map), c("t63-testes", "t64-ovaries"))){
   print(tissue)
+  #DESeq object from combined differential analysis of males and females 
   load(paste0("~/data/smontgom/old_dea_deseq_20201121/", tissue, "_training-dea_20201121.RData"))
   p_values <- pnorm(dds@rowRanges@elementMetadata@listData$sex_male_vs_female / 
                     dds@rowRanges@elementMetadata@listData$SE_sex_male_vs_female)

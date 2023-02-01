@@ -20,7 +20,7 @@ library(org.Hs.eg.db)
 library(clusterProfiler)
 library(org.Rn.eg.db)
 library(biomaRt)
-library(MotrpacBicQC)
+# library(MotrpacBicQC)
 library(plotrix)
 library(ggplot2)
 library(testit)
@@ -29,13 +29,16 @@ library(jpeg)
 library(foreach)
 library(doParallel)
 library(pracma)
+library(MotrpacRatTraining6mo) # v1.6.0
+# also attaches MotrpacRatTraining6moData v1.8.0
 
 
 #### define functions ####
 source(file = "~/scripts/montgomery_lab/deg-trait_functions.R")
 
 #### get ortholog map ####
-gencode_gene_map <- fread("~/data/smontgom/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
+# gencode_gene_map <- fread("~/data/smontgom/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
+gencode_gene_map <- MotrpacRatTraining6moData::RAT_TO_HUMAN_GENE
 gencode_gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID <- gsub(gencode_gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID, pattern = "\\..*", replacement = "")
 
 if(use_panther_map){
@@ -108,7 +111,8 @@ motrpac_gtex_map = c('t30-blood-rna'='Whole_Blood',
                      't68-liver'='Liver',
                      't70-white-adipose'='Adipose_Subcutaneous')
 
-#now let's use the TWAS results from Barbeira et al. 2021
+#now let's use the TWAS results from Barbeira et al. 2021:
+# https://zenodo.org/record/3518299/files/spredixcan_eqtl.tar.gz
 twas_results_directory <- "~/data/smontgom/eqtl/"
 gwas_dir <- "~/data/smontgom/imputed_gwas_hg38_1.1/"
 gwas_summary_files <- list.files(gwas_dir)
@@ -197,20 +201,22 @@ salient_twas <- unique(some.twas$trait)
 
 #### load in the motrpac results ####
 if(!exists("rna_dea_ensembl")){
-  load('~/data/smontgom/transcript_rna_seq_20211008.RData')
-  rna_dea <- transcript_rna_seq$timewise_dea
-  rm(transcript_rna_seq)
-  rna_dea <- rna_dea[rna_dea$comparison_group == "8w",]
-  rna_dea_ensembl <- lapply(setNames(unique(rna_dea$tissue_abbreviation), unique(rna_dea$tissue_abbreviation)), function(tiss){
-    ensembls <- unique(rna_dea$feature_ID[rna_dea$tissue_abbreviation == tiss])
-    ensembls <- ensembls[!is.na(ensembls)]
-  })
+  # load('~/data/smontgom/transcript_rna_seq_20211008.RData')
+  # rna_dea <- transcript_rna_seq$timewise_dea
+  # rm(transcript_rna_seq)
+  # rna_dea <- rna_dea[rna_dea$comparison_group == "8w",]
+  # rna_dea_ensembl <- lapply(setNames(unique(rna_dea$tissue), unique(rna_dea$tissue)), function(tiss){
+  #   ensembls <- unique(rna_dea$feature_ID[rna_dea$tissue == tiss])
+  #   ensembls <- ensembls[!is.na(ensembls)]
+  # })
+  rna_dea_ensembl <- MotrpacRatTraining6moData::GENE_UNIVERSES$ensembl_gene$TRNSCRPT
 }
 
 load(file = "~/data/smontgom/node_metadata_list.RData")  
 if((!exists("cluster_membership") | !exists("node_metadata")) | use_random_DE_genes){
 
-  load("~/data/smontgom/graphical_analysis_results_20211220.RData")
+  # load("~/data/smontgom/graphical_analysis_results_20211220.RData")
+  node_sets <- MotrpacRatTraining6moData::GRAPH_COMPONENTS$node_sets
   nodes_to_look_at_list <- list(c("1w_F1_M1", "1w_F-1_M-1"),
                                 c("2w_F1_M1", "2w_F-1_M-1"),
                                 c("4w_F1_M1", "4w_F-1_M-1"),
@@ -365,7 +371,9 @@ if(perform_jaccard_pruning){
 
 }
 
-tissue_code <- MotrpacBicQC::bic_animal_tissue_code
+# tissue_code <- MotrpacBicQC::bic_animal_tissue_code
+tissue_code <- data.frame(tissue_name_release = names(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV),
+                          abbreviation = MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV)
 for(tissue_i in names(motrpac_gtex_map)){
   
   print(tissue_i)
@@ -387,8 +395,8 @@ for(tissue_i in names(motrpac_gtex_map)){
 #tidy this up
 n_deg_sigtwas_intersect <- n_deg_sigtwas_intersect[,order(apply(n_deg_sigtwas_intersect, 2, sum), decreasing = T)]
 n_deg_sigtwas_intersect <- n_deg_sigtwas_intersect[,apply(n_deg_sigtwas_intersect, 2, sum) != 0]
-rownames(n_deg_sigtwas_intersect) <- MotrpacBicQC::tissue_abbr[rownames(n_deg_sigtwas_intersect)]
-n_deg_sigtwas_intersect <- n_deg_sigtwas_intersect[order(match(rownames(n_deg_sigtwas_intersect), MotrpacBicQC::tissue_order)),]
+rownames(n_deg_sigtwas_intersect) <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[rownames(n_deg_sigtwas_intersect)]
+n_deg_sigtwas_intersect <- n_deg_sigtwas_intersect[order(match(rownames(n_deg_sigtwas_intersect), MotrpacRatTraining6moData::TISSUE_ORDER)),]
 n_deg_sigtwas_intersect <- n_deg_sigtwas_intersect[nrow(n_deg_sigtwas_intersect):1,]
 n_deg_sigtwas_intersect <- n_deg_sigtwas_intersect[!(rownames(n_deg_sigtwas_intersect) %in% c("OVARY", "TESTES")),]
 
@@ -396,11 +404,13 @@ n_deg_sigtwas_intersect <- n_deg_sigtwas_intersect[!(rownames(n_deg_sigtwas_inte
 #needs to be ones that can be mapped to rat orthologs
 
 #colsums
-tissue_code <- MotrpacBicQC::bic_animal_tissue_code
-tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
-tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
-tissue_code <- setNames(tissue_code$tissue_name_release, tissue_code$abbreviation)
-load("~/data/smontgom/genes_tested_in_transcriptome_DEA.RData")
+# tissue_code <- MotrpacBicQC::bic_animal_tissue_code
+# tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
+# tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
+# tissue_code <- setNames(tissue_code$tissue_name_release, tissue_code$abbreviation)
+tissue_code <- MotrpacRatTraining6moData::TISSUE_ABBREV_TO_CODE
+# load("~/data/smontgom/genes_tested_in_transcriptome_DEA.RData")
+genes_tested_in_transcriptome_DEA <- unique(unlist(MotrpacRatTraining6moData::GENE_UNIVERSES$ensembl_gene$TRNSCRPT))
 all_orthologs_tested <- gene_map$HUMAN_ORTHOLOG_SYMBOL[match(genes_tested_in_transcriptome_DEA, gene_map$RAT_ENSEMBL_ID)]
 all_orthologs_tested <- all_orthologs_tested[!is.na(all_orthologs_tested)]
 tissues <- rownames(n_deg_sigtwas_intersect)
@@ -425,11 +435,11 @@ prop_twas_are_degs <- prop_twas_are_degs[,order(apply(prop_twas_are_degs, 2, mea
 all_twas_genes_tested <- unique(some.twas$gene_name)
 possible_genes <- intersect(all_orthologs_tested, all_twas_genes_tested)
 compatible_twas_genes <- some.twas$gene_name %in% possible_genes
-twas_by_tissue <- lapply(setNames(unique(some.twas$tissue), tissue_abbr[unique(some.twas$tissue)]), function(tiss) {
+twas_by_tissue <- lapply(setNames(unique(some.twas$tissue), MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[unique(some.twas$tissue)]), function(tiss) {
   print(tiss)
   some.twas[some.twas$tissue == tiss & compatible_twas_genes,]
 })
-tissues <- setNames(MotrpacBicQC::tissue_abbr[names(motrpac_gtex_map)], MotrpacBicQC::tissue_abbr[names(motrpac_gtex_map)])
+tissues <- setNames(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[names(motrpac_gtex_map)], MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[names(motrpac_gtex_map)])
 n_genes_in_nodes_matrix <- t(sapply(tissues, function(tiss){
   print(tiss)
   sapply(setNames(salient_twas, salient_twas), function(trait_i){
@@ -466,8 +476,9 @@ if(estimate_trait_corr_mats){
 } else {
   load(file = paste0("~/data/smontgom/trait_corr_mats", ifelse(use_random_Pred_genes, "_random-genes", ""), ".RData"))
 }
-tissue_abbr <- MotrpacBicQC::tissue_abbr[grep("t[0-9][0-9]", x = names(MotrpacBicQC::tissue_abbr))]
-tissue_abbr_rev <- setNames(names(tissue_abbr), tissue_abbr)
+# tissue_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[grep("t[0-9][0-9]", x = names(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV))]
+# tissue_abbr_rev <- setNames(names(tissue_abbr), tissue_abbr)
+tissue_abbr_rev <- MotrpacRatTraining6moData::TISSUE_ABBREV_TO_CODE
 trait_corr_mats <- trait_corr_mats[tissue_abbr_rev[rownames(n_deg_sigtwas_intersect)]]
 
 sapply(trait_corr_mats, dim)
@@ -520,12 +531,16 @@ pheatmap::pheatmap(trait_corr_mat, breaks = -10:10/10, color = colorspace::diver
 tissues <- setNames(rownames(n_deg_sigtwas_intersect), rownames(n_deg_sigtwas_intersect))
 total_number_of_possible_hits <- length(intersect(all_orthologs_tested, all_twas_genes_tested))
 
-load('~/data/smontgom/transcript_rna_seq_20211008.RData')
-rna_dea <- transcript_rna_seq$timewise_dea
-rm(transcript_rna_seq)
+# load('~/data/smontgom/transcript_rna_seq_20211008.RData')
+# rna_dea <- transcript_rna_seq$timewise_dea
+# rm(transcript_rna_seq)
+# rna_dea <- rna_dea[rna_dea$comparison_group == "8w",]
+rna_dea <- MotrpacRatTraining6mo::combine_da_results(assays="TRNSCRPT")
 rna_dea <- rna_dea[rna_dea$comparison_group == "8w",]
+rna_dea$tissue_abbreviation <- rna_dea$tissue
 rna_dea_genes <- lapply(setNames(tissues, tissues), function(tiss){
-  genesymbols <- unique(gene_map$HUMAN_ORTHOLOG_SYMBOL[match(unique(rna_dea$feature_ID[rna_dea$tissue_abbreviation == tiss]), gene_map$RAT_ENSEMBL_ID)])
+  genesymbols <- unique(gene_map$HUMAN_ORTHOLOG_SYMBOL[match(unique(rna_dea$feature_ID[rna_dea$tissue_abbreviation == tiss]), 
+                                                             gene_map$RAT_ENSEMBL_ID)])
   genesymbols <- genesymbols[!is.na(genesymbols)]
 })
 
@@ -585,10 +600,10 @@ if(do_quick_graphical_check){
        pch = as.character(unlist(lapply(1:ncol(expected_prob), function(i) rep(i, nrow(expected_prob))))),
        ylab = "true sample logodds", xlab = "expected logodds")
   text(y = c(logit(as.matrix(n_deg_sigtwas_intersect) / total_number_of_possible_hits)), x = c(logit(expected_prob)),
-       col = rep(tissue_cols[rownames(expected_prob)], ncol(expected_prob)), 
+       col = rep(MotrpacRatTraining6moData::TISSUE_COLORS[rownames(expected_prob)], ncol(expected_prob)), 
        labels = as.character(unlist(lapply(1:ncol(expected_prob), function(i) rep(i, nrow(expected_prob))))))
   text(partway(par("usr")[1:2]), par("usr")[4], labels = "numbers represent trait indices", pos = 1)
-  legend(x = "bottomleft", legend = rownames(expected_prob), col = tissue_cols[rownames(expected_prob)], 
+  legend(x = "bottomleft", legend = rownames(expected_prob), col = MotrpacRatTraining6moData::TISSUE_COLORS[rownames(expected_prob)], 
          pch = "X", ncol = 1, pt.cex = 1, cex = 0.75)
   legend(x = "topleft", legend = "1-to-1 line", lty = 2, col = adjustcolor(1,0.5), lwd = 2)
   abline(0,1, lty = 2, col = adjustcolor(1,0.5), lwd = 2)
@@ -598,10 +613,10 @@ if(do_quick_graphical_check){
        pch = as.character(unlist(lapply(1:ncol(expected_prob), function(i) rep(i, nrow(expected_prob))))),
        ylab = "true sample frequencies", xlab = "expected frequencies")
   text(y = c((as.matrix(n_deg_sigtwas_intersect) / total_number_of_possible_hits)), x = c((expected_prob)),
-       col = rep(tissue_cols[rownames(expected_prob)], ncol(expected_prob)), 
+       col = rep(MotrpacRatTraining6moData::TISSUE_COLORS[rownames(expected_prob)], ncol(expected_prob)), 
        labels = as.character(unlist(lapply(1:ncol(expected_prob), function(i) rep(i, nrow(expected_prob))))))
   text(mean(par("usr")[1:2]), par("usr")[3], labels = "numbers represent trait indices", pos = 3)
-  legend(x = "bottomright", legend = rownames(expected_prob), col = tissue_cols[rownames(expected_prob)], 
+  legend(x = "bottomright", legend = rownames(expected_prob), col = MotrpacRatTraining6moData::TISSUE_COLORS[rownames(expected_prob)], 
          pch = "X", ncol = 1, pt.cex = 1, cex = 0.75)
   legend(x = "topleft", legend = "1-to-1 line", lty = 2, col = adjustcolor(1,0.5), lwd = 2)
   abline(0,1, lty = 2, col = adjustcolor(1,0.5), lwd = 2)
@@ -613,10 +628,10 @@ if(do_quick_graphical_check){
        pch = as.character(unlist(lapply(1:ncol(expected_prob), function(i) rep(i, nrow(expected_prob))))),
        ylab = "simulated sample logodds", xlab = "expected logodds")
   text(y = c(logit(as.matrix(sample_count) / total_number_of_possible_hits)), x = c(logit(expected_prob)),
-       col = rep(tissue_cols[rownames(expected_prob)], ncol(expected_prob)), 
+       col = rep(MotrpacRatTraining6moData::TISSUE_COLORS[rownames(expected_prob)], ncol(expected_prob)), 
        labels = as.character(unlist(lapply(1:ncol(expected_prob), function(i) rep(i, nrow(expected_prob))))))
   text(partway(par("usr")[1:2]), par("usr")[4], labels = "numbers represent trait indices", pos = 1)
-  legend(x = "bottomleft", legend = rownames(expected_prob), col = tissue_cols[rownames(expected_prob)], 
+  legend(x = "bottomleft", legend = rownames(expected_prob), col = MotrpacRatTraining6moData::TISSUE_COLORS[rownames(expected_prob)], 
          pch = "X", ncol = 1, pt.cex = 1, cex = 0.75)
   legend(x = "topleft", legend = "1-to-1 line", lty = 2, col = adjustcolor(1,0.5), lwd = 2)
   abline(0,1, lty = 2, col = adjustcolor(1,0.5), lwd = 2)
@@ -626,10 +641,10 @@ if(do_quick_graphical_check){
        pch = as.character(unlist(lapply(1:ncol(expected_prob), function(i) rep(i, nrow(expected_prob))))),
        ylab = "simulated sample frequencies", xlab = "expected frequencies")
   text(y = c((as.matrix(sample_count) / total_number_of_possible_hits)), x = c((expected_prob)),
-       col = rep(tissue_cols[rownames(expected_prob)], ncol(expected_prob)), 
+       col = rep(MotrpacRatTraining6moData::TISSUE_COLORS[rownames(expected_prob)], ncol(expected_prob)), 
        labels = as.character(unlist(lapply(1:ncol(expected_prob), function(i) rep(i, nrow(expected_prob))))))
   text(mean(par("usr")[1:2]), par("usr")[3], labels = "numbers represent trait indices", pos = 3)
-  legend(x = "bottomright", legend = rownames(expected_prob), col = tissue_cols[rownames(expected_prob)], 
+  legend(x = "bottomright", legend = rownames(expected_prob), col = MotrpacRatTraining6moData::TISSUE_COLORS[rownames(expected_prob)], 
          pch = "X", ncol = 1, pt.cex = 1, cex = 0.75)
   legend(x = "topleft", legend = "1-to-1 line", lty = 2, col = adjustcolor(1,0.5), lwd = 2)
   abline(0,1, lty = 2, col = adjustcolor(1,0.5), lwd = 2)
@@ -1324,7 +1339,7 @@ par(mar = c(5,4,3,4))
 #first plot
 
 
-sapply(1:nrow(signif_df), function(i) adjustcolor(tissue_cols[tissues[d$row_index[i]]], as.numeric(signif_df$signif[i] != 0) * 0.625 + 0.125))
+sapply(1:nrow(signif_df), function(i) adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues[d$row_index[i]]], as.numeric(signif_df$signif[i] != 0) * 0.625 + 0.125))
 if(use_focal_vs_compl){
   xvals <- (d$col_count - d$cell_count) / (d$total - d$row_count)
   yvals <- d$cell_count / d$row_count
@@ -1339,7 +1354,7 @@ if(use_focal_vs_compl){
 plot(logit(xvals), logit(yvals), xlim = ifelse2(use_focal_vs_compl, c(-14,-1), c(-15,-4.25)), 
      ylim = ifelse2(use_focal_vs_compl, c(-6, -1), c(-9.5,-4.25)),
      pch = category_shapes[traitwise_partitions$Category[match(traits[d$col_index], traitwise_partitions$Tag)]], 
-     col = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), 
+     col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues[d$row_index]], 0.5), 
      cex = 1.5,
      xlab = "", ylab = "", yaxt = 'n', xaxt = "n")
 box(which = "plot", lwd = 2)
@@ -1372,7 +1387,7 @@ rect(xleft = xl, ybottom = yb, xright = xr, ytop = yt, lwd = 2, xpd = NA)
 points(x = ((xvals - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
        y = ((yvals - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
        pch = category_shapes[traitwise_partitions$Category[match(traits[d$col_index], traitwise_partitions$Tag)]], 
-       col = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), 
+       col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues[d$row_index]], 0.5), 
        cex = 1)
 segments(x0 = 0 * (xr - xl - 2*bx) + xl, 
          y0 = 0 * (yt - yb - 2*by) + yb,
@@ -1408,7 +1423,7 @@ abline(0,1, lty = 2, lwd = 6, col = adjustcolor(1,0.75))
 
 #legends
 legend(x = xl, y = yb, legend = names(category_shapes), pch = category_shapes, col = adjustcolor(1, 0.5), cex = 0.75, pt.cex = 1.4)
-legend(x = xr, y = yt, legend = tissues, pch = 19, col = adjustcolor(tissue_cols[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
+legend(x = xr, y = yt, legend = tissues, pch = 19, col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
 segments(x0 = par("usr")[1] + diff(par("usr")[1:2]) / 1.55, 
          y0 = par("usr")[4] - diff(par("usr")[3:4])/50,
          x1 = par("usr")[1] + diff(par("usr")[1:2]) / 1.45, 
@@ -1461,10 +1476,10 @@ posterior_means <- apply(subset_samps("row_bias", c("raw", "sd"), samps = samps)
 inside_cols <- rep("black", length(tord))
 inside_cols[overlaps_with_zero(CI_locs)] <- "white"
 tmp <- vioplot::vioplot(x = as.matrix(subset_samps("row_bias", c("raw", "sd"), samps = samps) + samps$overall_bias)[,tord], T, 
-                        col = tissue_cols[tissues][tord], outline=FALSE, xaxt = "n",
-                        names = tissues[tord], srt = 90, range = 0, xlab = "", lineCol = tissue_cols[tissues][tord],
+                        col = MotrpacRatTraining6moData::TISSUE_COLORS[tissues][tord], outline=FALSE, xaxt = "n",
+                        names = tissues[tord], srt = 90, range = 0, xlab = "", lineCol = MotrpacRatTraining6moData::TISSUE_COLORS[tissues][tord],
                         ylab = "multilevel tissue enrichment (logodds-scale)", cex.lab = 1, plotCentre = "point", 
-                        colMed = tissue_cols[tissues][tord])
+                        colMed = MotrpacRatTraining6moData::TISSUE_COLORS[tissues][tord])
 tick <- seq_along(tissues)
 axis(1, at = tick, labels = F)
 for(i in 1:length(tissues)){
@@ -1719,7 +1734,7 @@ for(ri in 1:nrow(table_to_use)){
            xright = ci - 1/2,
            ybottom = ri - 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0),
            ytop =  ri + 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0),
-           col = adjustcolor(MotrpacBicQC::tissue_cols[rownames(table_to_use)[ri]], (table_to_use[ri, ci] / max(table_to_use, na.rm = T))^opacity_power_scaler ))  
+           col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[rownames(table_to_use)[ri]], (table_to_use[ri, ci] / max(table_to_use, na.rm = T))^opacity_power_scaler ))  
     } else {
       rect(xleft = ci + 1/2,
            xright = ci - 1/2,
@@ -1735,7 +1750,7 @@ for(ri in 1:nrow(table_to_use)){
     #      ybottom = ri - 0.475,
     #      ytop =  ri + 0.475,
     #      col = heatmap_cols[table_to_use[ri, ci]],
-    #      border = MotrpacBicQC::tissue_cols[rownames(table_to_use)[ri]])
+    #      border = MotrpacRatTraining6moData::TISSUE_COLORS[rownames(table_to_use)[ri]])
     
     #text inside of cells
     if(table_to_use[ri, ci] != 0){
@@ -1914,7 +1929,7 @@ par(mfrow = c(3,5), mar = c(2,1,0,1))
 for(i in 1:15){
   dens <- dbeta(xr, sample(5:15, 1), sample(10:30, 1))
   plot(xr, dens, type = "l", lwd = 2, frame = F, yaxt = "n", xlab = "", ylab = "", cex.axis = 1.25)
-  polygon(xr, dens, lwd = 2, col = adjustcolor(tissue_cols[rownames(table_to_use)[i]],0.2))
+  polygon(xr, dens, lwd = 2, col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[rownames(table_to_use)[i]],0.2))
   
 }
 
@@ -1922,20 +1937,24 @@ par(mfrow = c(10,20), mar = c(0.1,0.1,0.1,0.1))
 for(i in 1:200){
   dens <- dbeta(xr, sample(30:40, 1), sample(80:120, 1))
   plot(xr, dens, type = "l", lwd = 0.5, frame = F, yaxt = "n", xaxt = "n", xlab = "", ylab = "")
-  polygon(xr, dens, lwd = 0.5, col = adjustcolor(tissue_cols[sample(rownames(table_to_use),1)],1))
+  polygon(xr, dens, lwd = 0.5, col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[sample(rownames(table_to_use),1)],1))
   
 }
 
 #### compute binomial model counts to test for enrichment in + hits ####
 twas_with_hits <- colnames(prop_degs_are_twas)
-tissue_code <- MotrpacBicQC::bic_animal_tissue_code
-tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
-tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
+# tissue_code <- MotrpacBicQC::bic_animal_tissue_code
+# tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
+# tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
+tissue_code <- data.frame(tissue_name_release = names(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV),
+                          abbreviation = MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV)
 
 #get "null hypothesis" genes for comparison group
-load('~/data/smontgom/transcript_rna_seq_20211008.RData')
-rna_dea <- transcript_rna_seq$timewise_dea
+# load('~/data/smontgom/transcript_rna_seq_20211008.RData')
+# rna_dea <- transcript_rna_seq$timewise_dea
+rna_dea <- MotrpacRatTraining6mo::combine_da_results(assays = "TRNSCRPT")
 rna_dea <- rna_dea[rna_dea$comparison_group == "8w" & rna_dea$selection_fdr > 0.05,]
+rna_dea$tissue_abbreviation <- rna_dea$tissue
 rna_dea_null <- lapply(setNames(unique(rna_dea$tissue_abbreviation), unique(rna_dea$tissue_abbreviation)), function(tiss) {
   print(tiss)
   subset <- rna_dea[rna_dea$tissue_abbreviation == tiss,]
@@ -1950,8 +1969,8 @@ rna_dea_null <- lapply(setNames(unique(rna_dea$tissue_abbreviation), unique(rna_
   return(x)
 })
 do.call(rbind, lapply(rna_dea_null, function(x) table(x)))
-rm(transcript_rna_seq)
-
+# rm(transcript_rna_seq)
+rm(rna_dea)
 
 data <- list()
 for(tissue_abbrev in names(twas_intersect)){
@@ -2038,20 +2057,24 @@ mean(x > 0)
 
 #### compute binomial model counts to test for enrichment in + hits, alternate version ####
 twas_with_hits <- colnames(prop_degs_are_twas)
-tissue_code <- MotrpacBicQC::bic_animal_tissue_code
-tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
-tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
+# tissue_code <- MotrpacBicQC::bic_animal_tissue_code
+# tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
+# tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
+tissue_code <- data.frame(tissue_name_release=names(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV),
+                          abbreviation=MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV)
 possible_genes <- intersect(all_orthologs_tested, all_twas_genes_tested)
 compatible_twas_genes <- some.twas$gene_name %in% possible_genes
-twas_by_tissue <- lapply(setNames(unique(some.twas$tissue), tissue_abbr[unique(some.twas$tissue)]), function(tiss) {
+twas_by_tissue <- lapply(setNames(unique(some.twas$tissue), MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[unique(some.twas$tissue)]), function(tiss) {
   print(tiss)
   some.twas[some.twas$tissue == tiss & compatible_twas_genes,]
 })
 
 #get "null hypothesis" genes for overall probabilities
-load('~/data/smontgom/transcript_rna_seq_20211008.RData')
-rna_dea <- transcript_rna_seq$timewise_dea
+# load('~/data/smontgom/transcript_rna_seq_20211008.RData')
+# rna_dea <- transcript_rna_seq$timewise_dea
+rna_dea <- MotrpacRatTraining6mo::combine_da_results(assays = "TRNSCRPT")
 rna_dea <- rna_dea[rna_dea$comparison_group == "8w",]
+rna_dea$tissue_abbreviation <- rna_dea$tissue
 rna_dea_null <- lapply(setNames(unique(rna_dea$tissue_abbreviation), unique(rna_dea$tissue_abbreviation)), function(tiss) {
   print(tiss)
   subset <- rna_dea[rna_dea$tissue_abbreviation == tiss,]
@@ -2068,7 +2091,7 @@ rna_dea_null <- lapply(setNames(unique(rna_dea$tissue_abbreviation), unique(rna_
   return(x)
 })
 do.call(rbind, lapply(rna_dea_null, function(x) table(x)))
-rm(transcript_rna_seq)
+rm(rna_dea)
 
 tissues <- tissue_code$abbreviation[match(names(motrpac_gtex_map), tissue_code$tissue_name_release)]
 tissues <- setdiff(tissues, c("HYPOTH", "TESTES", "OVARY"))
@@ -2490,13 +2513,14 @@ hist(apply(invlogit(samps[,setdiff(grep("intersect_mean", colnames(samps)), grep
 
 #### FINAL-ish prop pos hits bayesian model ####
 twas_with_hits <- colnames(prop_degs_are_twas)
-tissue_code <- MotrpacBicQC::bic_animal_tissue_code
-tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
-tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
-tissue_code_vec <- setNames(tissue_code$tissue_name_release, tissue_code$abbreviation)
+# tissue_code <- MotrpacBicQC::bic_animal_tissue_code
+# tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
+# tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
+# tissue_code_vec <- setNames(tissue_code$tissue_name_release, tissue_code$abbreviation)
+tissue_code_vec <- MotrpacRatTraining6moData::TISSUE_ABBREV_TO_CODE
 possible_genes <- intersect(all_orthologs_tested, all_twas_genes_tested)
 compatible_twas_genes <- some.twas$gene_name %in% possible_genes
-twas_by_tissue <- lapply(setNames(unique(some.twas$tissue), tissue_abbr[unique(some.twas$tissue)]), function(tiss) {
+twas_by_tissue <- lapply(setNames(unique(some.twas$tissue), MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[unique(some.twas$tissue)]), function(tiss) {
   print(tiss)
   some.twas[some.twas$tissue == tiss & compatible_twas_genes,]
 })
@@ -2581,9 +2605,12 @@ mean(trait_goodness == 0)
 
 
 #get "null hypothesis" genes for overall probabilities
-load('~/data/smontgom/transcript_rna_seq_20211008.RData')
-rna_dea <- transcript_rna_seq$timewise_dea
+# load('~/data/smontgom/transcript_rna_seq_20211008.RData')
+# rna_dea <- transcript_rna_seq$timewise_dea
+# rna_dea <- rna_dea[rna_dea$comparison_group == "8w",]
+rna_dea <- rna_dea <- MotrpacRatTraining6mo::combine_da_results(assays = "TRNSCRPT")
 rna_dea <- rna_dea[rna_dea$comparison_group == "8w",]
+rna_dea$tissue_abbreviation <- rna_dea$tissue
 rna_dea_null <- lapply(setNames(unique(rna_dea$tissue_abbreviation), unique(rna_dea$tissue_abbreviation)), function(tiss) {
   print(tiss)
   subset <- rna_dea[rna_dea$tissue_abbreviation == tiss,]
@@ -2600,7 +2627,7 @@ rna_dea_null <- lapply(setNames(unique(rna_dea$tissue_abbreviation), unique(rna_
   return(x)
 })
 do.call(rbind, lapply(rna_dea_null, function(x) table(x)))
-rm(transcript_rna_seq)
+rm(rna_dea)
 
 tissues <- tissue_code$abbreviation[match(names(motrpac_gtex_map), tissue_code$tissue_name_release)]
 tissues <- setdiff(tissues, c("HYPOTH", "TESTES", "OVARY"))
@@ -2674,7 +2701,7 @@ pchs[is.na(pchs)] <- 1
 plot(data$count_all / data$total_all, data$count_inters / data$total_inters,
      main = "", 
      pch = pchs,
-     cex = data$total_inters / max(data$total_inters) * 5, col = adjustcolor(tissue_cols[data$tissue],0.5))
+     cex = data$total_inters / max(data$total_inters) * 5, col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[data$tissue],0.5))
 abline(h=0.5,lwd=2,lty=2,col=adjustcolor(1,0.5))
 abline(v=0.5,lwd=2,lty=2,col=adjustcolor(1,0.5))
 
@@ -3823,9 +3850,11 @@ names(trait_bias_probs) <- traits
 twas_intersect <- lapply(setNames(rownames(n_deg_sigtwas_intersect), rownames(n_deg_sigtwas_intersect)), function(x) NULL)
 twas_with_hits <- colnames(prop_degs_are_twas)
 prop_pos <- lapply(setNames(rownames(n_deg_sigtwas_intersect), rownames(n_deg_sigtwas_intersect)), function(i) NULL)
-tissue_code <- MotrpacBicQC::bic_animal_tissue_code
-tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
-tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
+# tissue_code <- MotrpacBicQC::bic_animal_tissue_code
+# tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
+# tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
+tissue_code <- data.frame(tissue_name_release = names(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV),
+                          abbreviation = MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV)
 for(tissue_abbrev in names(twas_intersect)){
   
   tissue_i <- tissue_code$tissue_name_release[tissue_code$abbreviation == tissue_abbrev]
@@ -3904,14 +3933,12 @@ twas_with_hits <- colnames(prop_degs_are_twas)
 deg_sigtwas_proportion <- array(NA, dim = c(length(motrpac_gtex_map), length(twas_with_hits), 4, 3, 2), 
                                 dimnames = list(names(motrpac_gtex_map), twas_with_hits, paste0(2^(0:3), "w"), c("p", "n", "genes"), c("male", "female")))
 nuniq <- function(x) length(unique(x))
-tissue_code <- MotrpacBicQC::bic_animal_tissue_code
-tissue_abbr <- MotrpacBicQC::tissue_abbr[startsWith(names(MotrpacBicQC::tissue_abbr), "t")]
-tissue_abbr <- tissue_abbr[grep("-", x = names(tissue_abbr))]
-tissue_abbr_rev <- setNames(names(tissue_abbr), tissue_abbr)
+tissue_abbr_rev <- MotrpacRatTraining6moData::TISSUE_ABBREV_TO_CODE
 
 load("~/data/smontgom/relative_effect_sizes_deg_eqtl_list.RData")
 trace_8w_backwards <- T
-paths <- data.table::fread("~/data/smontgom/feature_repfdr_states_20220117.tsv")
+# paths <- data.table::fread("~/data/smontgom/feature_repfdr_states_20220117.tsv")
+paths <- MotrpacRatTraining6moData::GRAPH_STATES
 paths <- paths[paths$ome == "TRNSCRPT",]
 paths <- lapply(setNames(unique(paths$tissue),unique(paths$tissue)), function(tiss) paths[paths$tissue == tiss,])
 
@@ -3930,7 +3957,7 @@ for(tissue_i in names(motrpac_gtex_map)){
                                       signs
                                     })
   
-  paths_tiss <- as.data.frame(paths[[tissue_abbr[tissue_i]]])
+  paths_tiss <- as.data.frame(paths[[MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue_i]]])
   
   for(timepoint in paste0(2^(0:3), "w")){
     
@@ -4115,9 +4142,9 @@ trait <- twas_with_hits[grep(twas_with_hits, pattern = "asthma", ignore.case = T
 trait_patt <- trait_patts[4]
 trait <- intersect(twas_with_hits, trait_categories$Tag[grep(trait_categories$new_Phenotype, pattern = trait_patt, ignore.case = T)])[1]
 
-cols = list(Tissue=tissue_cols[names(motrpac_gtex_map)], 
-            Time=group_cols[paste0(c(1,2,4,8), "w")],
-            Sex=sex_cols[c('male','female')])
+cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(motrpac_gtex_map)], 
+            Time=MotrpacRatTraining6moData::GROUP_COLORS[paste0(c(1,2,4,8), "w")],
+            Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
 tissue_names <- sapply(strsplit(names(cols$Tissue), "-"), function(x) paste0(x[ifelse(length(x) == 2, c(2), list(2:3))[[1]]], collapse = " "))
 
 #plotting params
@@ -4255,7 +4282,7 @@ for(trait_patt in trait_patts){
         #plot connecting lines
         for(gene_i in 1:nrow(tissue_genes)){
           segments(x0 = xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] + 
-                     strwidth(paste0(tissue_abbr[tissue], " (", dn[tissue,"8w"], ")   "), cex = tissue_name_cex, units = "user"), 
+                     strwidth(paste0(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue], " (", dn[tissue,"8w"], ")   "), cex = tissue_name_cex, units = "user"), 
                    y0 = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue],
                    x1 = tissue_genes$x[gene_i] + 0.75*strwidth("  ", cex = tissue_name_cex, units = "user"),
                    y1 = tissue_genes$y[gene_i],
@@ -4269,7 +4296,7 @@ for(trait_patt in trait_patts){
     for(tissue in rownames(d)){
       text(x = xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue], cex = tissue_name_cex,
            y = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue], 
-           labels = paste0(tissue_abbr[tissue], " (", dn[tissue,"8w"], ")"), col = cols$Tissue[tissue], pos = 4)
+           labels = paste0(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue], " (", dn[tissue,"8w"], ")"), col = cols$Tissue[tissue], pos = 4)
       segments(x0 = 4, y0 = d[tissue,"8w"], 
                x1 = xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] + 0.075, 
                y1 = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue],
@@ -4312,7 +4339,7 @@ gene_cex <- 0.75
 gene_location <- 5.5
 f_offset <- 7.15
 
-tissue_abbr["all_tissues"] <- "ALL"
+MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV["all_tissues"] <- "ALL"
 for(trait_patt in trait_patts){
   trait <- intersect(twas_with_hits, 
                      trait_categories$Tag[grep(trait_categories$new_Phenotype, pattern = trait_patt, ignore.case = T)])[1]
@@ -4486,7 +4513,7 @@ for(trait_patt in trait_patts){
           #plot connecting lines
           for(gene_i in 1:nrow(tissue_genes)){
             segments(x0 = xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] + 
-                       strwidth(paste0(tissue_abbr[tissue], " (", dn[tissue,"8w"], ")   "), cex = tissue_name_cex, units = "user"), 
+                       strwidth(paste0(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue], " (", dn[tissue,"8w"], ")   "), cex = tissue_name_cex, units = "user"), 
                      y0 = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue],
                      x1 = tissue_genes$x[gene_i] + gene_cex*strwidth("  ", cex = tissue_name_cex, units = "user"),
                      y1 = tissue_genes$y[gene_i],
@@ -4506,7 +4533,7 @@ for(trait_patt in trait_patts){
       for(tissue in rownames(d)){
         text(x = xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue], cex = tissue_name_cex,
              y = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue], 
-             labels = paste0(tissue_abbr[tissue], " (", dn[tissue,"8w"], ")"), col = cols$Tissue[tissue], pos = 4)
+             labels = paste0(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue], " (", dn[tissue,"8w"], ")"), col = cols$Tissue[tissue], pos = 4)
         segments(x0 = 4, y0 = d[tissue,"8w"], 
                  x1 = xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] + 0.075, 
                  y1 = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue],
@@ -4559,7 +4586,7 @@ for(trait_patt in trait_patts){
       for(tissue in rownames(d)){
         text(x = -(xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] - 4) + f_offset + 1 - 0.025, cex = tissue_name_cex,
              y = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue], 
-             labels = paste0("(", dn[tissue,"8w"], ") ", tissue_abbr[tissue]), col = cols$Tissue[tissue], pos = 2)
+             labels = paste0("(", dn[tissue,"8w"], ") ", MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue]), col = cols$Tissue[tissue], pos = 2)
         segments(x0 = 1+f_offset, y0 = d[tissue,"8w"], 
                  x1 = -(xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] - 4) + f_offset + 1 - 0.075, 
                  y1 = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue],
@@ -4574,7 +4601,7 @@ for(trait_patt in trait_patts){
         
         for(gene_i in 1:nrow(tissue_genes)){
           segments(x0 = -(xylocs_tissue_names$x[rownames(xylocs_tissue_names) == tissue] - 4) + f_offset + 1 - 0.075 - 
-                     strwidth(paste0(tissue_abbr[tissue], " (", dn[tissue,"8w"], ")  "), cex = tissue_name_cex, units = "user"), 
+                     strwidth(paste0(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue], " (", dn[tissue,"8w"], ")  "), cex = tissue_name_cex, units = "user"), 
                    y0 = xylocs_tissue_names$y[rownames(xylocs_tissue_names) == tissue],
                    x1 = tissue_genes$x[gene_i] + gene_cex*strwidth("  ", cex = tissue_name_cex, units = "user") + 
                      (maxwidth_genename - strwidth(tissue_genes$gene[gene_i], units = "user", cex = gene_cex)) + 
@@ -4617,10 +4644,10 @@ if(subset_to_traits){
   traits_to_plot <- twas_with_hits
 }
 
-cols = list(Tissue=tissue_cols[names(motrpac_gtex_map)], 
-            Time=group_cols[paste0(c(1,2,4,8), "w")],
-            Sex=sex_cols[c('male','female')])
-cols$Tissue<- cols$Tissue[order(match(MotrpacBicQC::tissue_abbr[names(cols$Tissue)], MotrpacBicQC::tissue_order))]
+cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(motrpac_gtex_map)], 
+            Time=MotrpacRatTraining6moData::GROUP_COLORS[paste0(c(1,2,4,8), "w")],
+            Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
+cols$Tissue<- cols$Tissue[order(match(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[names(cols$Tissue)], MotrpacRatTraining6moData::TISSUE_ORDER))]
 
 tissue_names <- sapply(strsplit(names(cols$Tissue), "-"), function(x) paste0(x[ifelse(length(x) == 2, c(2), list(2:3))[[1]]], collapse = " "))
 
@@ -4703,7 +4730,7 @@ for(sex in c("male", "female")[1]){
   text(x = rep(length(traits_to_plot) + 3.25, length(cols$Tissue)), 
        y = seq(0.5, 0.99, length.out = length(cols$Tissue)), 
        pos = 4, pch = 19, cex = 1,
-       labels = MotrpacBicQC::tissue_abbr[names(cols$Tissue)])
+       labels = MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[names(cols$Tissue)])
   
   points(x = length(traits_to_plot) + 3, 
          y = min(seq(0.5, 0.99, length.out = length(cols$Tissue))) - 0.0675, 
@@ -4816,10 +4843,10 @@ if(subset_to_traits){
 categories_represented <- unique(traitwise_partitions$Category[match(traits_to_plot, traitwise_partitions$Tag)])
 
 
-cols = list(Tissue=tissue_cols[names(motrpac_gtex_map)], 
-            Time=group_cols[paste0(c(1,2,4,8), "w")],
-            Sex=sex_cols[c('male','female')])
-cols$Tissue<- cols$Tissue[order(match(MotrpacBicQC::tissue_abbr[names(cols$Tissue)], MotrpacBicQC::tissue_order))]
+cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(motrpac_gtex_map)], 
+            Time=MotrpacRatTraining6moData::GROUP_COLORS[paste0(c(1,2,4,8), "w")],
+            Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
+cols$Tissue<- cols$Tissue[order(match(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[names(cols$Tissue)], MotrpacRatTraining6moData::TISSUE_ORDER))]
 
 tissue_names <- sapply(strsplit(names(cols$Tissue), "-"), function(x) paste0(x[ifelse(length(x) == 2, c(2), list(2:3))[[1]]], collapse = " "))
 
@@ -4883,8 +4910,7 @@ for(sex in c("male", "female")[1]){
     
     d <- unlist(deg_sigtwas_proportion_posterior_mean[,traits_to_plot[trait_i]])
     d_sig <- unlist(cell_sigs[,traits_to_plot[trait_i]])
-    tissue_abbr <- MotrpacBicQC::tissue_abbr[startsWith(names(MotrpacBicQC::tissue_abbr), "t")]
-    tissue_abbr_rev <- setNames(names(tissue_abbr), tissue_abbr)
+    tissue_abbr_rev <- MotrpacRatTraining6moData::TISSUE_ABBREV_TO_CODE
     names(d) <- tissue_abbr_rev[rownames(deg_sigtwas_proportion_posterior_mean)]
     
     dn <- as.numeric(deg_sigtwas_proportion[, traits_to_plot[trait_i],"8w","n",sex])
@@ -4911,7 +4937,7 @@ for(sex in c("male", "female")[1]){
   text(x = rep(length(traits_to_plot) + 3.25, length(cols$Tissue)), 
        y = seq(mean(yseq), max(yseq), length.out = length(cols$Tissue)), 
        pos = 4, pch = 19, cex = 1,
-       labels = MotrpacBicQC::tissue_abbr[names(cols$Tissue)])
+       labels = MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[names(cols$Tissue)])
   
   points(x = length(traits_to_plot) + 3, 
          y = min(seq(mean(yseq), max(yseq), length.out = length(cols$Tissue))) - 0.025, 
@@ -5043,10 +5069,10 @@ for(subset_i in 1:2){
   category_colors <- c(category_colors, setNames(category_colors[sapply(categories_represented, function(cati) grep(cati, names(category_colors))[1])], 
                                                  categories_represented)[!(categories_represented %in% names(category_colors))])
   
-  cols = list(Tissue=tissue_cols[names(motrpac_gtex_map)], 
-              Time=group_cols[paste0(c(1,2,4,8), "w")],
-              Sex=sex_cols[c('male','female')])
-  cols$Tissue<- cols$Tissue[order(match(MotrpacBicQC::tissue_abbr[names(cols$Tissue)], MotrpacBicQC::tissue_order))]
+  cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(motrpac_gtex_map)], 
+              Time=MotrpacRatTraining6moData::GROUP_COLORS[paste0(c(1,2,4,8), "w")],
+              Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
+  cols$Tissue<- cols$Tissue[order(match(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[names(cols$Tissue)], MotrpacRatTraining6moData::TISSUE_ORDER))]
   
   tissue_names <- sapply(strsplit(names(cols$Tissue), "-"), function(x) paste0(x[ifelse(length(x) == 2, c(2), list(2:3))[[1]]], collapse = " "))
   
@@ -5101,8 +5127,7 @@ for(subset_i in 1:2){
       
       d <- unlist(deg_sigtwas_proportion_posterior_mean[,traits_to_plot[trait_i]])
       d_sig <- unlist(cell_sigs[,traits_to_plot[trait_i]])
-      tissue_abbr <- MotrpacBicQC::tissue_abbr[startsWith(names(MotrpacBicQC::tissue_abbr), "t")]
-      tissue_abbr_rev <- setNames(names(tissue_abbr), tissue_abbr)
+      tissue_abbr_rev <- MotrpacRatTraining6moData::TISSUE_ABBREV_TO_CODE
       names(d) <- tissue_abbr_rev[rownames(deg_sigtwas_proportion_posterior_mean)]
       
       dn <- as.numeric(deg_sigtwas_proportion[, traits_to_plot[trait_i],"8w","n",sex])
@@ -5129,7 +5154,7 @@ for(subset_i in 1:2){
     text(x = rep(length(traits_to_plot) + 3.25, length(cols$Tissue)), 
          y = seq(mean(yseq)-diff(range(yseq)) / 15, max(yseq), length.out = length(cols$Tissue)), 
          pos = 4, pch = 19, cex = 1,
-         labels = MotrpacBicQC::tissue_abbr[names(cols$Tissue)])
+         labels = MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[names(cols$Tissue)])
     
     points(x = length(traits_to_plot) + 3, 
            y = mean(yseq)-diff(range(yseq)) / 7, 
@@ -5205,9 +5230,11 @@ dev.off()
 twas_intersect <- lapply(setNames(rownames(n_deg_sigtwas_intersect), rownames(n_deg_sigtwas_intersect)), function(x) NULL)
 twas_with_hits <- colnames(prop_degs_are_twas)
 prop_pos <- lapply(setNames(rownames(n_deg_sigtwas_intersect), rownames(n_deg_sigtwas_intersect)), function(i) NULL)
-tissue_code <- MotrpacBicQC::bic_animal_tissue_code
-tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
-tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
+# tissue_code <- MotrpacBicQC::bic_animal_tissue_code
+# tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
+# tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
+tissue_code <- data.frame(tissue_name_release = names(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV),
+                          abbreviation = MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV)
 for(tissue_abbrev in names(twas_intersect)){
   
   tissue_i <- tissue_code$tissue_name_release[tissue_code$abbreviation == tissue_abbrev]
@@ -5315,7 +5342,7 @@ layout(t(c(1,2,3)), widths = c(1,1,0.1))
 #first plot
 
 
-sapply(1:nrow(signif_df), function(i) adjustcolor(tissue_cols[tissues[d$row_index[i]]], as.numeric(signif_df$signif[i] != 0) * 0.625 + 0.125))
+sapply(1:nrow(signif_df), function(i) adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues[d$row_index[i]]], as.numeric(signif_df$signif[i] != 0) * 0.625 + 0.125))
 if(use_focal_vs_compl){
   xvals <- (d$col_count - d$cell_count) / (d$total - d$row_count)
   yvals <- d$cell_count / d$row_count
@@ -5330,7 +5357,7 @@ if(use_focal_vs_compl){
 plot(logit(xvals), logit(yvals), xlim = ifelse2(use_focal_vs_compl, c(-14,-1), c(-15,-4.25)), 
      ylim = ifelse2(use_focal_vs_compl, c(-6, -1), c(-9.5,-4.25)),
      pch = category_shapes[traitwise_partitions$Category[match(traits[d$col_index], traitwise_partitions$Tag)]], 
-     col = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), 
+     col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues[d$row_index]], 0.5), 
      cex = 1.5,
      xlab = "", ylab = "", yaxt = 'n', xaxt = "n")
 box(which = "plot", lwd = 2)
@@ -5363,7 +5390,7 @@ rect(xleft = xl, ybottom = yb, xright = xr, ytop = yt, lwd = 2, xpd = NA)
 points(x = ((xvals - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
        y = ((yvals - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
        pch = category_shapes[traitwise_partitions$Category[match(traits[d$col_index], traitwise_partitions$Tag)]], 
-       col = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), 
+       col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues[d$row_index]], 0.5), 
        cex = 1)
 segments(x0 = 0 * (xr - xl - 2*bx) + xl, 
          y0 = 0 * (yt - yb - 2*by) + yb,
@@ -5399,7 +5426,7 @@ abline(0,1, lty = 2, lwd = 6, col = adjustcolor(1,0.75))
 
 #legends
 legend(x = xl, y = yb, legend = names(category_shapes), pch = category_shapes, col = adjustcolor(1, 0.5), cex = 0.75, pt.cex = 1.4)
-legend(x = xr, y = yt, legend = tissues, pch = 19, col = adjustcolor(tissue_cols[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
+legend(x = xr, y = yt, legend = tissues, pch = 19, col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
 segments(x0 = par("usr")[1] + diff(par("usr")[1:2]) / 1.55, 
          y0 = par("usr")[4] - diff(par("usr")[3:4])/50,
          x1 = par("usr")[1] + diff(par("usr")[1:2]) / 1.45, 
@@ -5419,7 +5446,7 @@ cex_pow <- 1/2
 plot(xvals, yvals, xlim = c(0.48, 0.52), 
      ylim = c(0,1),
      pch = category_shapes[traitwise_partitions$Category[match(data$trait, traitwise_partitions$Tag)]], 
-     col = adjustcolor(tissue_cols[data$tissue], 0.5), 
+     col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[data$tissue], 0.5), 
      cex = (data$total_inters / max(data$total_inters))^cex_pow * 5,
      xlab = "", ylab = "", yaxt = 'n', xaxt = "n")
 box(which = "plot", lwd = 2)
@@ -5448,7 +5475,7 @@ yb <- par("usr")[4] - diff(par("usr")[3:4]) / 2.75
 legend(x = xl, y = yb, legend = names(category_shapes), bty = "n",
        pch = category_shapes, col = adjustcolor(1, 0.5), cex = 0.75, pt.cex = 1.4, xpd = NA)
 legend(x = xl + (xr-xl)/100, y = yt, legend = tissues, pch = 19, bty = "n", xpd = NA,
-       col = adjustcolor(tissue_cols[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
+       col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
 
 
 legcexs <- c(0.5, 1:5)
@@ -5517,9 +5544,9 @@ if(base != "deviation_from_expected_logodds_split_the_difference"){
 }
 
 
-cols = list(Tissue=tissue_cols[names(motrpac_gtex_map)], 
-            Time=group_cols[paste0(c(1,2,4,8), "w")],
-            Sex=sex_cols[c('male','female')])
+cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(motrpac_gtex_map)], 
+            Time=MotrpacRatTraining6moData::GROUP_COLORS[paste0(c(1,2,4,8), "w")],
+            Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
 mars <- list(c(6,
                0 + ifelse(subset_to_traits, 2, 0),
                6 + ifelse(group_by_tissue_type, disp_amount * 4.5, 0),
@@ -5659,7 +5686,7 @@ if(use_tissue_cols_for_cols){
   heatmap_cols <- heatmap_cols[round(log(1:max(table_to_use, na.rm = T)) / log(max(table_to_use, na.rm = T)) * max(table_to_use, na.rm = T) * 100 + 1)]
 }
 for(ri in 1:nrow(table_to_use)){
-  # text(x = 0.5, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0), pos = 2, labels = rownames(table_to_use)[ri], col = tissue_cols[rownames(table_to_use)[ri]])
+  # text(x = 0.5, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0), pos = 2, labels = rownames(table_to_use)[ri], col = MotrpacRatTraining6moData::TISSUE_COLORS[rownames(table_to_use)[ri]])
   text(x = 0.5, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0), pos = 2, labels = rownames(table_to_use)[ri], col = 1)
   for(ci in 1:ncol(table_to_use)){
     if(ri == 1){
@@ -5691,7 +5718,7 @@ for(ri in 1:nrow(table_to_use)){
            xright = ci - 1/2,
            ybottom = ri - 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0),
            ytop =  ri + 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0),
-           col = adjustcolor(MotrpacBicQC::tissue_cols[rownames(table_to_use)[ri]], (table_to_use[ri, ci] / max(table_to_use, na.rm = T))^opacity_power_scaler ))  
+           col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[rownames(table_to_use)[ri]], (table_to_use[ri, ci] / max(table_to_use, na.rm = T))^opacity_power_scaler ))  
     } else {
       rect(xleft = ci + 1/2,
            xright = ci - 1/2,
@@ -5707,7 +5734,7 @@ for(ri in 1:nrow(table_to_use)){
     #      ybottom = ri - 0.475,
     #      ytop =  ri + 0.475,
     #      col = heatmap_cols[table_to_use[ri, ci]],
-    #      border = MotrpacBicQC::tissue_cols[rownames(table_to_use)[ri]])
+    #      border = MotrpacRatTraining6moData::TISSUE_COLORS[rownames(table_to_use)[ri]])
     
     #text inside of cells
     if(table_to_use[ri, ci] != 0){
@@ -5957,7 +5984,7 @@ par(mar = mars[[2]])
 #first plot
 
 
-sapply(1:nrow(signif_df), function(i) adjustcolor(tissue_cols[tissues[d$row_index[i]]], as.numeric(signif_df$signif[i] != 0) * 0.625 + 0.125))
+sapply(1:nrow(signif_df), function(i) adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues[d$row_index[i]]], as.numeric(signif_df$signif[i] != 0) * 0.625 + 0.125))
 if(use_focal_vs_compl){
   xvals <- (d$col_count - d$cell_count) / (d$total - d$row_count)
   yvals <- d$cell_count / d$row_count
@@ -5972,7 +5999,7 @@ if(use_focal_vs_compl){
 plot(logit(xvals), logit(yvals), xlim = ifelse2(use_focal_vs_compl, c(-14,-1), c(-15,-4.25)), 
      ylim = ifelse2(use_focal_vs_compl, c(-6, -1), c(-9.5,-4.25)),
      pch = category_shapes[traitwise_partitions$Category[match(traits[d$col_index], traitwise_partitions$Tag)]], 
-     col = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), bg = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5),
+     col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues[d$row_index]], 0.5), bg = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues[d$row_index]], 0.5),
      cex = 1.5,
      xlab = "", ylab = "", yaxt = 'n', xaxt = "n")
 box(which = "plot", lwd = 2)
@@ -6006,7 +6033,7 @@ rect(xleft = xl, ybottom = yb, xright = xr, ytop = yt, lwd = 2, xpd = NA)
 points(x = ((xvals - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
        y = ((yvals - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
        pch = category_shapes[traitwise_partitions$Category[match(traits[d$col_index], traitwise_partitions$Tag)]], 
-       col = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), bg = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), 
+       col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues[d$row_index]], 0.5), bg = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues[d$row_index]], 0.5), 
        cex = 1)
 segments(x0 = 0 * (xr - xl - 2*bx) + xl, 
          y0 = 0 * (yt - yb - 2*by) + yb,
@@ -6042,7 +6069,7 @@ text(labels = yaxlocs, x = par("usr")[1],
 
 #legends
 legend(x = xl, y = yb, legend = names(category_shapes), pch = category_shapes, col = adjustcolor(1, 0.5), pt.bg = adjustcolor(1, 0.5), cex = 0.75, pt.cex = 1.4)
-legend(x = xr, y = yt, legend = tissues, pch = 19, col = adjustcolor(tissue_cols[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
+legend(x = xr, y = yt, legend = tissues, pch = 19, col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
 segments(x0 = par("usr")[1] + diff(par("usr")[1:2]) / 1.55, 
          y0 = par("usr")[4] - diff(par("usr")[3:4])/50,
          x1 = par("usr")[1] + diff(par("usr")[1:2]) / 1.45, 
@@ -6064,7 +6091,7 @@ cex_pow <- 1/2
 plot(xvals, yvals, xlim = c(0.48, 0.52), 
      ylim = c(0,1),
      pch = category_shapes[traitwise_partitions$Category[match(data$trait, traitwise_partitions$Tag)]], 
-     col = adjustcolor(tissue_cols[data$tissue], 0.5), bg = adjustcolor(tissue_cols[data$tissue], 0.5), 
+     col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[data$tissue], 0.5), bg = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[data$tissue], 0.5), 
      cex = (data$total_inters / max(data$total_inters))^cex_pow * 5,
      xlab = "", ylab = "", yaxt = 'n', xaxt = "n")
 box(which = "plot", lwd = 2)
@@ -6093,7 +6120,7 @@ yb <- par("usr")[4] - diff(par("usr")[3:4]) / 2.5
 legend(x = xl, y = yb + (yt-yb)/20, legend = names(category_shapes), bty = "n",
        pch = category_shapes, col = adjustcolor(1, 0.5), pt.bg = adjustcolor(1, 0.5), cex = 0.75, pt.cex = 1.4, xpd = NA)
 legend(x = xl + (xr-xl)/100, y = yt, legend = tissues, pch = 19, bty = "n", xpd = NA,
-       col = adjustcolor(tissue_cols[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
+       col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
 
 legcexs <- c(0.5, 1:5)
 legvals <- (round((legcexs / 5) ^ (1/cex_pow) * max(data$total_inters)))
@@ -6137,10 +6164,10 @@ posterior_means <- apply(focal_samps, 2, mean)[tord]
 inside_cols <- rep("black", length(tord))
 inside_cols[overlaps_with_zero(qi_95)] <- "white"
 tmp <- vioplot::vioplot(x = focal_samps[,tord], T, 
-                        col = tissue_cols[colnames(focal_samps)][tord], outline=FALSE, yaxt = "n",
-                        names = colnames(focal_samps)[tord], range = 0, ylab = "", lineCol = tissue_cols[colnames(focal_samps)][tord],
+                        col = MotrpacRatTraining6moData::TISSUE_COLORS[colnames(focal_samps)][tord], outline=FALSE, yaxt = "n",
+                        names = colnames(focal_samps)[tord], range = 0, ylab = "", lineCol = MotrpacRatTraining6moData::TISSUE_COLORS[colnames(focal_samps)][tord],
                         xlab = "", cex.lab = 2, plotCentre = "point", 
-                        colMed = tissue_cols[colnames(focal_samps)][tord],
+                        colMed = MotrpacRatTraining6moData::TISSUE_COLORS[colnames(focal_samps)][tord],
                         horizontal = T)
 
 #axes
@@ -6162,7 +6189,7 @@ for(i in 1:length(colnames(focal_samps))){
 }
 #group labels
 text(y = tick, x = rep(par("usr")[1] - 0.01, length(tick)), colnames(focal_samps)[tord], srt = 0, xpd = T, pos = 2,
-     col = tissue_cols[colnames(focal_samps)[tord]], xpd = NA)
+     col = MotrpacRatTraining6moData::TISSUE_COLORS[colnames(focal_samps)[tord]], xpd = NA)
 
 abline(v=0,lwd=3,lty=2, col = adjustcolor(1,0.5), xpd = F)
 
@@ -6249,7 +6276,7 @@ inside_cols <- rep("black", length(tord))
 inside_cols[overlaps_with_zero(qi_95)] <- "white"
 tmp <- vioplot::vioplot(x = focal_samps[,tord], T, 
                         col = cols$category[colnames(focal_samps)][tord], outline=FALSE, yaxt = "n",
-                        names = colnames(focal_samps)[tord], range = 0, ylab = "", lineCol = tissue_cols[colnames(focal_samps)][tord],
+                        names = colnames(focal_samps)[tord], range = 0, ylab = "", lineCol = MotrpacRatTraining6moData::TISSUE_COLORS[colnames(focal_samps)][tord],
                         xlab = "", cex.lab = 2, plotCentre = "point", 
                         colMed = cols$category[colnames(focal_samps)][tord],
                         horizontal = T)
@@ -6390,9 +6417,9 @@ if(base != "deviation_from_expected_logodds_split_the_difference_informative-MVN
 }
 
 
-cols = list(Tissue=tissue_cols[names(motrpac_gtex_map)], 
-            Time=group_cols[paste0(c(1,2,4,8), "w")],
-            Sex=sex_cols[c('male','female')])
+cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(motrpac_gtex_map)], 
+            Time=MotrpacRatTraining6moData::GROUP_COLORS[paste0(c(1,2,4,8), "w")],
+            Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
 mars <- list(c(6,
                0 + ifelse(subset_to_traits, 2, 0),
                6 + ifelse(group_by_tissue_type, disp_amount * 4.5, 0),
@@ -6537,7 +6564,7 @@ if(use_tissue_cols_for_cols){
   heatmap_cols <- heatmap_cols[round(log(1:max(table_to_use, na.rm = T)) / log(max(table_to_use, na.rm = T)) * max(table_to_use, na.rm = T) * 100 + 1)]
 }
 for(ri in 1:nrow(table_to_use)){
-  # text(x = 0.5, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0), pos = 2, labels = rownames(table_to_use)[ri], col = tissue_cols[rownames(table_to_use)[ri]])
+  # text(x = 0.5, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0), pos = 2, labels = rownames(table_to_use)[ri], col = MotrpacRatTraining6moData::TISSUE_COLORS[rownames(table_to_use)[ri]])
   text(x = 0.5, y = ri + ifelse(group_by_tissue_type, tissue_disps[ri], 0), pos = 2, labels = rownames(table_to_use)[ri], col = 1)
   for(ci in 1:ncol(table_to_use)){
     if(ri == 1){
@@ -6569,7 +6596,7 @@ for(ri in 1:nrow(table_to_use)){
            xright = ci - 1/2,
            ybottom = ri - 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0),
            ytop =  ri + 0.5 + ifelse(group_by_tissue_type, tissue_disps[ri], 0),
-           col = adjustcolor(MotrpacBicQC::tissue_cols[rownames(table_to_use)[ri]], (table_to_use[ri, ci] / max(table_to_use, na.rm = T))^opacity_power_scaler ))  
+           col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[rownames(table_to_use)[ri]], (table_to_use[ri, ci] / max(table_to_use, na.rm = T))^opacity_power_scaler ))  
     } else {
       rect(xleft = ci + 1/2,
            xright = ci - 1/2,
@@ -6585,7 +6612,7 @@ for(ri in 1:nrow(table_to_use)){
     #      ybottom = ri - 0.475,
     #      ytop =  ri + 0.475,
     #      col = heatmap_cols[table_to_use[ri, ci]],
-    #      border = MotrpacBicQC::tissue_cols[rownames(table_to_use)[ri]])
+    #      border = MotrpacRatTraining6moData::TISSUE_COLORS[rownames(table_to_use)[ri]])
     
     #text inside of cells
     if(table_to_use[ri, ci] != 0){
@@ -6835,7 +6862,7 @@ par(mar = mars[[2]])
 #first plot
 
 
-sapply(1:nrow(signif_df), function(i) adjustcolor(tissue_cols[tissues[d$row_index[i]]], as.numeric(signif_df$signif[i] != 0) * 0.625 + 0.125))
+sapply(1:nrow(signif_df), function(i) adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues[d$row_index[i]]], as.numeric(signif_df$signif[i] != 0) * 0.625 + 0.125))
 if(use_focal_vs_compl){
   xvals <- (d$col_count - d$cell_count) / (d$total - d$row_count)
   yvals <- d$cell_count / d$row_count
@@ -6850,7 +6877,7 @@ if(use_focal_vs_compl){
 plot(logit(xvals), logit(yvals), xlim = ifelse2(use_focal_vs_compl, c(-14,-1), c(-15,-4.25)), 
      ylim = ifelse2(use_focal_vs_compl, c(-6, -1), c(-9.5,-4.25)),
      pch = category_shapes[traitwise_partitions$Category[match(traits[d$col_index], traitwise_partitions$Tag)]], 
-     col = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), bg = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5),
+     col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues[d$row_index]], 0.5), bg = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues[d$row_index]], 0.5),
      cex = 1.5,
      xlab = "", ylab = "", yaxt = 'n', xaxt = "n")
 box(which = "plot", lwd = 2)
@@ -6897,7 +6924,7 @@ rect(xleft = xl, ybottom = yb, xright = xr, ytop = yt, lwd = 2, xpd = NA)
 points(x = ((xvals - min(xvals, na.rm = T)) / max(xvals, na.rm = T)) * (xr - xl - 2*bx) + xl + bx, 
        y = ((yvals - min(yvals, na.rm = T)) / max(yvals, na.rm = T)) * (yt - yb - 2*by) + yb + by, 
        pch = category_shapes[traitwise_partitions$Category[match(traits[d$col_index], traitwise_partitions$Tag)]], 
-       col = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), bg = adjustcolor(tissue_cols[tissues[d$row_index]], 0.5), 
+       col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues[d$row_index]], 0.5), bg = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues[d$row_index]], 0.5), 
        cex = 1)
 segments(x0 = 0 * (xr - xl - 2*bx) + xl, 
          y0 = 0 * (yt - yb - 2*by) + yb,
@@ -6933,7 +6960,7 @@ text(labels = yaxlocs, x = par("usr")[1],
 
 #legends
 legend(x = xl, y = yb, legend = names(category_shapes), pch = category_shapes, col = adjustcolor(1, 0.5), pt.bg = adjustcolor(1, 0.5), cex = 0.75, pt.cex = 1.4)
-legend(x = xr, y = yt, legend = tissues, pch = 19, col = adjustcolor(tissue_cols[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
+legend(x = xr, y = yt, legend = tissues, pch = 19, col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
 segments(x0 = par("usr")[1] + diff(par("usr")[1:2]) / 1.55, 
          y0 = par("usr")[4] - diff(par("usr")[3:4])/50,
          x1 = par("usr")[1] + diff(par("usr")[1:2]) / 1.45, 
@@ -6955,7 +6982,7 @@ cex_pow <- 1/2
 plot(xvals, yvals, xlim = c(0.48, 0.52), 
      ylim = c(0,1),
      pch = category_shapes[traitwise_partitions$Category[match(data$trait, traitwise_partitions$Tag)]], 
-     col = adjustcolor(tissue_cols[data$tissue], 0.5), bg = adjustcolor(tissue_cols[data$tissue], 0.5), 
+     col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[data$tissue], 0.5), bg = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[data$tissue], 0.5), 
      cex = (data$total_inters / max(data$total_inters))^cex_pow * 5,
      xlab = "", ylab = "", yaxt = 'n', xaxt = "n")
 box(which = "plot", lwd = 2)
@@ -6984,7 +7011,7 @@ yb <- par("usr")[4] - diff(par("usr")[3:4]) / 2.5
 legend(x = xl, y = yb + (yt-yb)/20, legend = names(category_shapes), bty = "n",
        pch = category_shapes, col = adjustcolor(1, 0.5), pt.bg = adjustcolor(1, 0.5), cex = 0.75, pt.cex = 1.4, xpd = NA)
 legend(x = xl + (xr-xl)/100, y = yt, legend = tissues, pch = 19, bty = "n", xpd = NA,
-       col = adjustcolor(tissue_cols[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
+       col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues], 0.5), cex = 0.55, pt.cex = 1.2)
 
 legcexs <- c(0.5, 1:5)
 legvals <- (round((legcexs / 5) ^ (1/cex_pow) * max(data$total_inters)))
@@ -7039,10 +7066,10 @@ posterior_means <- apply(focal_samps, 2, mean)[tord]
 inside_cols <- rep("black", length(tord))
 inside_cols[overlaps_with_zero(qi_95)] <- "white"
 tmp <- vioplot::vioplot(x = focal_samps[,tord], T, 
-                        col = tissue_cols[colnames(focal_samps)][tord], outline=FALSE, yaxt = "n",
-                        names = colnames(focal_samps)[tord], range = 0, ylab = "", lineCol = tissue_cols[colnames(focal_samps)][tord],
+                        col = MotrpacRatTraining6moData::TISSUE_COLORS[colnames(focal_samps)][tord], outline=FALSE, yaxt = "n",
+                        names = colnames(focal_samps)[tord], range = 0, ylab = "", lineCol = MotrpacRatTraining6moData::TISSUE_COLORS[colnames(focal_samps)][tord],
                         xlab = "", cex.lab = 2, plotCentre = "point", 
-                        colMed = tissue_cols[colnames(focal_samps)][tord],
+                        colMed = MotrpacRatTraining6moData::TISSUE_COLORS[colnames(focal_samps)][tord],
                         horizontal = T)
 
 #axes
@@ -7064,7 +7091,7 @@ for(i in 1:length(colnames(focal_samps))){
 }
 #group labels
 text(y = tick, x = rep(par("usr")[1] - 0.01, length(tick)), colnames(focal_samps)[tord], srt = 0, xpd = T, pos = 2,
-     col = tissue_cols[colnames(focal_samps)[tord]], xpd = NA, cex = 1.25)
+     col = MotrpacRatTraining6moData::TISSUE_COLORS[colnames(focal_samps)[tord]], xpd = NA, cex = 1.25)
 
 abline(v=0,lwd=3,lty=2, col = adjustcolor(1,0.5), xpd = F)
 
@@ -7151,7 +7178,7 @@ inside_cols <- rep("black", length(tord))
 inside_cols[overlaps_with_zero(qi_95)] <- "white"
 tmp <- vioplot::vioplot(x = focal_samps[,tord], T, 
                         col = cols$category[colnames(focal_samps)][tord], outline=FALSE, yaxt = "n",
-                        names = colnames(focal_samps)[tord], range = 0, ylab = "", lineCol = tissue_cols[colnames(focal_samps)][tord],
+                        names = colnames(focal_samps)[tord], range = 0, ylab = "", lineCol = MotrpacRatTraining6moData::TISSUE_COLORS[colnames(focal_samps)][tord],
                         xlab = "", cex.lab = 2, plotCentre = "point", 
                         colMed = cols$category[colnames(focal_samps)][tord],
                         horizontal = T)
