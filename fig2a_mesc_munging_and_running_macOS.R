@@ -1,8 +1,10 @@
 library(foreach)
 library(doParallel)
 library(parallel)
-library(MotrpacBicQC)
+# library(MotrpacBicQC)
 library(data.table)
+library(MotrpacRatTraining6mo) # v1.6.0
+# also attaches MotrpacRatTraining6moData v1.8.0
 
 # paste0("python2 ./run_mesc.py ",
 #        "--compute-expscore-indiv ",
@@ -44,14 +46,16 @@ library(data.table)
 if(file.exists("~/data/smontgom/node_metadata_list_mesc.RData")){
   load("~/data/smontgom/node_metadata_list_mesc.RData")
 } else {
-  gencode_gene_map <- fread("~/data/smontgom/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
+  # gencode_gene_map <- fread("~/data/smontgom/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
+  gencode_gene_map <- MotrpacRatTraining6moData::RAT_TO_HUMAN_GENE
   gencode_gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID <- gsub(gencode_gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID, pattern = "\\..*", replacement = "")
   gene_map <- gencode_gene_map
-  load("~/data/smontgom/graphical_analysis_results_20211220.RData")
-  # nodes_to_look_at_list <- list(c("1w_F1_M1", "1w_F-1_M-1"),
-  #                               c("2w_F1_M1", "2w_F-1_M-1"),
-  #                               c("4w_F1_M1", "4w_F-1_M-1"),
-  #                               c("8w_F1_M1", "8w_F-1_M-1"))
+  # load("~/data/smontgom/graphical_analysis_results_20211220.RData")
+  # # nodes_to_look_at_list <- list(c("1w_F1_M1", "1w_F-1_M-1"),
+  # #                               c("2w_F1_M1", "2w_F-1_M-1"),
+  # #                               c("4w_F1_M1", "4w_F-1_M-1"),
+  # #                               c("8w_F1_M1", "8w_F-1_M-1"))
+  node_sets <- MotrpacRatTraining6moData::GRAPH_COMPONENTS$node_sets
   
   node_shorthand <- expand.grid(-1:1, -1:1)
   node_shorthand <- node_shorthand[!(node_shorthand[,1] == 0 & node_shorthand[,2] == 0),]

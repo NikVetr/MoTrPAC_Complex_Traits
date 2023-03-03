@@ -18,8 +18,9 @@ library(foreach)
 library(doParallel)
 library(pracma)
 library(invgamma)
-library(MotrpacBicQC)
-
+# library(MotrpacBicQC)
+library(MotrpacRatTraining6mo) # v1.6.0
+# also attaches MotrpacRatTraining6moData v1.8.0
 
 #### define functions ####
 source(file = "~/scripts/montgomery_lab/deg-trait_functions.R")
@@ -43,9 +44,9 @@ motrpac_gtex_map = c('t30-blood-rna'='Whole Blood',
                      't68-liver'='Liver',
                      't70-white-adipose'='Adipose - Subcutaneous')
 
-cols = list(Tissue=tissue_cols[names(motrpac_gtex_map)], 
-            Time=MotrpacBicQC::group_cols[paste0(c(1,2,4,8), "w")],
-            Sex=sex_cols[c('male','female')])
+cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(motrpac_gtex_map)], 
+            Time=MotrpacRatTraining6moData::GROUP_COLORS[paste0(c(1,2,4,8), "w")],
+            Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
 cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
 
 #### figure 1 ####
@@ -415,13 +416,13 @@ col_df$Tissue = gsub('_.*','',rownames(col_df))
 col_df$Time = sapply(rownames(col_df), function(x) unname(unlist(strsplit(x, '_')))[3])
 col_df$Sex = sapply(rownames(col_df), function(x) unname(unlist(strsplit(x, '_')))[2])
 
-colours = list(Tissue=tissue_cols[unique(col_df$Tissue)], 
-               Time=MotrpacBicQC::group_cols[unique(col_df$Time)],
-               Sex=sex_cols[c('male','female')])
+colours = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[unique(col_df$Tissue)], 
+               Time=MotrpacRatTraining6moData::GROUP_COLORS[unique(col_df$Time)],
+               Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
 colours$Tissue["t56-vastus-lateralis"] <- colorRampPalette(c(as.character(colours$Tissue["t56-vastus-lateralis"]), "black"))(3)[2]
 nnmap <- as.data.frame(bic_animal_tissue_code[,4:5])
 nnmap <- nnmap[nnmap$tissue_name_release != "",]
-tiss_ord <- nnmap$tissue_name_release[match(rev(MotrpacBicQC::tissue_order), nnmap$abbreviation)]
+tiss_ord <- nnmap$tissue_name_release[match(rev(MotrpacRatTraining6moData::TISSUE_ORDER), nnmap$abbreviation)]
 colours$Tissue <- colours$Tissue[match(tiss_ord, names(colours$Tissue))]
 colours$Tissue <- colours$Tissue[!is.na(colours$Tissue)]
 
@@ -1024,13 +1025,13 @@ col_df$Tissue = gsub('_.*','',rownames(col_df))
 col_df$Time = sapply(rownames(col_df), function(x) unname(unlist(strsplit(x, '_')))[3])
 col_df$Sex = sapply(rownames(col_df), function(x) unname(unlist(strsplit(x, '_')))[2])
 
-colours = list(Tissue=tissue_cols[unique(col_df$Tissue)], 
-               Time=group_cols[unique(col_df$Time)],
-               Sex=sex_cols[c('male','female')])
+colours = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[unique(col_df$Tissue)], 
+               Time=MotrpacRatTraining6moData::GROUP_COLORS[unique(col_df$Time)],
+               Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
 colours$Tissue["t56-vastus-lateralis"] <- colorRampPalette(c(as.character(colours$Tissue["t56-vastus-lateralis"]), "black"))(3)[2]
 nnmap <- as.data.frame(bic_animal_tissue_code[,4:5])
 nnmap <- nnmap[nnmap$tissue_name_release != "",]
-tiss_ord <- nnmap$tissue_name_release[match(rev(MotrpacBicQC::tissue_order), nnmap$abbreviation)]
+tiss_ord <- nnmap$tissue_name_release[match(rev(MotrpacRatTraining6moData::TISSUE_ORDER), nnmap$abbreviation)]
 colours$Tissue <- colours$Tissue[match(tiss_ord, names(colours$Tissue))]
 colours$Tissue <- colours$Tissue[!is.na(colours$Tissue)]
 
@@ -1533,7 +1534,7 @@ for(sex_i in c("male", "female")){
     text(x = 0.275, y = ylims[2] - diff(ylims) / 8, labels = ",", 
          cex = 3, col = cols$Time[ti], pos = 4)
     text(labels = c(female = "\u2640", male = "\u2642")[sex_i], x = 0.35, y = ylims[2] - diff(ylims) / 8, pos = 4, cex = 3, 
-         col = sex_cols[sex_i], family = "Arial Unicode MS")
+         col = MotrpacRatTraining6moData::SEX_COLORS[sex_i], family = "Arial Unicode MS")
     
     if(sex_i == "male"){
       text(latex2exp::TeX(paste0("Ratio of Exercise DE to \\sqrt{", 
@@ -1556,7 +1557,7 @@ n_tissues_per_gene <- table(all_genes)
 ensembl_genes$THREE <- names(n_tissues_per_gene)[n_tissues_per_gene > 2]
 
 
-tissue_colors <- c(tissue_cols, THREE = "black")
+tissue_colors <- c(MotrpacRatTraining6moData::TISSUE_COLORS, THREE = "black")
 jaccard <- function(x, y) length(intersect(x,y)) / length(union(x,y))
 jacmat <- sapply(orig_ensembl_genes, function(x) sapply(orig_ensembl_genes, function(y) jaccard(x,y)))
 jacmat_inds <- order(cmdscale(1-jacmat, k = 1))
@@ -1613,7 +1614,7 @@ xyrat <- diff(par("usr")[1:2]) / diff(par("usr")[3:4])
 for(j in 2:ncol(jacmat)){
   rect(xleft = xl + (j-1) / nrow(jacmat) * (xr - xl), xright = xl + j / nrow(jacmat) * (xr - xl), 
        ybottom = yt + 1 / ncol(jacmat) * (yt - yb), ytop =  yt + 2 / ncol(jacmat) * (yt - yb),
-       col = tissue_cols[colnames(jacmat)[j]])
+       col = MotrpacRatTraining6moData::TISSUE_COLORS[colnames(jacmat)[j]])
   text(x = xl + (j-0.75) / nrow(jacmat) * (xr - xl), y = yt + 2.5 / ncol(jacmat) * (yt - yb),
        labels = colnames(jacmat)[j], pos = 4, cex = 0.75, xpd = NA, srt = 45)
   
@@ -1624,7 +1625,7 @@ for(j in 2:ncol(jacmat)){
     if(j == ncol(jacmat)){
       rect(xleft = xr + 1 / xyrat / nrow(jacmat) * (xr - xl), xright = xr + (1 + 1 / xyrat) / nrow(jacmat) * (xr - xl), 
            ybottom = yb + (nrow(jacmat)-i) / ncol(jacmat) * (yt - yb), ytop =  yb + (nrow(jacmat)-i+1) / ncol(jacmat) * (yt - yb),
-           col = tissue_cols[rownames(jacmat)[i]])
+           col = MotrpacRatTraining6moData::TISSUE_COLORS[rownames(jacmat)[i]])
       text(x = xr + (0.9 + 1 / xyrat) / nrow(jacmat) * (xr - xl), y = yb + (nrow(jacmat)-i+0.5) / ncol(jacmat) * (yt - yb),
            labels = rownames(jacmat)[i], pos = 4, cex = 0.75)
     }
@@ -2011,9 +2012,9 @@ for(i in 1:nrow(locs)){
 
 
 #node intersects plot
-cols = list(Tissue=tissue_cols[names(motrpac_gtex_map)], 
-            Time=MotrpacBicQC::group_cols[paste0(c(1,2,4,8), "w")],
-            Sex=sex_cols[c('male','female')])
+cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(motrpac_gtex_map)], 
+            Time=MotrpacRatTraining6moData::GROUP_COLORS[paste0(c(1,2,4,8), "w")],
+            Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
 cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
 par(mar = c(4,5,4,1), xpd = NA)
 load("~/data/smontgom/node_metadata_list.RData")
@@ -2025,7 +2026,7 @@ n_tissues_per_gene <- table(all_genes)
 ensembl_genes$THREE <- names(n_tissues_per_gene)[n_tissues_per_gene > 2]
 
 
-tissue_colors <- c(tissue_cols, THREE = "black")
+tissue_colors <- c(MotrpacRatTraining6moData::TISSUE_COLORS, THREE = "black")
 jaccard <- function(x, y) length(intersect(x,y)) / length(union(x,y))
 jacmat <- sapply(orig_ensembl_genes, function(x) sapply(orig_ensembl_genes, function(y) jaccard(x,y)))
 jacmat_inds <- order(cmdscale(1-jacmat, k = 1))
@@ -2082,7 +2083,7 @@ xyrat <- diff(par("usr")[1:2]) / diff(par("usr")[3:4])
 for(j in 2:ncol(jacmat)){
   rect(xleft = xl + (j-1) / nrow(jacmat) * (xr - xl), xright = xl + j / nrow(jacmat) * (xr - xl), 
        ybottom = yt + 1 / ncol(jacmat) * (yt - yb), ytop =  yt + 2 / ncol(jacmat) * (yt - yb),
-       col = tissue_cols[colnames(jacmat)[j]])
+       col = MotrpacRatTraining6moData::TISSUE_COLORS[colnames(jacmat)[j]])
   text(x = xl + (j-0.75) / nrow(jacmat) * (xr - xl), y = yt + 2.5 / ncol(jacmat) * (yt - yb),
        labels = colnames(jacmat)[j], pos = 4, cex = 0.75, xpd = NA, srt = 45)
   
@@ -2093,7 +2094,7 @@ for(j in 2:ncol(jacmat)){
     if(j == ncol(jacmat)){
       rect(xleft = xr + 1 / xyrat / nrow(jacmat) * (xr - xl), xright = xr + (1 + 1 / xyrat) / nrow(jacmat) * (xr - xl), 
            ybottom = yb + (nrow(jacmat)-i) / ncol(jacmat) * (yt - yb), ytop =  yb + (nrow(jacmat)-i+1) / ncol(jacmat) * (yt - yb),
-           col = tissue_cols[rownames(jacmat)[i]])
+           col = MotrpacRatTraining6moData::TISSUE_COLORS[rownames(jacmat)[i]])
       text(x = xr + (0.9 + 1 / xyrat) / nrow(jacmat) * (xr - xl), y = yb + (nrow(jacmat)-i+0.5) / ncol(jacmat) * (yt - yb),
            labels = rownames(jacmat)[i], pos = 4, cex = 0.75)
     }
@@ -2357,7 +2358,7 @@ for(sex_i in c("male", "female")){
     text(x = 0.275, y = ylims[2] - diff(ylims) / 8, labels = ",", 
          cex = 3, col = cols$Time[ti], pos = 4)
     text(labels = c(female = "\u2640", male = "\u2642")[sex_i], x = 0.35, y = ylims[2] - diff(ylims) / 8, pos = 4, cex = 3, 
-         col = sex_cols[sex_i], family = "Arial Unicode MS")
+         col = MotrpacRatTraining6moData::SEX_COLORS[sex_i], family = "Arial Unicode MS")
     
     if(sex_i == "male"){
       text(latex2exp::TeX(paste0("Ratio of Exercise DE to \\sqrt{", 

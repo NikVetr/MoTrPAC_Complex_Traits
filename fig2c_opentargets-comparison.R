@@ -6,7 +6,9 @@ library(parallel)
 # library(ghql)
 library(sparklyr)
 library(sparklyr.nested)
-library(MotrpacBicQC)
+# library(MotrpacBicQC)
+library(MotrpacRatTraining6mo) # v1.6.0
+# also attaches MotrpacRatTraining6moData v1.8.0
 
 #functions
 
@@ -161,7 +163,7 @@ n_traits_above_at_least_1 <- sapply(names(tissue_x_disease), function(tissue)
 
 
 ###### do the plotting #####
-tissue_colors <- c(tissue_cols, THREE = "black")
+tissue_colors <- c(MotrpacRatTraining6moData::TISSUE_COLORS, THREE = "black")
 main_title <- paste0("OpenTargets ", ifelse(use_indirect, "Overall / Indirect", "Direct"), " Associations")
 
 par(mfrow = c(2,2), mar = c(4,6,4,2))
@@ -334,7 +336,7 @@ xyrat <- diff(par("usr")[1:2]) / diff(par("usr")[3:4])
 for(j in 2:ncol(jacmat)){
   rect(xleft = xl + (j-1) / nrow(jacmat) * (xr - xl), xright = xl + j / nrow(jacmat) * (xr - xl), 
        ybottom = yt + 1 / ncol(jacmat) * (yt - yb), ytop =  yt + 2 / ncol(jacmat) * (yt - yb),
-       col = tissue_cols[colnames(jacmat)[j]])
+       col = MotrpacRatTraining6moData::TISSUE_COLORS[colnames(jacmat)[j]])
   text(x = xl + (j-0.75) / nrow(jacmat) * (xr - xl), y = yt + 2.5 / ncol(jacmat) * (yt - yb),
        labels = colnames(jacmat)[j], pos = 4, cex = 0.75, xpd = NA, srt = 45)
   
@@ -345,7 +347,7 @@ for(j in 2:ncol(jacmat)){
     if(j == ncol(jacmat)){
       rect(xleft = xr + 1 / xyrat / nrow(jacmat) * (xr - xl), xright = xr + (1 + 1 / xyrat) / nrow(jacmat) * (xr - xl), 
            ybottom = yb + (nrow(jacmat)-i) / ncol(jacmat) * (yt - yb), ytop =  yb + (nrow(jacmat)-i+1) / ncol(jacmat) * (yt - yb),
-           col = tissue_cols[rownames(jacmat)[i]])
+           col = MotrpacRatTraining6moData::TISSUE_COLORS[rownames(jacmat)[i]])
       text(x = xr + (0.9 + 1 / xyrat) / nrow(jacmat) * (xr - xl), y = yb + (nrow(jacmat)-i+0.5) / ncol(jacmat) * (yt - yb),
            labels = rownames(jacmat)[i], pos = 4, cex = 0.75)
     }
