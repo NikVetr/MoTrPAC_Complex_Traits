@@ -8,7 +8,6 @@ library(org.Hs.eg.db)
 library(clusterProfiler)
 library(org.Rn.eg.db)
 library(biomaRt)
-library(MotrpacBicQC)
 library(plotrix)
 library(ggplot2)
 library(testit)
@@ -21,8 +20,12 @@ library(foreach)
 library(doParallel)
 library(parallel)
 library(data.table)
-library(MotrpacBicQC)
+# library(MotrpacBicQC)
+library(MotrpacRatTraining6mo) # v1.6.0
+# also attaches MotrpacRatTraining6moData v1.8.0
 
+
+# TODO: add these scripts to this repo 
 #load de data
 source(file = "~/scripts/montgomery_lab/load_deg-eqtl_merged_file.R")
 
@@ -31,9 +34,11 @@ source(file = "~/scripts/montgomery_lab/deg-trait_functions.R")
 
 
 #rat <-> human gene map 
-gencode_gene_map <- rdg_mapping <- fread("~/data/smontgom/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
+# gencode_gene_map <- rdg_mapping <- fread("~/data/smontgom/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
+gencode_gene_map <- rdg_mapping <- MotrpacRatTraining6moData::RAT_TO_HUMAN_GENE
 
-load("~/data/smontgom/genes_tested_in_transcriptome_DEA.RData")
+# load("~/data/smontgom/genes_tested_in_transcriptome_DEA.RData")
+genes_tested_in_transcriptome_DEA <- unique(unlist(MotrpacRatTraining6moData::GENE_UNIVERSES$ensembl_gene$TRNSCRPT))
 gencode_gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID <- gsub(gencode_gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID, pattern = "\\..*", replacement = "")
 gene_map <- gencode_gene_map
 all_orthologs_tested <- gene_map$HUMAN_ORTHOLOG_SYMBOL[match(genes_tested_in_transcriptome_DEA, gene_map$RAT_ENSEMBL_ID)]
@@ -133,9 +138,10 @@ muscle_signs <- setNames(sign(human_muscle_res$beta[match(muscle_genes, human_mu
 
 #### get motrpac clustering results ####
 
-if(!exists("node_sets")){
-  load("~/data/smontgom/graphical_analysis_results_20211220.RData")  
-}
+# if(!exists("node_sets")){
+#   load("~/data/smontgom/graphical_analysis_results_20211220.RData")  
+# }
+node_sets <- MotrpacRatTraining6moData::GRAPH_COMPONENTS$node_sets
 
 # nodes_to_look_at_list <- list(c("1w_F1_M1", "1w_F-1_M-1"),
 #                               c("2w_F1_M1", "2w_F-1_M-1"),
@@ -195,7 +201,7 @@ node_metadata_list <- lapply(setNames(paste0(2^(0:3), "w"), paste0(2^(0:3), "w")
     names(out) <- gene_map$HUMAN_ORTHOLOG_SYMBOL[match(names(out), gene_map$RAT_ENSEMBL_ID)]
     
     out <- lapply(setNames(tissues, tissues), function(tiss){
-      subout <- out[node_metadata$tissue == tissue_abbr[tiss]]
+      subout <- out[node_metadata$tissue == MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tiss]]
       subout[!is.na(names(subout))]
     })
     
@@ -419,7 +425,7 @@ for(sex_i in sexes){
     
     cols <- rev(viridis::mako(100+1))
     alpha_pow <- 1/2
-    cols <- sapply(1:101/101, function(colalpha) adjustcolor(tissue_cols[tissue], colalpha^(alpha_pow)))
+    cols <- sapply(1:101/101, function(colalpha) adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissue], colalpha^(alpha_pow)))
     
     plot(NA, xlim = c(1,ndens), ylim = c(1,ndens), xaxt = "n", frame = F, yaxt = "n", xlab = "", ylab = "")
     for(xi in 1:(ndens-1)){
@@ -448,10 +454,10 @@ for(sex_i in sexes){
     segments(x0 = which(xr == 0), x1 = which(xr == 0), y0 = 1, y1 = ndens)
     
     #title
-    # text(x = ndens/2, y = ndens + ndens/20, labels = tissue_abbr[tissue], cex = 1.5)
+    # text(x = ndens/2, y = ndens + ndens/20, labels = MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue], cex = 1.5)
     text_indivcolor(xloc = ndens/2 - ndens/4, y = ndens + ndens/20, 
-                    labels_mat = t(matrix(c(tissue_abbr[tissue], ", ", timepoint, ", ", c(male = "\u2642", female = "\u2640")[sex]))),
-                    colors_mat = t(matrix(c(tissue_cols[tissue], 1, MotrpacBicQC::group_cols[timepoint], 1, sex_cols[sex]))),
+                    labels_mat = t(matrix(c(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue], ", ", timepoint, ", ", c(male = "\u2642", female = "\u2640")[sex]))),
+                    colors_mat = t(matrix(c(MotrpacRatTraining6moData::TISSUE_COLORS[tissue], 1, MotrpacRatTraining6moData::GROUP_COLORS[timepoint], 1, MotrpacRatTraining6moData::SEX_COLORS[sex]))),
                     cex = 1.75, pos = 4)
     
     #legend for colors
@@ -492,7 +498,7 @@ for(sex_i in sexes){
 }
 
 #now plot the proportion figure
-node_type_cols <- c(both = "purple", sex_cols["male"], sex_cols["female"], neither = "grey50")
+node_type_cols <- c(both = "purple", MotrpacRatTraining6moData::SEX_COLORS["male"], MotrpacRatTraining6moData::SEX_COLORS["female"], neither = "grey50")
 # par(mar = c(3,5.5,3,3.5))
 
 for(tissue in tissues){
@@ -503,7 +509,7 @@ for(tissue in tissues){
   # ylims = list(c(0.1,0.3), c(0.18, 0.4), c(0,0.02))[[match(tissue, tissues)]]
   plot(NA, xlim = c(1,4), ylim = ylims, xaxt = "n", frame = F, yaxt = "n", xlab = "", ylab = "")
   #title
-  text(x = 2.5, y = ylims[2], labels = tissue_abbr[tissue], pos = 3, cex = 1.75, col = tissue_cols[tissue], xpd = NA)
+  text(x = 2.5, y = ylims[2], labels = MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue], pos = 3, cex = 1.75, col = MotrpacRatTraining6moData::TISSUE_COLORS[tissue], xpd = NA)
   
   #axes
   #yax
@@ -512,7 +518,7 @@ for(tissue in tissues){
   text(x = 1-1/20, y = yax, pos = 2, labels = yax, xpd = NA, cex = 0.8)
   #xax
   segments(x0 = 1:4, x1 = 1:4, y0 = ylims[1], y1 = ylims[1]-diff(ylims)/50)
-  shadowtext(x =  1:4 + 0.1, y = rep(ylims[1]-diff(ylims)/20, 4), pos = 2, labels = timepoints, xpd = NA, srt = 45, cex = 1.2, col = MotrpacBicQC::group_cols[timepoints], theta = 1)
+  shadowtext(x =  1:4 + 0.1, y = rep(ylims[1]-diff(ylims)/20, 4), pos = 2, labels = timepoints, xpd = NA, srt = 45, cex = 1.2, col = MotrpacRatTraining6moData::GROUP_COLORS[timepoints], theta = 1)
   
   #label axes
   text(x = 2.5, y = ylims[1]-diff(ylims)/6, labels = latex2exp::TeX("Timepoint"), cex = 1.5)
@@ -547,8 +553,8 @@ for(sex_i in sexes){
     plot(NA, xlim = xlims, ylim = ylims, xaxt = "n", frame = F, yaxt = "n", xlab = "", ylab = "")
     #title
     text_indivcolor(xloc = mean(xlims) - diff(xlims)/5, y = ylims[2] + diff(ylims)/20,pos = 4,
-                    labels_mat = t(matrix(c(tissue_abbr[tissue], ", ", c(male = "\u2642", female = "\u2640")[sex_i]))),
-                    colors_mat = t(matrix(c(tissue_cols[tissue], 1, sex_cols[sex_i]))),
+                    labels_mat = t(matrix(c(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue], ", ", c(male = "\u2642", female = "\u2640")[sex_i]))),
+                    colors_mat = t(matrix(c(MotrpacRatTraining6moData::TISSUE_COLORS[tissue], 1, MotrpacRatTraining6moData::SEX_COLORS[sex_i]))),
                     cex = 1.75)
     
     #axes
@@ -569,11 +575,11 @@ for(sex_i in sexes){
     #add horizontal line at 0.5
     
     #add legend
-    legend(x = xlims[2], y = ylims[2], lwd = 4, col = MotrpacBicQC::group_cols[timepoints], legend = timepoints, bty = "n", seg.len = 1)
+    legend(x = xlims[2], y = ylims[2], lwd = 4, col = MotrpacRatTraining6moData::GROUP_COLORS[timepoints], legend = timepoints, bty = "n", seg.len = 1)
     
     #add actual lines
     for(timepoint in timepoints){
-      lines(-wins_center, pval_window_output[[tissue]][[sex_i]][[timepoint]], col = MotrpacBicQC::group_cols[timepoint], lwd = 4)
+      lines(-wins_center, pval_window_output[[tissue]][[sex_i]][[timepoint]], col = MotrpacRatTraining6moData::GROUP_COLORS[timepoint], lwd = 4)
     }  
     
     #overall frane
@@ -589,6 +595,7 @@ for(sex_i in sexes){
 
 if(incl_sex_comparison){
   par(mar = c(4.25,4.5,2.5,2))
+  # output from fig1a_ratman-sex-comparison.R
   samps <- read.table("~/data/smontgom/ratman_sex_comparison_samps.txt")
   colnames(samps) <- gsub("\\.", "-", colnames(samps))
   tord <- order(apply(samps, 2, mean))
@@ -598,10 +605,10 @@ if(incl_sex_comparison){
   inside_cols <- rep("black", length(tord))
   inside_cols[overlaps_with_zero(qi_95-0.5)] <- "white"
   tmp <- vioplot::vioplot(x = samps[,tord], T, 
-                          col = tissue_cols[colnames(samps)][tord], outline=FALSE, yaxt = "n",
-                          names = colnames(samps)[tord], range = 0, ylab = "", lineCol = tissue_cols[colnames(samps)][tord],
+                          col = MotrpacRatTraining6moData::TISSUE_COLORS[colnames(samps)][tord], outline=FALSE, yaxt = "n",
+                          names = colnames(samps)[tord], range = 0, ylab = "", lineCol = MotrpacRatTraining6moData::TISSUE_COLORS[colnames(samps)][tord],
                           xlab = "", cex.lab = 2, plotCentre = "point", 
-                          colMed = tissue_cols[colnames(samps)][tord],
+                          colMed = MotrpacRatTraining6moData::TISSUE_COLORS[colnames(samps)][tord],
                           horizontal = T)
   
   #axes
@@ -621,7 +628,7 @@ if(incl_sex_comparison){
     
   }
   text(y = tick, x = rep(par("usr")[1] - 0.01, length(tick)), colnames(samps)[tord], srt = 0, xpd = T, pos = 2,
-       col = tissue_cols[colnames(samps)[tord]])
+       col = MotrpacRatTraining6moData::TISSUE_COLORS[colnames(samps)[tord]])
   
   abline(v=0.5,lwd=3,lty=2, col = adjustcolor(1,0.5), xpd = F)
   
@@ -648,7 +655,7 @@ included_in_graphical_clustering <- unlist(node_sets[!grepl("0w", names(node_set
 included_in_graphical_clustering <- included_in_graphical_clustering[grepl("TRNSCRPT", included_in_graphical_clustering)]
 included_in_graphical_clustering <- do.call(rbind, strsplit(included_in_graphical_clustering, ";"))
 included_in_graphical_clustering <- lapply(tissues, function(ti){
-  x <- unique(included_in_graphical_clustering[included_in_graphical_clustering[,2] == MotrpacBicQC::tissue_abbr[ti],3])
+  x <- unique(included_in_graphical_clustering[included_in_graphical_clustering[,2] == MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[ti],3])
   x <- map$human_gene_symbol[match(x, map$feature_ID)]
   x <- x[!is.na(x)]
   x <- intersect(x, possible_intersecting_genes[[ti]])
@@ -696,7 +703,7 @@ motrpac_DE_nodes <- lapply(setNames(names(focal_node_sets), names(focal_node_set
   names(out) <- map$human_gene_symbol[match(names(out), map$feature_ID)]
   
   out <- lapply(setNames(tissues, tissues), function(tiss){
-    subout <- out[node_metadata$tissue == tissue_abbr[tiss]]
+    subout <- out[node_metadata$tissue == MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tiss]]
     subout <- subout[!is.na(names(subout))]
     subout <- subout[intersect(possible_intersecting_genes[[tiss]], names(subout))]
   })
@@ -785,7 +792,7 @@ for(i in 1:nrow(proportions_of_ratDE_in_humans)){
          ybottom = 0, ytop = proportions_of_ratDE_in_humans[i,j],
          col = node_type_cols[rownames(proportions_of_ratDE_in_humans)[i]])
     if(i == 1){
-      text(MotrpacBicQC::tissue_abbr[colnames(proportions_of_ratDE_in_humans)[j]], x = j, y = -0.025, pos = 1)
+      text(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[colnames(proportions_of_ratDE_in_humans)[j]], x = j, y = -0.025, pos = 1)
     }
     if(i != 4){
       segments(x0 = j + 0.5 - i / 5 , x1 = j + 0.5 - 4 / 5, 
@@ -833,7 +840,7 @@ for(i in 1:nrow(count_of_rat_DE_in_humans)){
          ybottom = 0, ytop = log10(count_of_rat_DE_in_humans[i,j]),
          col = node_type_cols[rownames(count_of_rat_DE_in_humans)[i]])
     if(i == 1){
-      text(MotrpacBicQC::tissue_abbr[colnames(count_of_rat_DE_in_humans)[j]], x = j, y = -0.025, pos = 1)
+      text(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[colnames(count_of_rat_DE_in_humans)[j]], x = j, y = -0.025, pos = 1)
     }
   }
 }
@@ -917,7 +924,7 @@ for(tissue in tissues){
   
   cols <- rev(viridis::mako(100+1))
   alpha_pow <- 1/2
-  cols <- sapply(1:101/101, function(colalpha) adjustcolor(tissue_cols[tissue], colalpha^(alpha_pow)))
+  cols <- sapply(1:101/101, function(colalpha) adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissue], colalpha^(alpha_pow)))
   
   plot(NA, xlim = c(1,ndens), ylim = c(1,ndens), xaxt = "n", frame = F, yaxt = "n", xlab = "", ylab = "")
   for(xi in 1:(ndens-1)){
@@ -946,11 +953,11 @@ for(tissue in tissues){
   segments(x0 = which(xr == 0), x1 = which(xr == 0), y0 = 1, y1 = ndens)
   
   #title
-  # text(x = ndens/2, y = ndens + ndens/20, labels = tissue_abbr[tissue], cex = 1.5)
-  labels_mat <- t(matrix(c(tissue_abbr[tissue], ", ", timepoint, ", ", "\u2642", " + ", "\u2640")))
+  # text(x = ndens/2, y = ndens + ndens/20, labels = MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue], cex = 1.5)
+  labels_mat <- t(matrix(c(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue], ", ", timepoint, ", ", "\u2642", " + ", "\u2640")))
   text_indivcolor(xloc = ndens/2 - strwidth(paste0(labels_mat, collapse = ""), "user", cex = 1.75) / 2, y = ndens + ndens/20, 
                   labels_mat = labels_mat,
-                  colors_mat = t(matrix(c(tissue_cols[tissue], 1, MotrpacBicQC::group_cols[timepoint], 1, sex_cols["male"], 1, sex_cols["female"]))),
+                  colors_mat = t(matrix(c(MotrpacRatTraining6moData::TISSUE_COLORS[tissue], 1, MotrpacRatTraining6moData::GROUP_COLORS[timepoint], 1, MotrpacRatTraining6moData::SEX_COLORS["male"], 1, MotrpacRatTraining6moData::SEX_COLORS["female"]))),
                   cex = 1.75, pos = 4)
   
   #legend for colors
@@ -998,7 +1005,7 @@ for(tissue in tissues){
 
 
 #now plot the proportion figure
-node_type_cols <- c(both = "purple", sex_cols["male"], sex_cols["female"], neither = "grey50")
+node_type_cols <- c(both = "purple", MotrpacRatTraining6moData::SEX_COLORS["male"], MotrpacRatTraining6moData::SEX_COLORS["female"], neither = "grey50")
 # par(mar = c(3,5.5,3,3.5))
 
 ylims <- c(0,0.8)
@@ -1014,7 +1021,7 @@ for(i in 1:nrow(proportions_of_ratDE_in_humans)){
          ybottom = 0, ytop = proportions_of_ratDE_in_humans[i,j],
          col = node_type_cols[rownames(proportions_of_ratDE_in_humans)[i]])
     if(i == 1){
-      text(MotrpacBicQC::tissue_abbr[colnames(proportions_of_ratDE_in_humans)[j]], x = j, y = -0.025, pos = 1)
+      text(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[colnames(proportions_of_ratDE_in_humans)[j]], x = j, y = -0.025, pos = 1)
     }
     if(i != 4){
       segments(x0 = j + 0.5 - i / 5 , x1 = j + 0.5 - 4 / 5, 
@@ -1065,7 +1072,7 @@ for(i in 1:nrow(count_of_rat_DE_in_humans)){
          ybottom = 0, ytop = log10(count_of_rat_DE_in_humans[i,j]),
          col = node_type_cols[rownames(count_of_rat_DE_in_humans)[i]])
     if(i == 1){
-      text(MotrpacBicQC::tissue_abbr[colnames(count_of_rat_DE_in_humans)[j]], x = j, y = -0.025, pos = 1)
+      text(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[colnames(count_of_rat_DE_in_humans)[j]], x = j, y = -0.025, pos = 1)
     }
   }
 }
@@ -1098,10 +1105,10 @@ for(tissue in tissues){
   # ylims = list(c(0.1,0.3), c(0.18, 0.4), c(0,0.02))[[match(tissue, tissues)]]
   plot(NA, xlim = xlims, ylim = ylims, xaxt = "n", frame = F, yaxt = "n", xlab = "", ylab = "")
   #title
-  labels_mat <- t(matrix(c(tissue_abbr[tissue], ", 8w, ", "\u2642", " & ", "\u2640")))
+  labels_mat <- t(matrix(c(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue], ", 8w, ", "\u2642", " & ", "\u2640")))
   text_indivcolor(xloc = mean(xlims) - strwidth(paste0(labels_mat, collapse = ""), "user", cex = 1.75) / 2, y = ylims[2] + diff(ylims)/20,pos = 4,
                   labels_mat = labels_mat,
-                  colors_mat = t(matrix(c(tissue_cols[tissue], 1, sex_cols["male"], 1, sex_cols["female"]))),
+                  colors_mat = t(matrix(c(MotrpacRatTraining6moData::TISSUE_COLORS[tissue], 1, MotrpacRatTraining6moData::SEX_COLORS["male"], 1, MotrpacRatTraining6moData::SEX_COLORS["female"]))),
                   cex = 1.75)
   
   #axes
@@ -1122,11 +1129,11 @@ for(tissue in tissues){
   #add horizontal line at 0.5
   
   #add legend
-  legend(x = xlims[2], y = ylims[2], lwd = 4, col = MotrpacBicQC::sex_cols[sexes], legend = c("m", "f"), bty = "n", seg.len = 1)
+  legend(x = xlims[2], y = ylims[2], lwd = 4, col = MotrpacRatTraining6moData::SEX_COLORS[sexes], legend = c("m", "f"), bty = "n", seg.len = 1)
   
   #add actual lines
   for(sex_i in sexes){
-    lines(-wins_center, pval_window_output[[tissue]][[sex_i]][["8w"]], col = MotrpacBicQC::sex_cols[sex_i], lwd = 4)
+    lines(-wins_center, pval_window_output[[tissue]][[sex_i]][["8w"]], col = MotrpacRatTraining6moData::SEX_COLORS[sex_i], lwd = 4)
   }  
   
   #overall frane

@@ -1,4 +1,4 @@
-# knitr::opts_knit$set(root.dir = '/oak/stanford/groups/smontgom/nicolerg/MOTRPAC/PASS_ANALYSIS/PASS1B/RNA/eqtl-coloc')
+# setwd('/oak/stanford/groups/smontgom/nicolerg/MOTRPAC/PASS_ANALYSIS/PASS1B/RNA/eqtl-coloc')
 
 library(ks)
 library(data.table)
@@ -9,7 +9,7 @@ library(org.Hs.eg.db)
 library(clusterProfiler)
 library(org.Rn.eg.db)
 library(biomaRt)
-library(MotrpacBicQC)
+# library(MotrpacBicQC)
 library(plotrix)
 library(ggplot2)
 library(testit)
@@ -18,6 +18,8 @@ library(jpeg)
 library(foreach)
 library(doParallel)
 library(pracma)
+library(MotrpacRatTraining6mo) # v1.6.0
+# also attaches MotrpacRatTraining6moData v1.8.0
 
 
 #### define functions ####
@@ -224,9 +226,9 @@ dev.off()
 sign_filter_alpha <- 0.1
 use_abs_slope <- T
 n_genes_to_label_by_contrastMagnitude <- 5
-cols = list(Tissue=tissue_cols[names(deg_eqtl_list)], 
-            Time=group_cols[paste0(c(1,2,4,8), "w")],
-            Sex=sex_cols[c('male','female')])
+cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(deg_eqtl_list)], 
+            Time=MotrpacRatTraining6moData::GROUP_COLORS[paste0(c(1,2,4,8), "w")],
+            Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
 cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
 names(cols$Tissue)[which(is.na(names(cols$Tissue)))] <- "t1000-gonads"
 
@@ -425,9 +427,9 @@ sign_filter_alpha <- 0.1
 use_abs_slope <- T
 jitter_eQTLs <- F; jitterVariance <- 0.0001
 n_genes_to_label_by_contrastMagnitude <- 5
-cols = list(Tissue=tissue_cols[names(deg_eqtl_list)], 
-            Time=group_cols[paste0(c(1,2,4,8), "w")],
-            Sex=sex_cols[c('male','female')])
+cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(deg_eqtl_list)], 
+            Time=MotrpacRatTraining6moData::GROUP_COLORS[paste0(c(1,2,4,8), "w")],
+            Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
 cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
 names(cols$Tissue)[which(is.na(names(cols$Tissue)))] <- "t1000-gonads"
 
@@ -683,9 +685,9 @@ if(plot_timedots_figure){
 sign_filter_alpha <- 0.1
 use_abs_slope <- T
 prop_in_envelope <- 0.85
-cols = list(Tissue=tissue_cols[names(deg_eqtl_list)], 
-            Time=group_cols[paste0(c(1,2,4,8), "w")],
-            Sex=sex_cols[c('male','female')])
+cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(deg_eqtl_list)], 
+            Time=MotrpacRatTraining6moData::GROUP_COLORS[paste0(c(1,2,4,8), "w")],
+            Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
 cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
 names(cols$Tissue)[which(is.na(names(cols$Tissue)))] <- "t1000-gonads"
 
@@ -3087,9 +3089,9 @@ coloc_cols = viridis::viridis(50, begin = 0.5, end = 1)
 plot(1:length(coloc_cols), 1:length(coloc_cols), col = coloc_cols, pch = 19)
 padded_nums <- as.character(1:length(coloc_phenotypes))
 padded_nums <- (sapply(padded_nums, function(pn) paste0(paste0(rep("0", max(nchar(padded_nums)) - nchar(pn)), collapse = ""), pn)))
-cols = list(Tissue=tissue_cols[names(deg_eqtl_list)], 
-            Time=group_cols[paste0(c(1,2,4,8), "w")],
-            Sex=sex_cols[c('male','female')])
+cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(deg_eqtl_list)], 
+            Time=MotrpacRatTraining6moData::GROUP_COLORS[paste0(c(1,2,4,8), "w")],
+            Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
 cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
 names(cols$Tissue)[which(is.na(names(cols$Tissue)))] <- "t1000-gonads"
 
@@ -3833,9 +3835,9 @@ coloc_cols = viridis::viridis(50, begin = 0.5, end = 1)
 plot(1:length(coloc_cols), 1:length(coloc_cols), col = coloc_cols, pch = 19)
 padded_nums <- as.character(1:length(coloc_phenotypes))
 padded_nums <- (sapply(padded_nums, function(pn) paste0(paste0(rep("0", max(nchar(padded_nums)) - nchar(pn)), collapse = ""), pn)))
-cols = list(Tissue=tissue_cols[names(deg_eqtl_list)], 
-            Time=group_cols[paste0(c(1,2,4,8), "w")],
-            Sex=sex_cols[c('male','female')])
+cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(deg_eqtl_list)], 
+            Time=MotrpacRatTraining6moData::GROUP_COLORS[paste0(c(1,2,4,8), "w")],
+            Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
 cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
 names(cols$Tissue)[which(is.na(names(cols$Tissue)))] <- "t1000-gonads"
 
@@ -4142,8 +4144,9 @@ ldsc_output_dir <- "~/repos/ldsc/output/"
 ldsc_results_paths <- list.files(ldsc_output_dir)
 ldsc_log_paths <- paste0(ldsc_output_dir, ldsc_results_paths[grep(ldsc_results_paths, pattern = "log")])
 ldsc_results_paths <- paste0(ldsc_output_dir, ldsc_results_paths[grep(ldsc_results_paths, pattern = "results")])
-tissue_abbrev <- unique(MotrpacBicQC::bic_animal_tissue_code$abbreviation)
-tissue_abbrev <- tissue_abbrev[!is.na(tissue_abbrev)]
+# tissue_abbrev <- unique(MotrpacBicQC::bic_animal_tissue_code$abbreviation)
+# tissue_abbrev <- tissue_abbrev[!is.na(tissue_abbrev)]
+tissue_abbrev <- MotrpacRatTraining6moData::TISSUE_ABBREV
 tissue_abbrev <- setdiff(tissue_abbrev, c("PLASMA", "HYPOTH", "TESTES", "OVARY", "VENACV"))
 cluster_names <- paste0(tissue_abbrev, "-sex_homogeneous_changing")
 ldsc_results_paths <- lapply(gwas_names, function(gwas) ldsc_results_paths[grep(pattern = gwas, ldsc_results_paths)])
@@ -4191,9 +4194,9 @@ plot((ldsc_results$Prop._h2 - ldsc_results$Prop._SNPs) / ldsc_results$Prop._h2_s
 plot(ldsc_results$Enrichment / ldsc_results$Enrichment_std_error, ldsc_results$Enrichment_p)
 plot(ldsc_results$Prop._h2 / ldsc_results$Prop._SNPs, ldsc_results$Enrichment)
 
-cols = list(Tissue=tissue_cols[tissue_abbrev], 
-            Time=group_cols[paste0(c(1,2,4,8), "w")],
-            Sex=sex_cols[c('male','female')])
+cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[tissue_abbrev], 
+            Time=MotrpacRatTraining6moData::GROUP_COLORS[paste0(c(1,2,4,8), "w")],
+            Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
 cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
 names(cols$Tissue)[which(is.na(names(cols$Tissue)))] <- "t1000-gonads"
 cols$cluster <- cols$Tissue[1:length(cluster_names)]
@@ -4206,8 +4209,9 @@ if(file.exists("~/data/smontgom/ldsc_cluster_results_conditional.txt")){
   ldsc_results_conditional_paths <- list.files(ldsc_output_dir)
   ldsc_results_conditional_paths <- paste0(ldsc_output_dir, ldsc_results_conditional_paths[grep(ldsc_results_conditional_paths, pattern = "results")])
   # cluster_names <- paste0("Cluster_", 1:15)
-  tissue_abbrev <- unique(MotrpacBicQC::bic_animal_tissue_code$abbreviation)
-  tissue_abbrev <- tissue_abbrev[!is.na(tissue_abbrev)]
+  # tissue_abbrev <- unique(MotrpacBicQC::bic_animal_tissue_code$abbreviation)
+  # tissue_abbrev <- tissue_abbrev[!is.na(tissue_abbrev)]
+  tissue_abbrev <- MotrpacRatTraining6moData::TISSUE_ABBREV
   tissue_abbrev <- setdiff(tissue_abbrev, c("PLASMA", "HYPOTH", "TESTES", "OVARY", "VENACV"))
   cluster_names <- paste0(tissue_abbrev, "-sex_homogeneous_changing")
   ldsc_results_conditional_paths <- lapply(gwas_names, function(gwas) ldsc_results_conditional_paths[grep(pattern = gwas, ldsc_results_conditional_paths)])
@@ -4244,8 +4248,9 @@ if(file.exists("~/data/smontgom/ldsc_cluster_results_cts_alt.txt")){
   ldsc_results_cts_alt_paths <- paste0(ldsc_output_dir, ldsc_results_cts_alt_paths[grep(ldsc_results_cts_alt_paths, pattern = "results")])
   # cluster_names <- paste0("Cluster_", 1:15)
   
-  tissue_abbrev <- unique(MotrpacBicQC::bic_animal_tissue_code$abbreviation)
-  tissue_abbrev <- tissue_abbrev[!is.na(tissue_abbrev)]
+  # tissue_abbrev <- unique(MotrpacBicQC::bic_animal_tissue_code$abbreviation)
+  # tissue_abbrev <- tissue_abbrev[!is.na(tissue_abbrev)]
+  tissue_abbrev <- MotrpacRatTraining6moData::TISSUE_ABBREV
   tissue_abbrev <- setdiff(tissue_abbrev, c("PLASMA", "HYPOTH", "TESTES", "OVARY", "VENACV"))
   cluster_names <- paste0(tissue_abbrev, "-sex_homogeneous_changing")
   
@@ -4286,8 +4291,9 @@ if(file.exists("~/data/smontgom/ldsc_cluster_results_cts_alt_fullyconditional.tx
   ldsc_results_cts_alt_fullyconditional_paths <- paste0(ldsc_output_dir, ldsc_results_cts_alt_fullyconditional_paths[grep(ldsc_results_cts_alt_fullyconditional_paths, pattern = "results")])
   # cluster_names <- paste0("Cluster_", 1:15)
   
-  tissue_abbrev <- unique(MotrpacBicQC::bic_animal_tissue_code$abbreviation)
-  tissue_abbrev <- tissue_abbrev[!is.na(tissue_abbrev)]
+  # tissue_abbrev <- unique(MotrpacBicQC::bic_animal_tissue_code$abbreviation)
+  # tissue_abbrev <- tissue_abbrev[!is.na(tissue_abbrev)]
+  tissue_abbrev <- MotrpacRatTraining6moData::TISSUE_ABBREV
   tissue_abbrev <- setdiff(tissue_abbrev, c("PLASMA", "HYPOTH", "TESTES", "OVARY", "VENACV"))
   cluster_names <- paste0(tissue_abbrev, "-sex_homogeneous_changing")
   
@@ -4760,16 +4766,16 @@ tissues <- tissue_order[tissue_order %in% unique(gsub(x = sub_1$cluster, "-sex_h
 par(mfrow = c(1,2), mar = c(4,4,4,2))
 plot(sub_1$Enrichment,  sub_2$Enrichment, main = latex2exp::TeX("$h^2_{SNP}$ Enrichment"),
      xlab = "Enrichment (Conditional on Tissue Annotation)", ylab = "Enrichment (Unconditional on Tissue Annotation)", pch = 19, 
-     col = adjustcolor(MotrpacBicQC::tissue_cols[gsub(x = sub_1$cluster, "-sex_homogeneous_changing", "")], 0.5))
-legend("topleft", pch = 19, col = adjustcolor(MotrpacBicQC::tissue_cols[tissues], 0.5), legend = tissues, cex = 0.5, bty="n")
+     col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[gsub(x = sub_1$cluster, "-sex_homogeneous_changing", "")], 0.5))
+legend("topleft", pch = 19, col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues], 0.5), legend = tissues, cex = 0.5, bty="n")
 legend("bottomright", lty = 2, col = "red", legend = "1-to-1 line", cex = 0.5, bty="n")
 abline(0,1, col = "red", lty = 2)
 
 plot(sub_1$Prop._h2,  sub_2$Prop._h2, main = latex2exp::TeX("Proportion $h^2_{SNP}$"), xpd = NA,
      xlab = latex2exp::TeX("Proportion $h^2_{SNP}$ (Conditional on Tissue Annotation)"), 
      ylab =  latex2exp::TeX("Proportion $h^2_{SNP}$ (Unconditional on Tissue Annotation)"), pch = 19, 
-     col =  adjustcolor(MotrpacBicQC::tissue_cols[gsub(x = sub_1$cluster, "-sex_homogeneous_changing", "")], 0.5))
-legend("topleft", pch = 19, col = adjustcolor(MotrpacBicQC::tissue_cols[tissues], 0.5), legend = tissues, cex = 0.5, bty="n")
+     col =  adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[gsub(x = sub_1$cluster, "-sex_homogeneous_changing", "")], 0.5))
+legend("topleft", pch = 19, col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues], 0.5), legend = tissues, cex = 0.5, bty="n")
 legend("bottomright", lty = 2, col = "red", legend = "1-to-1 line", cex = 0.5, bty="n")
 abline(0,1, col = "red", lty = 2)
 
@@ -5364,7 +5370,7 @@ xlims <- range(sub_1$Enrichment)
 ylims <- range(sub_2$Enrichment)
 plot(sub_1$Enrichment,  sub_2$Enrichment, main = latex2exp::TeX("$h^2_{SNP}$ Enrichment"),
      xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "", pch = 19, cex.main = 2.5,
-     col = adjustcolor(MotrpacBicQC::tissue_cols[gsub(x = sub_1$cluster, "-sex_homogeneous_changing", "")], 0.5),
+     col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[gsub(x = sub_1$cluster, "-sex_homogeneous_changing", "")], 0.5),
      xlim = xlims, ylim = ylims, cex = 2)
 rect(xleft = par("usr")[1], ybottom = par("usr")[3], xright = par("usr")[2], ytop = par("usr")[4], lwd = 2, xpd = NA)
 text(x = mean(xlims), y = ylims[1] - diff(ylims) / 7, labels = "Enrichment (Conditional on Tissue Annotation)", cex = 1.75, pos = 1, xpd = NA)
@@ -5382,7 +5388,7 @@ segments(y0 = yvals, y1 = yvals, x0 = par("usr")[1], x1 = par("usr")[1] - diff(p
 text(yvals, x = par("usr")[1] - diff(par("usr")[1:2]) / 50, labels = yvals, cex = 1.75, pos = 2, xpd = NA)
 
 
-legend("topleft", pch = 19, col = adjustcolor(MotrpacBicQC::tissue_cols[tissues], 0.5), legend = tissues, cex = 1.25, pt.cex = 2.5, bty="n")
+legend("topleft", pch = 19, col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues], 0.5), legend = tissues, cex = 1.25, pt.cex = 2.5, bty="n")
 legend("bottomright", lty = 2, col = "red", legend = "1-to-1 line", bty="n", lwd = 3, cex = 1.5)
 abline(0,1, col = "red", lty = 2, lwd = 4)
 
@@ -5393,7 +5399,7 @@ xlims <- range(sub_1$Prop._h2)
 ylims <- range(sub_2$Prop._h2)
 plot(sub_1$Prop._h2,  sub_2$Prop._h2, main = latex2exp::TeX("Proportion $h^2_{SNP}$"),
      xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "", pch = 19, cex.main = 2.5,
-     col = adjustcolor(MotrpacBicQC::tissue_cols[gsub(x = sub_1$cluster, "-sex_homogeneous_changing", "")], 0.5),
+     col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[gsub(x = sub_1$cluster, "-sex_homogeneous_changing", "")], 0.5),
      xlim = xlims, ylim = ylims, cex = 2)
 rect(xleft = par("usr")[1], ybottom = par("usr")[3], xright = par("usr")[2], ytop = par("usr")[4], lwd = 2, xpd = NA)
 text(x = mean(xlims), y = ylims[1] - diff(ylims) / 7, labels = latex2exp::TeX("Proportion $h^2_{SNP}$ (Conditional on Tissue Annotation)"), cex = 1.75, pos = 1, xpd = NA)
@@ -5408,7 +5414,7 @@ yvals <- round(seq((ylims[1]), (ylims[2]), length.out = 5), 2)
 segments(y0 = yvals, y1 = yvals, x0 = par("usr")[1], x1 = par("usr")[1] - diff(par("usr")[1:2]) / 50, lwd = 2, xpd = NA)
 text(yvals, x = par("usr")[1] - diff(par("usr")[1:2]) / 50, labels = yvals, cex = 1.75, pos = 2, xpd = NA)
 
-legend("topleft", pch = 19, col = adjustcolor(MotrpacBicQC::tissue_cols[tissues], 0.5), legend = tissues, cex = 1.25, pt.cex = 2.5, bty="n")
+legend("topleft", pch = 19, col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[tissues], 0.5), legend = tissues, cex = 1.25, pt.cex = 2.5, bty="n")
 legend("bottomright", lty = 2, col = "red", legend = "1-to-1 line", bty="n", lwd = 3, cex = 1.5)
 abline(0,1, col = "red", lty = 2, lwd = 4)
 
@@ -5708,8 +5714,9 @@ geneset_info <- expand.grid(c(7,15), c("t55-gastrocnemius", "t68-liver", "t58-he
 new_clusters <- paste0("Cluster_", trimws(apply(geneset_info, 1, paste0, collapse = "-")), "")
 
 #take 4
-tissue_abbrev <- unique(MotrpacBicQC::bic_animal_tissue_code$abbreviation)
-tissue_abbrev <- tissue_abbrev[!is.na(tissue_abbrev)]
+# tissue_abbrev <- unique(MotrpacBicQC::bic_animal_tissue_code$abbreviation)
+# tissue_abbrev <- tissue_abbrev[!is.na(tissue_abbrev)]
+tissue_abbrev <- MotrpacRatTraining6moData::TISSUE_ABBREV
 tissue_abbrev <- setdiff(tissue_abbrev, c("PLASMA", "HYPOTH", "TESTES", "OVARY", "VENACV"))
 cluster_names <- paste0(tissue_abbrev, "-sex_homogeneous_changing")
 new_clusters <- sort(paste0(tissue_abbrev, "-sex_homogeneous_changing"))
