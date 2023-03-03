@@ -4292,7 +4292,7 @@ pdftools::pdf_combine(c("~/Documents/Documents - nikolai/pass1b_fig8_DE_protecti
                         "~/Documents/Documents - nikolai/pass1b_fig8_DE_protective_effect_in_RA_OKADA_TRANS_ETHNIC.pdf"),
                       output = paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/multi-trait-trajectories.pdf"))
 
-#### trajectories, but sexes opposing eachother ####
+#### trajectories, but sexes opposing each other ####
 
 #plotting params
 plot_gene_names <- T
