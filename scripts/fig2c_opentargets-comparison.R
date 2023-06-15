@@ -12,6 +12,8 @@ library(MotrpacRatTraining6mo) # v1.6.0
 
 #functions
 
+#constants
+thresh <- 0.2
 
 #dload data
 ot_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/opentargets/"
@@ -127,7 +129,7 @@ save(tissue_x_disease, file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Trai
                                        "-associations"))
 
 #find sumstats for this table
-thresh <- 0.8
+
 tissues <- names(tissue_x_disease[1:15])
 passing_gene_x_trait <- as.data.frame(do.call(rbind, sapply(tissues, function(tiss){
   x <- tissue_x_disease[[tiss]]
@@ -243,8 +245,6 @@ text(labels = tiss_order, col = tissue_colors[tiss_order], cex = 0.75, font = 2,
      pos = 2, x = -0.05, y = ylims[2] - cumsum(c(0,rep(strheight(tiss_order[1], units = "user"), length(tissue_x_disease) - 1))))
 segments(x0 = -0.065, x1 = 0, y0 = ylims[2] - cumsum(c(0,rep(strheight(tiss_order[1], units = "user"), length(tissue_x_disease) - 1))),
          y1 = n_above_at_least_1[1,tiss_order], col = tissue_colors[tiss_order])
-
-
 
 #now the ntraits with at least one plot
 ylims <- range(n_traits_above_at_least_1[is.finite(n_traits_above_at_least_1)])
@@ -401,15 +401,15 @@ sumdf <- sumdf[with(sumdf, order(n_tissue, indirect_association.score, decreasin
 fwrite(sumdf, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/OpenTargets_MoTrPAC_Top_Associations.csv", sep = ",", col.names = T)
 
 #subset table to just those genes that passed evidence threshold
-thresh <- 0.8
-sumdf_gr0.8 <- sumdf[sumdf$direct_association.score > thresh,]
+
+sumdf_grThresh <- sumdf[sumdf$direct_association.score > thresh,]
 sumdf[paste0(sumdf$direct_association.diseaseId, " ~ ", sumdf$ensembl_ID) %in% 
       paste0(passing_gene_x_trait$trait, " ~ ", sumdf$ensembl_ID),]
 passing_gene_x_trait$gene %in% unique(sumdf$ensembl_ID)
 passing_gene_x_trait$trait %in% unique(sumdf$direct_association.diseaseId)
 
 #hmm was this table made incorrectly :/ or else something was? maybe tissue_x_disease? NO, sumdf is the culprit
-sumdf_gr0.8[1,]
+sumdf_grThresh[1,]
 tissue_x_disease[["HIPPOC"]]["ENSG00000130164","EFO_0004911"]
 passing_gene_x_trait[passing_gene_x_trait$gene == "ENSG00000130164",]
 direct_associations[direct_associations$diseaseId == "EFO_0004911" & direct_associations$targetId == "ENSG00000130164",]
@@ -422,16 +422,16 @@ tissue_x_disease$ADRNL[,1][tissue_x_disease$ADRNL[,1] > 1E-6]
 direct_associations[direct_associations$diseaseId == colnames(tissue_x_disease$ADRNL)[1] &
                       direct_associations$targetId %in% names(tissue_x_disease$ADRNL[,1][tissue_x_disease$ADRNL[,1] > 1E-6]),]
 
-#check these are indeed > 0.8
-hist(sapply(seq_along(passing_gene_x_trait$gene), function(i){
-  direct_associations$score[direct_associations$targetId == passing_gene_x_trait$gene[i] & 
-                              direct_associations$diseaseId == passing_gene_x_trait$trait[i]]
-}))
+#check these are indeed > thresh
+# hist(sapply(seq_along(passing_gene_x_trait$gene), function(i){
+#   direct_associations$score[direct_associations$targetId == passing_gene_x_trait$gene[i] & 
+#                               direct_associations$diseaseId == passing_gene_x_trait$trait[i]]
+# }))
 
 #nah we good actually
 
 #find sumstats for this table
-thresh <- 0.8
+
 tissues <- names(tissue_x_disease[1:15])
 passing_gene_x_trait <- as.data.frame(do.call(rbind, sapply(tissues, function(tiss){
   x <- tissue_x_disease[[tiss]]
@@ -440,7 +440,7 @@ passing_gene_x_trait <- as.data.frame(do.call(rbind, sapply(tissues, function(ti
 })))
 
 #### sumdf but for passing genes ####
-thresh <- 0.8
+
 sumdf <- unique(ensembl_genes_df[,c("gene", "n_tissue")])
 sumdf <- cbind(sumdf, do.call(rbind, lapply(sumdf$gene, function(gene){
   tissues <- ensembl_genes_df$tissue[ensembl_genes_df$gene == gene]
@@ -471,9 +471,12 @@ sumdf$gene <- symbol_map$human_gene_symbol[match(sumdf$ensembl_ID, symbol_map$hu
 #trim empty columns
 max_exp_cols <- max(as.numeric(gsub(".*_", "", colnames(sumdf)[grepl("tissue_", colnames(sumdf))])))
 max_obs_cols <- max(sumdf$n_tissue)
-sumdf <- sumdf[,-match(setdiff(colnames(sumdf)[grepl("tissue_", colnames(sumdf))], 
-                               paste0("tissue_", 1:max_obs_cols)),
-                       colnames(sumdf))]
+
+if(max_obs_cols != max_exp_cols){
+  sumdf <- sumdf[,-match(setdiff(colnames(sumdf)[grepl("tissue_", colnames(sumdf))], 
+                                 paste0("tissue_", 1:max_obs_cols)),
+                         colnames(sumdf))]
+}
 
 sumdf <- sumdf[with(sumdf, order(n_tissue, direct_association.score, decreasing = T)),]
 
@@ -484,7 +487,7 @@ paste0(sumdf$direct_association.diseaseId, " ~ ", sumdf$ensembl_ID) %in%
 paste0(passing_gene_x_trait$trait, " ~ ", passing_gene_x_trait$gene) %in% 
   paste0(sumdf$direct_association.diseaseId, " ~ ", sumdf$ensembl_ID)
 
-fwrite(sumdf, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/supplemental_files/OpenTargets_MoTrPAC_80%Up_Associations.csv", sep = ",", col.names = T)
+fwrite(sumdf, file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/supplemental_files/OpenTargets_MoTrPAC_", thresh * 100, "%Up_Associations.csv"), sep = ",", col.names = T)
 
 #exclude easy tissues from this table
 easy_tissues <- c("BAT", "BLOOD", "SKM-GN", 'SKM-VL', 'WAT-SC')
@@ -515,19 +518,19 @@ length(uniquely_hard_traits)
 paste0(unique(just_hard_sumdf$gene), collapse = ", ")
 
 #write to file
-fwrite(hard_sumdf, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/supplemental_files/OpenTargets_MoTrPAC_80%Up_Associations_InaccessibleTissues.csv", 
+fwrite(hard_sumdf, file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/supplemental_files/OpenTargets_MoTrPAC_", thresh * 100, "%Up_Associations_InaccessibleTissues.csv"), 
        sep = ",", col.names = T)
-fwrite(uniquely_hard_sumdf, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/supplemental_files/OpenTargets_MoTrPAC_80%Up_Associations_InaccessibleTissues_Unique.csv", 
+fwrite(uniquely_hard_sumdf, file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/supplemental_files/OpenTargets_MoTrPAC_", thresh * 100, "%Up_Associations_InaccessibleTissues_Unique.csv"), 
        sep = ",", col.names = T)
 
 #create large excel workbook
 library(xlsx)
 supp_files_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/supplemental_files/"
-xlsx::write.xlsx(sumdf, file=paste0(supp_files_dir, "OpenTargets_MoTrPAC_80%Up_Associations.xlsx"), 
+xlsx::write.xlsx(sumdf, file=paste0(supp_files_dir, "OpenTargets_MoTrPAC_", thresh * 100, "%Up_Associations.xlsx"), 
                  sheetName="all", row.names=FALSE)
-xlsx::write.xlsx(hard_sumdf, file=paste0(supp_files_dir, "OpenTargets_MoTrPAC_80%Up_Associations.xlsx"), 
+xlsx::write.xlsx(hard_sumdf, file=paste0(supp_files_dir, "OpenTargets_MoTrPAC_", thresh * 100, "%Up_Associations.xlsx"), 
                  sheetName="any_inaccessible_tissues", row.names=FALSE, append=T)
-xlsx::write.xlsx(uniquely_hard_sumdf, file=paste0(supp_files_dir, "OpenTargets_MoTrPAC_80%Up_Associations.xlsx"), 
+xlsx::write.xlsx(uniquely_hard_sumdf, file=paste0(supp_files_dir, "OpenTargets_MoTrPAC_", thresh * 100, "%Up_Associations.xlsx"), 
                  sheetName="unique_traits_inaccessible_tissues", row.names=FALSE, append=T)
 
 #contrast with relative DE values
