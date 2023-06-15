@@ -914,7 +914,7 @@ if(plot_tissueEnvelope_figure){
 #### colocalization figure -- just the colocs ####
 
 
-if(!file.exists('~/data/smontgom/coloc_list.RData')){
+if(!file.exists('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/coloc_list.RData')){
   coloc_list = list()
   pp4_threshold <- 0.01
   i = 1
@@ -946,10 +946,10 @@ if(!file.exists('~/data/smontgom/coloc_list.RData')){
   }
   coloc_list <- as.data.frame(do.call(rbind, coloc_list))
   coloc_list <- coloc_list[,c("gene_id", "p4", "motrpac_tissue", "gwas_trait")]
-  save(coloc_list, file=paste0('~/data/smontgom/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
+  save(coloc_list, file=paste0('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
 }
 
-load('~/data/smontgom/coloc_list.RData')
+load('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/coloc_list.RData')
 colocs <- coloc_list
 gonocs <- coloc_list[colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[1] | colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[2],]
 gonocs$motrpac_tissue <- "t1000-gonads"
@@ -1761,7 +1761,7 @@ plot_coloc_percentile_figure = F
 
 # percentiles <- array(data = NA, dim = c(length(names(deg_eqtl_list)), 2, 4, length(coloc_phenotypes)), 
 #                      dimnames = list(names(deg_eqtl_list), c("male", "female"), paste0(c(1,2,4,8), "w"), coloc_phenotypes)) #dims are tissue, sex, time, phenotype
-if(!file.exists("~/data/smontgom/coloc_DEeQTL_percentiles")){
+if(!file.exists("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/coloc_DEeQTL_percentiles")){
   percentiles <- list()
   for(tissue in names(deg_eqtl_list)){
     motrpac_signif_inds <- which(deg_eqtl_list[[tissue]]$selection_fdr < sign_filter_alpha)
@@ -1791,10 +1791,10 @@ if(!file.exists("~/data/smontgom/coloc_DEeQTL_percentiles")){
       }
     }
   } 
-  save(percentiles, file = "~/data/smontgom/coloc_DEeQTL_percentiles")
+  save(percentiles, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/coloc_DEeQTL_percentiles")
 }
 
-load("~/data/smontgom/coloc_DEeQTL_percentiles")
+load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/coloc_DEeQTL_percentiles")
 pheno_cols <- disco::disco("rainbow")
 pheno_cols <- rev(colorRampPalette(pheno_cols)(length(coloc_phenotypes)))
 if(plot_coloc_percentile_figure){
@@ -1920,7 +1920,7 @@ if(plot_coloc_percentile_figure){
 
 pp4_threshold <- 0.01
 if(!exists("coloc_list") & !exists("colocs")){
-  load(paste0('~/data/smontgom/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
+  load(paste0('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
   colocs <- coloc_list
   rm(coloc_list)
 }
@@ -2159,7 +2159,7 @@ if(plot_DE_EQTL_PP4_figure){
 
 pp4_threshold <- 0.1
 if(!exists("coloc_list") & !exists("colocs")){
-  load(paste0('~/data/smontgom/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
+  load(paste0('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
   colocs <- coloc_list
   rm(coloc_list)
 }
@@ -2184,7 +2184,7 @@ plot(1:length(coloc_cols), 1:length(coloc_cols), col = coloc_cols, pch = 19)
 
 plot_DE_EQTL_PP4_figure_sum = T
 color_by_category <- T
-trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
+trait_categories <- read.csv("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gwas_metadata.csv", header = T)
 traitwise_partitions <- trait_categories[,c("Tag", "Category")]
 categories <- sort(unique(traitwise_partitions$Category))
 catnames <- sapply(categories, function(x) strsplit(x, split = c("-"))[[1]][1])
@@ -2450,7 +2450,7 @@ if(plot_DE_EQTL_PP4_figure_sum){
 
 pp4_threshold <- 0.1
 # if(!exists("coloc_list") & !exists("colocs")){
-  load(paste0('~/data/smontgom/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
+  load(paste0('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
   colocs <- coloc_list
   rm(coloc_list)
 # }
@@ -2686,7 +2686,7 @@ change_names <- F
 change_names_in_plot = T
 pp4_threshold <- 0.01
 if(!exists("coloc_list") & !exists("colocs") | last_import_pp4t != pp4_threshold | change_names != names_changed){
-  load(paste0('~/data/smontgom/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
+  load(paste0('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
   colocs <- coloc_list
   rm(coloc_list)
   gonocs <- colocs[colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[1] | colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[2],]
@@ -2694,7 +2694,7 @@ if(!exists("coloc_list") & !exists("colocs") | last_import_pp4t != pp4_threshold
   colocs <- rbind(colocs, gonocs)
   coloc_phenotypes <- sort(unique(colocs$gwas_trait))
   last_import_pp4t <- pp4_threshold
-  trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
+  trait_categories <- read.csv("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gwas_metadata.csv", header = T)
   if(change_names){
     traitname_map <- trait_categories[,c("Tag", "new_Phenotype")]
     colocs$gwas_trait <- traitname_map[match(colocs$gwas_trait, traitname_map[,1]),2]
@@ -2968,7 +2968,7 @@ change_names_in_plot = T
 tissues <- names(deg_eqtl_list)
 pp4_threshold <- 1e-4
 if(!exists("coloc_list") & !exists("colocs")){
-  load(paste0('~/data/smontgom/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
+  load(paste0('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
   colocs <- coloc_list
   rm(coloc_list)
   gonocs <- colocs[colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[1] | colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[2],]
@@ -2985,7 +2985,7 @@ if(!exists("coloc_list") & !exists("colocs")){
 }
 
 #get names and categories
-trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
+trait_categories <- read.csv("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gwas_metadata.csv", header = T)
 traitname_map <- trait_categories[,c("Tag", "new_Phenotype")]
 
 
@@ -3488,7 +3488,7 @@ change_names <- F
 change_names_in_plot = T
 pp4_threshold <- 0.01
 if(!exists("coloc_list") & !exists("colocs") | last_import_pp4t != pp4_threshold | change_names != names_changed){
-  load(paste0('~/data/smontgom/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
+  load(paste0('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
   colocs <- coloc_list
   rm(coloc_list)
   gonocs <- colocs[colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[1] | colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[2],]
@@ -3496,7 +3496,7 @@ if(!exists("coloc_list") & !exists("colocs") | last_import_pp4t != pp4_threshold
   colocs <- rbind(colocs, gonocs)
   coloc_phenotypes <- sort(unique(colocs$gwas_trait))
   last_import_pp4t <- pp4_threshold
-  trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
+  trait_categories <- read.csv("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gwas_metadata.csv", header = T)
   if(change_names){
     traitname_map <- trait_categories[,c("Tag", "new_Phenotype")]
     colocs$gwas_trait <- traitname_map[match(colocs$gwas_trait, traitname_map[,1]),2]
@@ -3731,11 +3731,11 @@ change_names_in_plot = T
 tissues <- names(deg_eqtl_list)
 pp4_threshold <- 0
 if(pp4_threshold == 0 & !exists("colocs")){
-  load(file = "~/data/smontgom/coloc_list_of_lists_all_p4-0") #loads 'colocs'
+  load(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/coloc_list_of_lists_all_p4-0") #loads 'colocs'
   coloc_phenotypes <- sort(names(colocs))
 } else {
   if(!exists("coloc_list") & !exists("colocs")){
-    load(paste0('~/data/smontgom/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
+    load(paste0('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/coloc_list_pp4threshold_', pp4_threshold,'.RData'))
     colocs <- coloc_list
     rm(coloc_list)
     gonocs <- colocs[colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[1] | colocs$motrpac_tissue == c("t63-testes", "t64-ovaries")[2],]
@@ -3752,7 +3752,7 @@ if(pp4_threshold == 0 & !exists("colocs")){
   }
 }
 #get names and categories
-trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
+trait_categories <- read.csv("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gwas_metadata.csv", header = T)
 traitname_map <- trait_categories[,c("Tag", "new_Phenotype")]
 
 sign_filter_alpha <- 0.1
@@ -4135,12 +4135,12 @@ mean(mean(log(colocs_in_tissues$`t67-small-intestine`[match(DE_genes_in_tissues$
 
 #### LDSC output ####
 
-gwas_dir <- "~/data/smontgom/imputed_gwas_hg38_1.1/"
+gwas_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/imputed_gwas_hg38_1.1/"
 gwas_summary_files <- list.files(gwas_dir)
 gwas_summary_files <- gwas_summary_files[-grep(gwas_summary_files, pattern = "README")]
 gwas_names <- stringr::str_replace_all(gwas_summary_files, ".txt.gz", "")
 coloc_phenotypes <- stringr::str_replace_all(gwas_names, "imputed_", "")
-ldsc_output_dir <- "~/repos/ldsc/output/"
+ldsc_output_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/output/"
 ldsc_results_paths <- list.files(ldsc_output_dir)
 ldsc_log_paths <- paste0(ldsc_output_dir, ldsc_results_paths[grep(ldsc_results_paths, pattern = "log")])
 ldsc_results_paths <- paste0(ldsc_output_dir, ldsc_results_paths[grep(ldsc_results_paths, pattern = "results")])
@@ -4169,8 +4169,8 @@ for(i in 1:nrow(log_files)){
 log_files$gwas <- stringr::str_replace_all(log_files$gwas, "imputed_", "")
 
 
-if(file.exists("~/data/smontgom/ldsc_cluster_results.txt")){
-  ldsc_results <- as.data.frame(fread("~/data/smontgom/ldsc_cluster_results.txt"))
+if(file.exists("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/ldsc_cluster_results.txt")){
+  ldsc_results <- as.data.frame(fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/ldsc_cluster_results.txt"))
 } else{
   ldsc_results <- as.data.frame(matrix(data = NA, ncol = ncol(fread(ldsc_results_paths[[1]][1])), nrow = length(gwas_names) * length(cluster_names)))
   colnames(ldsc_results) <- colnames(fread(ldsc_results_paths[[1]][1]))
@@ -4181,7 +4181,7 @@ if(file.exists("~/data/smontgom/ldsc_cluster_results.txt")){
                                                                     ldsc_results_paths[[ldsc_results$gwas[i]]])][1])
     ldsc_results[i,1:ncol(output)] <- output[grep(pattern = ldsc_results$cluster[i], output$Category),]
   }
-  fwrite(ldsc_results, "~/data/smontgom/ldsc_cluster_results.txt")
+  fwrite(ldsc_results, "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/ldsc_cluster_results.txt")
 }
 
 ldsc_results$gwas <- stringr::str_replace_all(ldsc_results$gwas, "imputed_", "")
@@ -4203,8 +4203,8 @@ cols$cluster <- cols$Tissue[1:length(cluster_names)]
 names(cols$cluster) <- cluster_names
 
 #read in conditional analyses
-if(file.exists("~/data/smontgom/ldsc_cluster_results_conditional.txt")){
-  ldsc_results_conditional <- as.data.frame(fread("~/data/smontgom/ldsc_cluster_results_conditional.txt"))
+if(file.exists("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/ldsc_cluster_results_conditional.txt")){
+  ldsc_results_conditional <- as.data.frame(fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/ldsc_cluster_results_conditional.txt"))
 } else{
   ldsc_results_conditional_paths <- list.files(ldsc_output_dir)
   ldsc_results_conditional_paths <- paste0(ldsc_output_dir, ldsc_results_conditional_paths[grep(ldsc_results_conditional_paths, pattern = "results")])
@@ -4235,15 +4235,15 @@ if(file.exists("~/data/smontgom/ldsc_cluster_results_conditional.txt")){
   }
   ldsc_results_conditional$gwas <- stringr::str_remove(ldsc_results_conditional$gwas, "imputed_")
   ldsc_results_conditional$logPVal_enrichment <- log10(ldsc_results_conditional$Enrichment_p)
-  fwrite(ldsc_results_conditional, "~/data/smontgom/ldsc_cluster_results_conditional.txt")
+  fwrite(ldsc_results_conditional, "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/ldsc_cluster_results_conditional.txt")
 }
 
 
 #read in ldsc cts results outputted from *old* command
-if(file.exists("~/data/smontgom/ldsc_cluster_results_cts_alt.txt")){
-  ldsc_results_cts_alt <- as.data.frame(fread("~/data/smontgom/ldsc_cluster_results_cts_alt.txt"))
+if(file.exists("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/ldsc_cluster_results_cts_alt.txt")){
+  ldsc_results_cts_alt <- as.data.frame(fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/ldsc_cluster_results_cts_alt.txt"))
 } else{
-  ldsc_output_dir <- "~/repos/ldsc/output/original_command/"
+  ldsc_output_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/output/original_command/"
   ldsc_results_cts_alt_paths <- list.files(ldsc_output_dir)
   ldsc_results_cts_alt_paths <- paste0(ldsc_output_dir, ldsc_results_cts_alt_paths[grep(ldsc_results_cts_alt_paths, pattern = "results")])
   # cluster_names <- paste0("Cluster_", 1:15)
@@ -4277,16 +4277,16 @@ if(file.exists("~/data/smontgom/ldsc_cluster_results_cts_alt.txt")){
   }
   ldsc_results_cts_alt$gwas <- stringr::str_remove(ldsc_results_cts_alt$gwas, "imputed_")
   ldsc_results_cts_alt$logPVal_enrichment <- log10(ldsc_results_cts_alt$Enrichment_p)
-  fwrite(ldsc_results_cts_alt, "~/data/smontgom/ldsc_cluster_results_cts_alt.txt")
+  fwrite(ldsc_results_cts_alt, "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/ldsc_cluster_results_cts_alt.txt")
 }
 # all(as.numeric(stringr::str_remove_all(ldsc_results_conditional$Category, pattern = "Cluster_")) == ldsc_results_conditional$cluster)
 
 
 #read in ldsc cts results outputted from *old* command
-if(file.exists("~/data/smontgom/ldsc_cluster_results_cts_alt_fullyconditional.txt")){
-  ldsc_results_cts_alt_fullyconditional <- as.data.frame(fread("~/data/smontgom/ldsc_cluster_results_cts_alt_fullyconditional.txt"))
+if(file.exists("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/ldsc_cluster_results_cts_alt_fullyconditional.txt")){
+  ldsc_results_cts_alt_fullyconditional <- as.data.frame(fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/ldsc_cluster_results_cts_alt_fullyconditional.txt"))
 } else{
-  ldsc_output_dir <- "~/repos/ldsc/output/original_command/"
+  ldsc_output_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/output/original_command/"
   ldsc_results_cts_alt_fullyconditional_paths <- list.files(ldsc_output_dir)
   ldsc_results_cts_alt_fullyconditional_paths <- paste0(ldsc_output_dir, ldsc_results_cts_alt_fullyconditional_paths[grep(ldsc_results_cts_alt_fullyconditional_paths, pattern = "results")])
   # cluster_names <- paste0("Cluster_", 1:15)
@@ -4321,7 +4321,7 @@ if(file.exists("~/data/smontgom/ldsc_cluster_results_cts_alt_fullyconditional.tx
   }
   ldsc_results_cts_alt_fullyconditional$gwas <- stringr::str_remove(ldsc_results_cts_alt_fullyconditional$gwas, "imputed_")
   ldsc_results_cts_alt_fullyconditional$logPVal_enrichment <- log10(ldsc_results_cts_alt_fullyconditional$Enrichment_p)
-  fwrite(ldsc_results_cts_alt_fullyconditional, "~/data/smontgom/ldsc_cluster_results_cts_alt_fullyconditional.txt")
+  fwrite(ldsc_results_cts_alt_fullyconditional, "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/ldsc_cluster_results_cts_alt_fullyconditional.txt")
 }
 
 
@@ -4355,13 +4355,13 @@ traits_with_satisfactory_heritaility <- unique(log_files$gwas[log_files$h2 / log
 #   ldsc_results_sub <- ldsc_results_conditional[ldsc_results_conditional$gwas %in% traits_with_satisfactory_heritaility,]
 # }
 
-trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
+trait_categories <- read.csv("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gwas_metadata.csv", header = T)
 traitname_map <- trait_categories[,c("Tag", "new_Phenotype")]
 traitwise_partitions <- trait_categories[,c("Tag", "Category")]
 categories <- sort(unique(traitwise_partitions$Category))
 
 #filter by category
-trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
+trait_categories <- read.csv("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gwas_metadata.csv", header = T)
 traitwise_partitions <- trait_categories[,c("Tag", "Category")]
 traits_in_focal_categories <- traitwise_partitions$Tag[traitwise_partitions$Category %in% 
                                                          c("Cardiometabolic", "Aging", "Anthropometric", 
@@ -5488,12 +5488,12 @@ if(trait_type_specific){
 dev.off()
 
 #### pairwise genetic correlation matrix ####
-ldsc_directory <- "~/repos/ldsc/"
+ldsc_directory <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/"
 
 #could maybe have genetic correlations in the upper right, significance in the bottom left
 
 #let's get the gwas summary stats into a format that munge_sumstats.py can process
-gwas_dir <- "~/data/smontgom/imputed_gwas_hg38_1.1/"
+gwas_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/imputed_gwas_hg38_1.1/"
 gwas_summary_files <- list.files(gwas_dir)
 gwas_summary_files <- gwas_summary_files[-grep(gwas_summary_files, pattern = "README")]
 traitnames <- gwas_summary_files
@@ -5681,8 +5681,8 @@ dev.off()
 
 
 #### ldsc cts results ####
-ldsc_results_dir <- "~/repos/ldsc/output/cts/"
-gwas_dir <- "~/data/smontgom/imputed_gwas_hg38_1.1/"
+ldsc_results_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/output/cts/"
+gwas_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/imputed_gwas_hg38_1.1/"
 gwas_summary_files <- list.files(gwas_dir)
 gwas_summary_files <- gwas_summary_files[-grep(gwas_summary_files, pattern = "README")]
 orig_clusters <- paste0("Cluster_", 1:15)
@@ -5737,7 +5737,7 @@ ldsc_results$twoTailedPVal[ldsc_results$twoTailedPVal > 0.5] <- 1 - ldsc_results
 ldsc_results$twoTailedPVal <- ldsc_results$twoTailedPVal * 2
 
 #filter by category
-trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
+trait_categories <- read.csv("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gwas_metadata.csv", header = T)
 traitwise_partitions <- trait_categories[,c("Tag", "Category")]
 ldsc_results$trait_name <- gsub(ldsc_results$trait, pattern = "imputed_", replacement = "")
 ldsc_results$trait_name <- gsub(ldsc_results$trait_name, pattern = "_cluster.*", replacement = "")

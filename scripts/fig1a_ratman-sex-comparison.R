@@ -9,12 +9,12 @@ library(MotrpacRatTraining6mo) # v1.6.0
 # This file contain mapping between rat, human, and mouse primarily through NCBI gene IDs.
 # ftp://ftp.rgd.mcw.edu/pub/data_release/orthologs/
 # Alternatively, use MotrpacRatTraining6moData::FEATURE_TO_GENE_FILT, though this may result in slightly different mappings
-rgd_orthologs <- fread("~/data/smontgom/RGD_ORTHOLOGS_20201001.txt", header = T, sep = "\t")
-# gencode_gene_map <- rdg_mapping <- fread("~/data/smontgom/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
+rgd_orthologs <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/RGD_ORTHOLOGS_20201001.txt", header = T, sep = "\t")
+# gencode_gene_map <- rdg_mapping <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
 gencode_gene_map <- rdg_mapping <- MotrpacRatTraining6moData::RAT_TO_HUMAN_GENE
 gencode_gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID <- gsub(gencode_gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID, pattern = "\\..*", replacement = "")
 gene_map <- gencode_gene_map
-# feature_to_gene_map <- fread("~/data/smontgom/motrpac-mappings-master_feature_to_gene.txt", header = T, sep = "\t", fill = T)
+# feature_to_gene_map <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/motrpac-mappings-master_feature_to_gene.txt", header = T, sep = "\t", fill = T)
 feature_to_gene_map = MotrpacRatTraining6moData::FEATURE_TO_GENE_FILT
 
 motrpac_gtex_map = c('t30-blood-rna'='Whole_Blood',
@@ -36,7 +36,7 @@ motrpac_gtex_map = c('t30-blood-rna'='Whole_Blood',
                      't70-white-adipose'='Adipose_Subcutaneous')
 
 #read in human sex-biased genes from gtex v8
-sexbg <- read.table(file = "~/data/smontgom/GTEx_Analysis_v8_sbgenes/signif.sbgenes.txt", header = T)
+sexbg <- read.table(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/GTEx_Analysis_v8_sbgenes/signif.sbgenes.txt", header = T)
 sexbg$ENSG <- gsub('\\..*','',sexbg$gene)
 
 sex_DE_humans <- lapply(setNames(setdiff(motrpac_gtex_map, c("Testis", "Ovary")), 
@@ -69,7 +69,7 @@ sex_DE_rats <- lapply(setNames(setdiff(names(motrpac_gtex_map), c("t63-testes", 
 for(tissue in setdiff(names(motrpac_gtex_map), c("t63-testes", "t64-ovaries"))){
   print(tissue)
   #DESeq object from combined differential analysis of males and females 
-  load(paste0("~/data/smontgom/old_dea_deseq_20201121/", tissue, "_training-dea_20201121.RData"))
+  load(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/old_dea_deseq_20201121/", tissue, "_training-dea_20201121.RData"))
   p_values <- pnorm(dds@rowRanges@elementMetadata@listData$sex_male_vs_female / 
                     dds@rowRanges@elementMetadata@listData$SE_sex_male_vs_female)
   p_values[p_values > 0.5] <- 1-p_values[p_values > 0.5]
@@ -245,7 +245,7 @@ prop_same_dir_hier <- rbind(mean = apply(relev_samps, 2, mean),
 colnames(prop_same_dir_flatbeta) <- bic_animal_tissue_code$abbreviation[match(colnames(prop_same_dir_flatbeta), 
                                                                               bic_animal_tissue_code$tissue_name_release)]
 colnames(prop_same_dir_hier) <- colnames(relev_samps) <- colnames(prop_same_dir_flatbeta)
-write.table(relev_samps, "~/data/smontgom/ratman_sex_comparison_samps.txt")
+write.table(relev_samps, "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/ratman_sex_comparison_samps.txt")
 
 # prop_same_dir <- prop_same_dir_flatbeta
 prop_same_dir <- prop_same_dir_hier

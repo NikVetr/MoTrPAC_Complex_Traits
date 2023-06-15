@@ -34,10 +34,10 @@ source(file = "~/scripts/montgomery_lab/deg-trait_functions.R")
 
 
 #rat <-> human gene map 
-# gencode_gene_map <- rdg_mapping <- fread("~/data/smontgom/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
+# gencode_gene_map <- rdg_mapping <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
 gencode_gene_map <- rdg_mapping <- MotrpacRatTraining6moData::RAT_TO_HUMAN_GENE
 
-# load("~/data/smontgom/genes_tested_in_transcriptome_DEA.RData")
+# load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/genes_tested_in_transcriptome_DEA.RData")
 genes_tested_in_transcriptome_DEA <- unique(unlist(MotrpacRatTraining6moData::GENE_UNIVERSES$ensembl_gene$TRNSCRPT))
 gencode_gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID <- gsub(gencode_gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID, pattern = "\\..*", replacement = "")
 gene_map <- gencode_gene_map
@@ -50,7 +50,7 @@ tissues <- setNames(tissues,tissues)
 
 
 #### snag & process meta-analysis results ####
-load("~/data/smontgom/meta_analysis_results.RData")
+load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/meta_analysis_results.RData")
 
 mouse_symb_to_human = tapply(rdg_mapping$HUMAN_ORTHOLOG_SYMBOL,
                              rdg_mapping$RAT_SYMBOL,
@@ -125,7 +125,7 @@ blood_signs <- setNames(sign(human_blood_res$beta[human_blood_res$adj_p < alpha_
 muscle_signs <- setNames(sign(human_muscle_res$beta[human_muscle_res$adj_p < alpha_fdr & (human_muscle_res$I2 > i2_filter)]), muscle_genes)
 
 #alternatively, use the longterm genes IDed in the paper
-longterm_genes <- fread("~/data/smontgom/41467_2021_23579_MOESM6_ESM.csv")
+longterm_genes <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/41467_2021_23579_MOESM6_ESM.csv")
 longterm_genes <- cbind(longterm_genes, do.call(rbind, strsplit(longterm_genes$`Discovered in`, ",")))
 colnames(longterm_genes)[colnames(longterm_genes) == "V1"] <- "timeperiod"
 colnames(longterm_genes)[colnames(longterm_genes) == "V2"] <- "tissue"
@@ -139,7 +139,7 @@ muscle_signs <- setNames(sign(human_muscle_res$beta[match(muscle_genes, human_mu
 #### get motrpac clustering results ####
 
 # if(!exists("node_sets")){
-#   load("~/data/smontgom/graphical_analysis_results_20211220.RData")  
+#   load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/graphical_analysis_results_20211220.RData")  
 # }
 node_sets <- MotrpacRatTraining6moData::GRAPH_COMPONENTS$node_sets
 
@@ -596,7 +596,7 @@ for(sex_i in sexes){
 if(incl_sex_comparison){
   par(mar = c(4.25,4.5,2.5,2))
   # output from fig1a_ratman-sex-comparison.R
-  samps <- read.table("~/data/smontgom/ratman_sex_comparison_samps.txt")
+  samps <- read.table("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/ratman_sex_comparison_samps.txt")
   colnames(samps) <- gsub("\\.", "-", colnames(samps))
   tord <- order(apply(samps, 2, mean))
   qi_95 <- apply(samps, 2, quantile, probs = c(0.05, 0.95))[,tord]
@@ -744,7 +744,7 @@ FET_out <- sapply(tissues, function(ti){
 
 #compare to open targets
 if(!exists("dismat")){
-  direct_associations <- fread("~/data/smontgom/opentargets/associationByOverallDirect.csv")
+  direct_associations <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/opentargets/associationByOverallDirect.csv")
   genes <- intersect(unique(direct_associations$targetId), map$human_ensembl_gene[match(unique(unlist(possible_intersecting_genes)), map$human_gene_symbol)])
   genes <- genes[!is.na(genes)]
   diseases <- unique(direct_associations$diseaseId)

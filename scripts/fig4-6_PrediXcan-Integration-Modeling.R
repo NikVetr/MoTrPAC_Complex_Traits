@@ -37,12 +37,12 @@ library(MotrpacRatTraining6mo) # v1.6.0
 source(file = "~/scripts/montgomery_lab/deg-trait_functions.R")
 
 #### get ortholog map ####
-# gencode_gene_map <- fread("~/data/smontgom/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
+# gencode_gene_map <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
 gencode_gene_map <- MotrpacRatTraining6moData::RAT_TO_HUMAN_GENE
 gencode_gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID <- gsub(gencode_gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID, pattern = "\\..*", replacement = "")
 
 if(use_panther_map){
-  panther_gene_map <- fread("~/data/smontgom/PANTHER17_human_rat_ref_genome_orthologs.tsv", sep = "\t", header = F)
+  panther_gene_map <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/PANTHER17_human_rat_ref_genome_orthologs.tsv", sep = "\t", header = F)
   colnames(panther_gene_map) <- c("human_ID", "rat_ID", "type", "superorder", "ID") 
   panther_gene_map$UniProt_human <- do.call(rbind, strsplit(panther_gene_map$human_ID, "UniProtKB="))[,2]
   panther_gene_map$UniProt_rat <- do.call(rbind, strsplit(panther_gene_map$rat_ID, "UniProtKB="))[,2]
@@ -50,9 +50,9 @@ if(use_panther_map){
   
   # 11/15/21 RGD mapping
   
-  ratmap <- fread("~/data/smontgom/GENES_RAT.txt", sep='\t')[,c("UNIPROT_ID","ENSEMBL_ID","SYMBOL")]
+  ratmap <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/GENES_RAT.txt", sep='\t')[,c("UNIPROT_ID","ENSEMBL_ID","SYMBOL")]
   ratmap <- ratmap[ratmap$UNIPROT_ID != "" & ratmap$ENSEMBL_ID != ""] 
-  manmap = fread("~/data/smontgom/GENES_HUMAN.txt", sep='\t')[,c("UNIPROT_ID","ENSEMBL_ID","SYMBOL")]
+  manmap = fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/GENES_HUMAN.txt", sep='\t')[,c("UNIPROT_ID","ENSEMBL_ID","SYMBOL")]
   manmap <- manmap[manmap$UNIPROT_ID != "" & manmap$ENSEMBL_ID != ""] 
   
   semicolons <- grep(";", ratmap$UNIPROT_ID)
@@ -91,8 +91,8 @@ if(use_panther_map){
 }
 
 #### load TWAS results ####
-# twas_tissues <- fread(file = "~/repos/fusion_twas-master/output/all_results.txt")
-# metaxscan_results <- fread(file = "~/repos/MetaXcan/software/results/all_results.txt")
+# twas_tissues <- fread(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/fusion_twas-master/output/all_results.txt")
+# metaxscan_results <- fread(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/MetaXcan/software/results/all_results.txt")
 motrpac_gtex_map = c('t30-blood-rna'='Whole_Blood',
                      't52-hippocampus'='Brain_Hippocampus',
                      't53-cortex'='Brain_Cortex',
@@ -113,8 +113,8 @@ motrpac_gtex_map = c('t30-blood-rna'='Whole_Blood',
 
 #now let's use the TWAS results from Barbeira et al. 2021:
 # https://zenodo.org/record/3518299/files/spredixcan_eqtl.tar.gz
-twas_results_directory <- "~/data/smontgom/eqtl/"
-gwas_dir <- "~/data/smontgom/imputed_gwas_hg38_1.1/"
+twas_results_directory <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/eqtl/"
+gwas_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/imputed_gwas_hg38_1.1/"
 gwas_summary_files <- list.files(gwas_dir)
 gwas_summary_files <- gwas_summary_files[-grep(gwas_summary_files, pattern = "README")]
 gwas_names <- stringr::str_replace_all(gwas_summary_files, ".txt.gz", "")
@@ -153,7 +153,7 @@ if(!exists("some.twas")){
   # hist(all.twas$pvalue)
   
   #filter by category
-  trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
+  trait_categories <- read.csv("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gwas_metadata.csv", header = T)
   traitwise_partitions <- trait_categories[,c("Tag", "Category")]
   all.twas$trait_category <- traitwise_partitions$Category[match(all.twas$trait, traitwise_partitions$Tag)]
   use_all_cats <- T
@@ -173,21 +173,21 @@ if(!exists("some.twas")){
 }
 
 if(use_all_cats){
-  if(!file.exists("~/data/smontgom/ihw_results_all.twas.RData")){
+  if(!file.exists("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ihw_results_all.twas.RData")){
     ihw_twas <- as.data.frame(cbind(trait_tissue = as.factor(paste0(some.twas$trait, "~", some.twas$tissue)), pvalue = some.twas$pvalue))
     ihw_results <- IHW::ihw(pvalue ~ trait_tissue, data = ihw_twas, alpha = 0.05)  
-    save(some.twas, file = "~/data/smontgom/PrediXcan_output_all.twas.RData")
-    save(ihw_results, file = "~/data/smontgom/ihw_results_all.twas.RData")
+    save(some.twas, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/PrediXcan_output_all.twas.RData")
+    save(ihw_results, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ihw_results_all.twas.RData")
   } else {
-    load("~/data/smontgom/ihw_results_all.twas.RData")
+    load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ihw_results_all.twas.RData")
   }
 } else {
-  if(!file.exists("~/data/smontgom/ihw_results_some.twas.RData")){
+  if(!file.exists("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ihw_results_some.twas.RData")){
     ihw_twas <- as.data.frame(cbind(trait_tissue = as.factor(paste0(some.twas$trait, "~", some.twas$tissue)), pvalue = some.twas$pvalue))
     ihw_results <- IHW::ihw(pvalue ~ trait_tissue, data = ihw_twas, alpha = 0.05)  
-    save(ihw_results, file = "~/data/smontgom/ihw_results_some.twas.RData")
+    save(ihw_results, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ihw_results_some.twas.RData")
   } else {
-    load("~/data/smontgom/ihw_results_some.twas.RData")
+    load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ihw_results_some.twas.RData")
   }
 }
 ihw_pvals <- IHW::adj_pvalues(ihw_results)
@@ -201,7 +201,7 @@ salient_twas <- unique(some.twas$trait)
 
 #### load in the motrpac results ####
 if(!exists("rna_dea_ensembl")){
-  # load('~/data/smontgom/transcript_rna_seq_20211008.RData')
+  # load('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/transcript_rna_seq_20211008.RData')
   # rna_dea <- transcript_rna_seq$timewise_dea
   # rm(transcript_rna_seq)
   # rna_dea <- rna_dea[rna_dea$comparison_group == "8w",]
@@ -212,10 +212,10 @@ if(!exists("rna_dea_ensembl")){
   rna_dea_ensembl <- MotrpacRatTraining6moData::GENE_UNIVERSES$ensembl_gene$TRNSCRPT
 }
 
-load(file = "~/data/smontgom/node_metadata_list.RData")  
+load(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/node_metadata_list.RData")  
 if((!exists("cluster_membership") | !exists("node_metadata")) | use_random_DE_genes){
 
-  # load("~/data/smontgom/graphical_analysis_results_20211220.RData")
+  # load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/graphical_analysis_results_20211220.RData")
   node_sets <- MotrpacRatTraining6moData::GRAPH_COMPONENTS$node_sets
   nodes_to_look_at_list <- list(c("1w_F1_M1", "1w_F-1_M-1"),
                                 c("2w_F1_M1", "2w_F-1_M-1"),
@@ -249,7 +249,7 @@ if((!exists("cluster_membership") | !exists("node_metadata")) | use_random_DE_ge
   })
   
   if(!use_random_DE_genes){
-    save(node_metadata_list, file = "~/data/smontgom/node_metadata_list.RData")  
+    save(node_metadata_list, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/node_metadata_list.RData")  
   }
   
 }
@@ -409,7 +409,7 @@ n_deg_sigtwas_intersect <- n_deg_sigtwas_intersect[!(rownames(n_deg_sigtwas_inte
 # tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
 # tissue_code <- setNames(tissue_code$tissue_name_release, tissue_code$abbreviation)
 tissue_code <- MotrpacRatTraining6moData::TISSUE_ABBREV_TO_CODE
-# load("~/data/smontgom/genes_tested_in_transcriptome_DEA.RData")
+# load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/genes_tested_in_transcriptome_DEA.RData")
 genes_tested_in_transcriptome_DEA <- unique(unlist(MotrpacRatTraining6moData::GENE_UNIVERSES$ensembl_gene$TRNSCRPT))
 all_orthologs_tested <- gene_map$HUMAN_ORTHOLOG_SYMBOL[match(genes_tested_in_transcriptome_DEA, gene_map$RAT_ENSEMBL_ID)]
 all_orthologs_tested <- all_orthologs_tested[!is.na(all_orthologs_tested)]
@@ -472,9 +472,10 @@ if(estimate_trait_corr_mats){
     trait_corr_mat <- estimate_correlations(y = twas_genes_x_trait, t = all_genes_x_trait, print_progress = T)
     trait_corr_mat
   })
-  save(trait_corr_mats, file = paste0("~/data/smontgom/trait_corr_mats", ifelse(use_random_Pred_genes, "_random-genes", ""), ".RData"))  
+  #comment out, going with the composite strategy
+  # save(trait_corr_mats, file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/trait_corr_mat", ifelse(use_random_Pred_genes, "_random-genes", ""), ".RData"))  
 } else {
-  load(file = paste0("~/data/smontgom/trait_corr_mats", ifelse(use_random_Pred_genes, "_random-genes", ""), ".RData"))
+  # load(file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/trait_corr_mat", ifelse(use_random_Pred_genes, "_random-genes", ""), ".RData"))
 }
 # tissue_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[grep("t[0-9][0-9]", x = names(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV))]
 # tissue_abbr_rev <- setNames(names(tissue_abbr), tissue_abbr)
@@ -517,9 +518,9 @@ if(estimate_composite_corrmat){
   
   trait_corr_mat_multi <- estimate_correlations_multi(y = trait_hits, t = trait_all, print_progress = T)
 
-  save(trait_corr_mat_multi, file = paste0("~/data/smontgom/trait_corr_mat_multi", ifelse(use_random_Pred_genes | use_random_DE_genes, "_random-genes", ""), ".RData"))  
+  save(trait_corr_mat_multi, file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/trait_corr_mat_multi", ifelse(use_random_Pred_genes | use_random_DE_genes, "_random-genes", ""), ".RData"))  
 } else {
-  load(file = paste0("~/data/smontgom/trait_corr_mat_multi", ifelse(use_random_Pred_genes | use_random_DE_genes, "_random-genes", ""), ".RData"))
+  load(file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/trait_corr_mat_multi", ifelse(use_random_Pred_genes | use_random_DE_genes, "_random-genes", ""), ".RData"))
 }
 
 trait_corr_mat <- trait_corr_mat_multi
@@ -531,7 +532,7 @@ pheatmap::pheatmap(trait_corr_mat, breaks = -10:10/10, color = colorspace::diver
 tissues <- setNames(rownames(n_deg_sigtwas_intersect), rownames(n_deg_sigtwas_intersect))
 total_number_of_possible_hits <- length(intersect(all_orthologs_tested, all_twas_genes_tested))
 
-# load('~/data/smontgom/transcript_rna_seq_20211008.RData')
+# load('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/transcript_rna_seq_20211008.RData')
 # rna_dea <- transcript_rna_seq$timewise_dea
 # rm(transcript_rna_seq)
 # rna_dea <- rna_dea[rna_dea$comparison_group == "8w",]
@@ -1950,7 +1951,7 @@ tissue_code <- data.frame(tissue_name_release = names(MotrpacRatTraining6moData:
                           abbreviation = MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV)
 
 #get "null hypothesis" genes for comparison group
-# load('~/data/smontgom/transcript_rna_seq_20211008.RData')
+# load('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/transcript_rna_seq_20211008.RData')
 # rna_dea <- transcript_rna_seq$timewise_dea
 rna_dea <- MotrpacRatTraining6mo::combine_da_results(assays = "TRNSCRPT")
 rna_dea <- rna_dea[rna_dea$comparison_group == "8w" & rna_dea$selection_fdr > 0.05,]
@@ -2070,7 +2071,7 @@ twas_by_tissue <- lapply(setNames(unique(some.twas$tissue), MotrpacRatTraining6m
 })
 
 #get "null hypothesis" genes for overall probabilities
-# load('~/data/smontgom/transcript_rna_seq_20211008.RData')
+# load('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/transcript_rna_seq_20211008.RData')
 # rna_dea <- transcript_rna_seq$timewise_dea
 rna_dea <- MotrpacRatTraining6mo::combine_da_results(assays = "TRNSCRPT")
 rna_dea <- rna_dea[rna_dea$comparison_group == "8w",]
@@ -2605,7 +2606,7 @@ mean(trait_goodness == 0)
 
 
 #get "null hypothesis" genes for overall probabilities
-# load('~/data/smontgom/transcript_rna_seq_20211008.RData')
+# load('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/transcript_rna_seq_20211008.RData')
 # rna_dea <- transcript_rna_seq$timewise_dea
 # rna_dea <- rna_dea[rna_dea$comparison_group == "8w",]
 rna_dea <- rna_dea <- MotrpacRatTraining6mo::combine_da_results(assays = "TRNSCRPT")
@@ -3060,7 +3061,7 @@ head(cbind(data, basic_posteriors_masses)[order(abs(basic_posteriors_masses - 0.
 # )
 
 
-# load("~/data/smontgom/est_gcor_mat.RData")
+# load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/est_gcor_mat.RData")
 # tissues <- tissues
 # traits <- twas_with_hits
 # # traits <- twas_with_hits[twas_with_hits %in% trait_categories$Tag[trait_categories$Category == "Cardiometabolic"]]
@@ -3140,7 +3141,7 @@ head(cbind(data, basic_posteriors_masses)[order(abs(basic_posteriors_masses - 0.
 # '
 
 # # now let's try the split the difference approach again?!
-# load("~/data/smontgom/est_gcor_mat.RData")
+# load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/est_gcor_mat.RData")
 # tissues <- tissues
 # traits <- twas_with_hits
 # # traits <- twas_with_hits[twas_with_hits %in% trait_categories$Tag[trait_categories$Category == "Cardiometabolic"]]
@@ -3295,7 +3296,7 @@ head(cbind(data, basic_posteriors_masses)[order(abs(basic_posteriors_masses - 0.
 # 
 # #a model where we try to partially pool across trait categories & incorporate goodness
 # 
-# load("~/data/smontgom/est_gcor_mat.RData")
+# load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/est_gcor_mat.RData")
 # tissues <- tissues
 # traits <- twas_with_hits[twas_with_hits %in% trait_categories$Tag[trait_categories$new_Phenotype %in% names(trait_goodness)[trait_goodness != 0]]]
 # gcor <- gcor_mat[traits, traits]
@@ -3487,7 +3488,7 @@ head(cbind(data, basic_posteriors_masses)[order(abs(basic_posteriors_masses - 0.
 
 
 #let's try a more basic flavor of model
-# load("~/data/smontgom/est_gcor_mat.RData")
+# load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/est_gcor_mat.RData")
 # tissues <- tissues
 # traits <- twas_with_hits
 # trait_cats <- salient.categories
@@ -3608,7 +3609,7 @@ head(cbind(data, basic_posteriors_masses)[order(abs(basic_posteriors_masses - 0.
 # '
 
 #incorporate non-independence, but allow for independence too
-load("~/data/smontgom/est_gcor_mat.RData")
+load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/est_gcor_mat.RData")
 tissues <- tissues
 traits <- twas_with_hits
 trait_cats <- salient.categories
@@ -3935,9 +3936,9 @@ deg_sigtwas_proportion <- array(NA, dim = c(length(motrpac_gtex_map), length(twa
 nuniq <- function(x) length(unique(x))
 tissue_abbr_rev <- MotrpacRatTraining6moData::TISSUE_ABBREV_TO_CODE
 
-load("~/data/smontgom/relative_effect_sizes_deg_eqtl_list.RData")
+load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/relative_effect_sizes_deg_eqtl_list.RData")
 trace_8w_backwards <- T
-# paths <- data.table::fread("~/data/smontgom/feature_repfdr_states_20220117.tsv")
+# paths <- data.table::fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/feature_repfdr_states_20220117.tsv")
 paths <- MotrpacRatTraining6moData::GRAPH_STATES
 paths <- paths[paths$ome == "TRNSCRPT",]
 paths <- lapply(setNames(unique(paths$tissue),unique(paths$tissue)), function(tiss) paths[paths$tissue == tiss,])
@@ -6431,7 +6432,7 @@ mars <- list(c(6,
              c(4.25,2.5,2.5,2.5), 
              c(10,6.5,1.5,2.5))
 
-cairo_pdf(paste0("~/repos/MoTrPAC_Complex_Traits/figures/fig4_intersect-enrichment_redux.pdf"), 
+cairo_pdf(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig4_intersect-enrichment_redux.pdf"), 
           width = 2000 / 72 * ncol(table_to_use) / 80, 
           height = 1200 / 72 + ifelse(group_by_tissue_type, disp_amount * 0.75, 0), 
           family="Arial Unicode MS", pointsize = 18.5)

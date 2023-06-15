@@ -24,7 +24,7 @@ library(data.table)
 # }
 
 #load new clustering results
-# load("~/data/smontgom/graphical_analysis_results_20211220.RData")
+# load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/graphical_analysis_results_20211220.RData")
 node_sets = MotrpacRatTraining6moData::GRAPH_COMPONENTS$node_sets
 nodes_to_look_at <- c("8w_F1_M1", "8w_F-1_M-1")
 node_metadata <- lapply(setNames(nodes_to_look_at, nodes_to_look_at), function(node_to_look_at)
@@ -32,10 +32,10 @@ node_metadata <- lapply(setNames(nodes_to_look_at, nodes_to_look_at), function(n
     node_sets[node_to_look_at][[node_to_look_at]], pattern = "TRNSCRPT")], ";")), node_to_look_at))
 node_metadata <- as.data.table(do.call(rbind, node_metadata))
 colnames(node_metadata) <- c("ome","tissue","ensembl_gene", "node")
-# gene_map <- fread("~/data/smontgom/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
-# rgd_orthologs <- fread("~/data/smontgom/RGD_ORTHOLOGS_20201001.txt", header = T, sep = "\t")
-# rgd_orthologs2 <- fread("~/data/smontgom/pass1b-06_transcript-rna-seq_feature-mapping_20210721.txt", header = T, sep = "\t")
-# feature_to_gene_map <- fread("~/data/smontgom/motrpac-mappings-master_feature_to_gene.txt", header = T, sep = "\t", fill = T)
+# gene_map <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
+# rgd_orthologs <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/RGD_ORTHOLOGS_20201001.txt", header = T, sep = "\t")
+# rgd_orthologs2 <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/pass1b-06_transcript-rna-seq_feature-mapping_20210721.txt", header = T, sep = "\t")
+# feature_to_gene_map <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/motrpac-mappings-master_feature_to_gene.txt", header = T, sep = "\t", fill = T)
 gene_map = MotrpacRatTraining6moData::RAT_TO_HUMAN_GENE
 node_metadata$rat_gene_symbol <- gene_map$RAT_SYMBOL[match(node_metadata$ensembl_gene, gene_map$RAT_ENSEMBL_ID)]
 node_metadata$human_gene_symbol <- gene_map$HUMAN_ORTHOLOG_SYMBOL[match(node_metadata$ensembl_gene, gene_map$RAT_ENSEMBL_ID)]
@@ -56,7 +56,7 @@ table(node_metadata$cluster)
 
 
 #summon mapping of rat -> human genes
-# gsutil_dload <- function(path, dest = "~/data/smontgom/"){
+# gsutil_dload <- function(path, dest = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/"){
 #   command <- paste0("gsutil cp ", path, " ", dest)
 #   system2(command)
 # }
@@ -64,7 +64,7 @@ table(node_metadata$cluster)
 # gsutil_dload("gs://mawg-data/external-datasets/rat-id-mapping/RGD_ORTHOLOGS_20201001.txt")
 # path <- "gs://mawg-data/external-datasets/rat-id-mapping/RGD_ORTHOLOGS_20201001.txt"
 
-# rgd_orthologs2 <- fread("~/data/smontgom/pass1b-06_transcript-rna-seq_feature-mapping_20210721.txt", header = T, sep = "\t")
+# rgd_orthologs2 <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/pass1b-06_transcript-rna-seq_feature-mapping_20210721.txt", header = T, sep = "\t")
 # no_ENSG <- unique(rgd_orthologs2$human_gene_symbol[(!is.na(rgd_orthologs2$human_gene_symbol) & 
 #                                                       is.na(rgd_orthologs2$human_ensembl_gene))])
 # symbol_ENSG_map <- ensembldb::select(EnsDb.Hsapiens.v79, keys= no_ENSG, keytype = "SYMBOL", columns = c("SYMBOL","GENEID"))
@@ -75,7 +75,7 @@ table(node_metadata$cluster)
 #   symbol_ENSG_map$GENEID[which(!is.na(match(rgd_orthologs2$human_gene_symbol, symbol_ENSG_map$SYMBOL)))]  
 
 
-# geneID_map <- read.table("~/data/smontgom/motrpac_geneID_map.txt")
+# geneID_map <- read.table("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/motrpac_geneID_map.txt")
 DE_genes <- node_metadata
 # cluster_ids <- sort(unique(DE_genes$cluster))
 cluster_ids <- sort(unique(DE_genes$cluster))
@@ -110,15 +110,15 @@ as.data.frame(cbind(rownames(jac_mat)[mat_int_to_arrind(order(jac_mat, decreasin
 )
 
 #confirm ENSG coordinate mapping
-ENSG_coord <- read.table(file = "~/repos/ldsc/ENSG_coord.txt", header = T)
+ENSG_coord <- read.table(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/ENSG_coord.txt", header = T)
 100-sapply(cluster_ids, function(cli) length(setdiff(DE_genes[[cli]]$human_ensembl_gene, ENSG_coord$GENE)) / length(DE_genes[[cli]]$human_ensembl_gene) * 100)
 
 sum(sapply(cluster_ids, function(cli) length(unique(DE_genes[[cli]]$human_ensembl_gene))))
 length(unique(unlist(sapply(cluster_ids, function(cli) ((DE_genes[[cli]]$human_ensembl_gene))))))
 
 #write gene sets to file
-ldsc_directory <- "~/repos/ldsc/"
-geneset_directory <- "~/repos/ldsc/custom_genesets/"
+ldsc_directory <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/"
+geneset_directory <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/"
 
 if(!dir.exists(geneset_directory)){dir.create(geneset_directory)}
 for(cli in cluster_ids){
@@ -161,8 +161,8 @@ subset_baseline_to_BIM <- T
 foreach(cri=1:n_chromosomes, .packages = c("data.table")) %dopar% {
 # for(cri in 1:n_chromosomes){
   cat(paste0("\n(chr: ", cri, "): "))
-  baseline_annot <- fread(paste0("~/repos/ldsc/baseline/baseline.", cri, ".annot"))
-  bim_file <- fread(paste0("~/repos/ldsc/1000G_EUR_Phase3_plink/1000G.EUR.QC.", cri, ".bim"), header = F)
+  baseline_annot <- fread(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/baseline/baseline.", cri, ".annot"))
+  bim_file <- fread(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/1000G_EUR_Phase3_plink/1000G.EUR.QC.", cri, ".bim"), header = F)
   colnames(bim_file) <- c("CHR", "SNP", "CM", "BP", "minor_allele", "major_allele")
   bim_file <- bim_file[,-c("minor_allele", "major_allele")]
   
@@ -180,7 +180,7 @@ foreach(cri=1:n_chromosomes, .packages = c("data.table")) %dopar% {
   for(cli in cluster_ids){
     cat(paste0(cli, " "))
     
-    cluster_code <- fread(paste0("~/repos/ldsc/custom_genesets/cluster_", cli, ".chr_", cri, ".annot"))
+    cluster_code <- fread(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/cluster_", cli, ".chr_", cri, ".annot"))
     cluster_annot <- cbind(bim_file, cluster_code)
     # cluster_annot <- merge(baseline_annot, cluster_annot, by = "SNP")
     # sum(cluster_annot$BP.x != cluster_annot$BP.y)
@@ -214,7 +214,7 @@ foreach(cri=1:n_chromosomes, .packages = c("data.table")) %dopar% {
     merged_annot$CM[merged_annot$CM == "0"] <- "0.0"
     
     #write to disk
-    fwrite(merged_annot, paste0("~/repos/ldsc/custom_genesets/thickCluster_", cli, ".chr_", cri, ".annot"), sep = "\t")
+    fwrite(merged_annot, paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/thickCluster_", cli, ".chr_", cri, ".annot"), sep = "\t")
     
   }
 }
@@ -241,12 +241,12 @@ foreach(cri=1:n_chromosomes) %dopar% {
 
 for(cri in 1:n_chromosomes){
   for(cli in cluster_ids){ 
-    file.rename(from = paste0("~/repos/ldsc/custom_genesets/cluster_", cli, ".chr_", cri, ".annot"), 
-                to = paste0("~/repos/ldsc/custom_genesets/thincluster_", cli, ".chr_", cri, ".annot"))
-    file.rename(from = paste0("~/repos/ldsc/custom_genesets/cluster_", cli, ".chr_", cri, ".annot.gz"), 
-                to = paste0("~/repos/ldsc/custom_genesets/thincluster_", cli, ".chr_", cri, ".annot.gz"))
-    file.rename(from = paste0("~/repos/ldsc/custom_genesets/thickCluster_", cli, ".chr_", cri, ".annot"), 
-                to = paste0("~/repos/ldsc/custom_genesets/cluster_", cli, ".chr_", cri, ".annot"))
+    file.rename(from = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/cluster_", cli, ".chr_", cri, ".annot"), 
+                to = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/thincluster_", cli, ".chr_", cri, ".annot"))
+    file.rename(from = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/cluster_", cli, ".chr_", cri, ".annot.gz"), 
+                to = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/thincluster_", cli, ".chr_", cri, ".annot.gz"))
+    file.rename(from = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/thickCluster_", cli, ".chr_", cri, ".annot"), 
+                to = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/cluster_", cli, ".chr_", cri, ".annot"))
   }
 }
 
@@ -261,7 +261,7 @@ for(cli in cluster_ids){ #redundant across clusters
 }
 
 #let's get the gwas summary stats into a format that munge_sumstats.py can process
-gwas_dir <- "~/data/smontgom/imputed_gwas_hg38_1.1/"
+gwas_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/imputed_gwas_hg38_1.1/"
 gwas_summary_files <- list.files(gwas_dir)
 gwas_summary_files <- gwas_summary_files[-grep(gwas_summary_files, pattern = "README")]
 if(refresh_GWAS_files){
@@ -290,7 +290,7 @@ for(gi in 1:length(gwas_summary_files)){
 for(gi in 1:length(gwas_summary_files)){
 # for(gi in 1:1){
   cat(paste0(" (", gi, " / ", length(gwas_summary_files), ")")) 
-  command_ldsc <- paste0("python2 munge_sumstats.py --sumstats ~/repos/ldsc/gwas_sumstats/", gwas_summary_files[gi], " --merge-alleles w_hm3.snplist --out gwas_sumstats/proper_format/", gwas_summary_files[gi]," --a1-inc")
+  command_ldsc <- paste0("python2 munge_sumstats.py --sumstats /Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/gwas_sumstats/", gwas_summary_files[gi], " --merge-alleles w_hm3.snplist --out gwas_sumstats/proper_format/", gwas_summary_files[gi]," --a1-inc")
   command <- paste0(command_changedir, command_initiateLDSC, command_ldsc)
   system(command)
 }
@@ -319,8 +319,8 @@ foreach(gi=1:length(gwas_summary_files)) %dopar% {
 foreach(cri=1:n_chromosomes, .packages = c("data.table")) %dopar% {
   
   cat(paste0("\n(chr: ", cri, "): "))
-  baseline_annot <- fread(paste0("~/repos/ldsc/baseline/baseline.", cri, ".annot"))
-  bim_file <- fread(paste0("~/repos/ldsc/1000G_EUR_Phase3_plink/1000G.EUR.QC.", cri, ".bim"), header = F)
+  baseline_annot <- fread(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/baseline/baseline.", cri, ".annot"))
+  bim_file <- fread(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/1000G_EUR_Phase3_plink/1000G.EUR.QC.", cri, ".bim"), header = F)
   colnames(bim_file) <- c("CHR", "SNP", "CM", "BP", "minor_allele", "major_allele")
   bim_file <- bim_file[,-c("minor_allele", "major_allele")]
   
@@ -332,7 +332,7 @@ foreach(cri=1:n_chromosomes, .packages = c("data.table")) %dopar% {
   
   #initialize at 1st cluster
   cli = cluster_ids[1]
-  cluster_code <- fread(paste0("~/repos/ldsc/custom_genesets/thincluster_", cli, ".chr_", cri, ".annot"))
+  cluster_code <- fread(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/thincluster_", cli, ".chr_", cri, ".annot"))
   cluster_annot <- cbind(bim_file, cluster_code)
   merged_annot <- cluster_annot
   colnames(merged_annot)[colnames(merged_annot) == "ANNOT"] <- paste0("Cluster_", cli)
@@ -340,7 +340,7 @@ foreach(cri=1:n_chromosomes, .packages = c("data.table")) %dopar% {
   #add in remaining clusters
   for(cli in cluster_ids[-1]){
     cat(paste0(cli, " "))
-    cluster_code <- fread(paste0("~/repos/ldsc/custom_genesets/thincluster_", cli, ".chr_", cri, ".annot"))
+    cluster_code <- fread(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/thincluster_", cli, ".chr_", cri, ".annot"))
     merged_annot <- cbind(merged_annot, cluster_code)
     colnames(merged_annot)[colnames(merged_annot) == "ANNOT"] <- paste0("Cluster_", cli)
   }
@@ -354,7 +354,7 @@ foreach(cri=1:n_chromosomes, .packages = c("data.table")) %dopar% {
   merged_annot$CM[merged_annot$CM == "0"] <- "0.0"
   
   #write to disk
-  fwrite(merged_annot, paste0("~/repos/ldsc/custom_genesets/cluster_", cluster_ids[1], "-", cluster_ids[length(cluster_ids)], ".chr_", cri, ".annot"), sep = "\t")
+  fwrite(merged_annot, paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/cluster_", cluster_ids[1], "-", cluster_ids[length(cluster_ids)], ".chr_", cri, ".annot"), sep = "\t")
   
 }
 
@@ -431,8 +431,8 @@ foreach(gi=1:length(gwas_summary_files)) %dopar% {
 for(cri in 1:n_chromosomes){
   
   print(paste0(cri, " "))
-  baseline_annotation <- fread(paste0("~/repos/ldsc/custom_genesets/cts_thin_annot/baseline.chr_", cri, ".annot"))
-  cluster_annotations <- lapply(setNames(cluster_ids, cluster_ids), function(cli) fread(paste0("~/repos/ldsc/custom_genesets/cts_thin_annot/cluster_",cli,".chr_", cri, ".annot")))
+  baseline_annotation <- fread(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/cts_thin_annot/baseline.chr_", cri, ".annot"))
+  cluster_annotations <- lapply(setNames(cluster_ids, cluster_ids), function(cli) fread(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/cts_thin_annot/cluster_",cli,".chr_", cri, ".annot")))
   
   for(cli in cluster_ids){ 
     cat(paste0(cli, " "))
@@ -445,14 +445,14 @@ for(cri in 1:n_chromosomes){
     # new_baseline_annotation <- new_baseline_annotation[,-"SNP"] #gotta remove or ldsc will think it's an annotation and throw an error? only when --thin-annot flag is used
     # new_baseline_annotation <- new_baseline_annotation[,-"CM"] #gotta remove or ldsc will think it's an annotation and throw an error? but this causes an error downstream :[? 
     #ValueError: operands could not be broadcast together with shapes 
-    fwrite(new_baseline_annotation, file = paste0("~/repos/ldsc/custom_genesets/cts_thin_annot/not-",cli,"_plus_baseline.chr_", cri, ".annot.gz"), sep = "\t")
+    fwrite(new_baseline_annotation, file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/cts_thin_annot/not-",cli,"_plus_baseline.chr_", cri, ".annot.gz"), sep = "\t")
     
     command_ldsc <- paste0("python2 ldsc.py --l2 ",
                         "--bfile 1000G_EUR_Phase3_plink/1000G.EUR.QC.", cri,
                         " --ld-wind-cm 1 ",
                         # "--thin-annot ",
-                        "--annot ~/repos/ldsc/custom_genesets/cts_thin_annot/not-", cli,"_plus_baseline.chr_", cri, ".annot.gz ",
-                        "--out ~/repos/ldsc/custom_genesets/cts_thin_annot/not-",cli,"_plus_baseline.chr_", cri, 
+                        "--annot /Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/cts_thin_annot/not-", cli,"_plus_baseline.chr_", cri, ".annot.gz ",
+                        "--out /Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/cts_thin_annot/not-",cli,"_plus_baseline.chr_", cri, 
                         " --print-snps hapmap3_snps/hm.", cri,".snp")
     
     command <- paste0(command_changedir, command_initiateLDSC, command_ldsc)
@@ -487,8 +487,8 @@ foreach(gi=1:length(gwas_summary_files)) %dopar% {
 for(cri in 1:n_chromosomes){
   
   print(paste0(cri, " "))
-  baseline_annotation <- fread(paste0("~/repos/ldsc/custom_genesets/cts_thin_annot/baseline.chr_", cri, ".annot"))
-  cluster_annotations <- lapply(setNames(cluster_ids, cluster_ids), function(cli) fread(paste0("~/repos/ldsc/custom_genesets/cts_thin_annot/cluster_",cli,".chr_", cri, ".annot")))
+  baseline_annotation <- fread(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/cts_thin_annot/baseline.chr_", cri, ".annot"))
+  cluster_annotations <- lapply(setNames(cluster_ids, cluster_ids), function(cli) fread(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/cts_thin_annot/cluster_",cli,".chr_", cri, ".annot")))
   
   for(cli in cluster_ids){ 
     cat(paste0(cli, " "))
@@ -501,14 +501,14 @@ for(cri in 1:n_chromosomes){
     # new_baseline_annotation <- new_baseline_annotation[,-"SNP"] #gotta remove or ldsc will think it's an annotation and throw an error? only when --thin-annot flag is used
     # new_baseline_annotation <- new_baseline_annotation[,-"CM"] #gotta remove or ldsc will think it's an annotation and throw an error? but this causes an error downstream :[? 
     #ValueError: operands could not be broadcast together with shapes 
-    fwrite(new_baseline_annotation, file = paste0("~/repos/ldsc/custom_genesets/cts_thin_annot/not-",cli,"_plus_baseline.chr_", cri, ".annot.gz"), sep = "\t")
+    fwrite(new_baseline_annotation, file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/cts_thin_annot/not-",cli,"_plus_baseline.chr_", cri, ".annot.gz"), sep = "\t")
     
     command_ldsc <- paste0("python2 ldsc.py --l2 ",
                            "--bfile 1000G_EUR_Phase3_plink/1000G.EUR.QC.", cri,
                            " --ld-wind-cm 1 ",
                            # "--thin-annot ",
-                           "--annot ~/repos/ldsc/custom_genesets/cts_thin_annot/not-", cli,"_plus_baseline.chr_", cri, ".annot.gz ",
-                           "--out ~/repos/ldsc/custom_genesets/cts_thin_annot/not-",cli,"_plus_baseline.chr_", cri, 
+                           "--annot /Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/cts_thin_annot/not-", cli,"_plus_baseline.chr_", cri, ".annot.gz ",
+                           "--out /Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/cts_thin_annot/not-",cli,"_plus_baseline.chr_", cri, 
                            " --print-snps hapmap3_snps/hm.", cri,".snp")
     
     command <- paste0(command_changedir, command_initiateLDSC, command_ldsc)
@@ -543,14 +543,14 @@ foreach(gi=1:length(gwas_summary_files)) %dopar% {
 
 # #### pairwise genetic correlations ####
 # 
-# ldsc_directory <- "~/repos/ldsc/"
+# ldsc_directory <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/"
 # 
 # #generic commands
 # command_changedir <- paste0("source ~/.bash_profile; cd ", ldsc_directory, "; ")
 # command_initiateLDSC <- "source activate ldsc; "
 # 
 # #gwas sumstats locations
-# gwas_dir <- "~/data/smontgom/imputed_gwas_hg38_1.1/"
+# gwas_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/imputed_gwas_hg38_1.1/"
 # gwas_summary_files <- list.files(gwas_dir)
 # gwas_summary_files <- gwas_summary_files[-grep(gwas_summary_files, pattern = "README")]
 # 
@@ -593,13 +593,13 @@ foreach(gi=1:length(gwas_summary_files)) %dopar% {
 
 #get list of all genes in transcriptome DEA
 # if(!exists("genes_tested_in_transcriptome_DEA")){
-#   load("~/data/smontgom/genes_tested_in_transcriptome_DEA.RData")
+#   load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/genes_tested_in_transcriptome_DEA.RData")
 # }
 genes_tested_in_transcriptome_DEA <- unique(unlist(MotrpacRatTraining6moData::GENE_UNIVERSES$ensembl_gene$TRNSCRPT))
 
 #summon mapping of rat -> human genes
-# geneID_map <- read.table("~/data/smontgom/motrpac_geneID_map.txt")
-# gene_map <- fread("~/data/smontgom/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
+# geneID_map <- read.table("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/motrpac_geneID_map.txt")
+# gene_map <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
 gene_map <- MotrpacRatTraining6moData::RAT_TO_HUMAN_GENE
 
 human_ensembl_genes_in_DEA <- gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID[match(genes_tested_in_transcriptome_DEA, gene_map$RAT_ENSEMBL_ID)]
@@ -607,12 +607,12 @@ human_ensembl_genes_in_DEA <- gsub(human_ensembl_genes_in_DEA, pattern = "\\..*"
 human_ensembl_genes_in_DEA <- human_ensembl_genes_in_DEA[-which(is.na(human_ensembl_genes_in_DEA))]
 
 #confirm ENSG coordinate mapping
-ENSG_coord <- read.table(file = "~/repos/ldsc/ENSG_coord.txt", header = T)
+ENSG_coord <- read.table(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/ENSG_coord.txt", header = T)
 100-length(setdiff(human_ensembl_genes_in_DEA, ENSG_coord$GENE)) / length(human_ensembl_genes_in_DEA) * 100
 
 #write gene sets to file
-ldsc_directory <- "~/repos/ldsc/"
-geneset_directory <- "~/repos/ldsc/custom_genesets/"
+ldsc_directory <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/"
+geneset_directory <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/"
 sink(paste0(geneset_directory, "/cluster_control.GeneSet"))
 cat(paste0(human_ensembl_genes_in_DEA, "\n"), sep = "")
 sink()
@@ -638,8 +638,8 @@ subset_baseline_to_BIM <- T
 # foreach(cri=1:n_chromosomes) %dopar% {
 foreach(cri=1:n_chromosomes, .packages = c("data.table")) %dopar% {
   cat(paste0("\n(chr: ", cri, "): "))
-  baseline_annot <- fread(paste0("~/repos/ldsc/baseline/baseline.", cri, ".annot"))
-  bim_file <- fread(paste0("~/repos/ldsc/1000G_EUR_Phase3_plink/1000G.EUR.QC.", cri, ".bim"), header = F)
+  baseline_annot <- fread(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/baseline/baseline.", cri, ".annot"))
+  bim_file <- fread(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/1000G_EUR_Phase3_plink/1000G.EUR.QC.", cri, ".bim"), header = F)
   colnames(bim_file) <- c("CHR", "SNP", "CM", "BP", "minor_allele", "major_allele")
   bim_file <- bim_file[,-c("minor_allele", "major_allele")]
   
@@ -653,7 +653,7 @@ foreach(cri=1:n_chromosomes, .packages = c("data.table")) %dopar% {
   
   missing_SNP_inds <- which(is.na(SNP_inds))
     
-  cluster_code <- fread(paste0("~/repos/ldsc/custom_genesets/cluster_control.chr_", cri,".annot"))
+  cluster_code <- fread(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/cluster_control.chr_", cri,".annot"))
   cluster_annot <- cbind(bim_file, cluster_code)
   # cluster_annot <- merge(baseline_annot, cluster_annot, by = "SNP")
   # sum(cluster_annot$BP.x != cluster_annot$BP.y)
@@ -687,7 +687,7 @@ foreach(cri=1:n_chromosomes, .packages = c("data.table")) %dopar% {
   merged_annot$CM[merged_annot$CM == "0"] <- "0.0"
   
   #write to disk
-  fwrite(merged_annot, paste0("~/repos/ldsc/custom_genesets/cluster_control.chr_", cri,".annot"), sep = "\t")
+  fwrite(merged_annot, paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets/cluster_control.chr_", cri,".annot"), sep = "\t")
 
 }
 
@@ -839,7 +839,7 @@ foreach(gi=1:length(gwas_summary_files)) %dopar% {
 
 # #### hmm what if I did the DE genes per sex at timepoint 4? or across the other timepoints? or tissues at all timepoints? ####
 # if(!exists("rna_dea")){
-#   load('~/data/smontgom/dea/transcript_rna_seq_20210126.RData')
+#   load('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/dea/transcript_rna_seq_20210126.RData')
 #   rna_dea <- as.data.frame(transcript_rna_seq$timewise_dea)
 # }
 # 
@@ -890,7 +890,7 @@ foreach(gi=1:length(gwas_summary_files)) %dopar% {
 # # }
 # 
 # #summon mapping of rat -> human genes
-# geneID_map <- read.table("~/data/smontgom/motrpac_geneID_map.txt")
+# geneID_map <- read.table("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/motrpac_geneID_map.txt")
 # DE_genes <- cluster_membership[cluster_membership$ome == "TRNSCRPT",]
 # DE_genes <- 
 # cluster_ids <- c(7, 15)
@@ -914,7 +914,7 @@ foreach(gi=1:length(gwas_summary_files)) %dopar% {
 # sapply(genesets, function(x1) sapply(genesets, function(x2) length(intersect(x1[,1], x2[,1])) / length(union(x1[,1], x2[,1])) * 100))
 # 
 # #summon mapping of rat -> human genes
-# geneID_map <- read.table("~/data/smontgom/motrpac_geneID_map.txt")
+# geneID_map <- read.table("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/motrpac_geneID_map.txt")
 # cluster_ids <- names(genesets)
 # DE_genes <- genesets
 # for(cli in cluster_ids){
@@ -925,15 +925,15 @@ foreach(gi=1:length(gwas_summary_files)) %dopar% {
 # str(DE_genes)
 # 
 # #confirm ENSG coordinate mapping
-# ENSG_coord <- read.table(file = "~/repos/ldsc/ENSG_coord.txt", header = T)
+# ENSG_coord <- read.table(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/ENSG_coord.txt", header = T)
 # 100-sapply(cluster_ids, function(cli) length(setdiff(DE_genes[[cli]]$human_ensembl_gene, ENSG_coord$GENE)) / length(DE_genes[[cli]]$human_ensembl_gene) * 100)
 # 
 # sum(sapply(cluster_ids, function(cli) length(unique(DE_genes[[cli]]$human_ensembl_gene))))
 # length(unique(unlist(sapply(cluster_ids, function(cli) ((DE_genes[[cli]]$human_ensembl_gene))))))
 # 
 # #write gene sets to file
-# ldsc_directory <- "~/repos/ldsc/"
-# geneset_directory <- "~/repos/ldsc/custom_genesets_2/"
+# ldsc_directory <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/"
+# geneset_directory <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets_2/"
 # 
 # if(!dir.exists(geneset_directory)){dir.create(geneset_directory)}
 # for(cli in cluster_ids){
@@ -976,8 +976,8 @@ foreach(gi=1:length(gwas_summary_files)) %dopar% {
 # foreach(cri=1:n_chromosomes, .packages = c("data.table")) %dopar% {
 #   # for(cri in 1:n_chromosomes){
 #   cat(paste0("\n(chr: ", cri, "): "))
-#   baseline_annot <- fread(paste0("~/repos/ldsc/baseline/baseline.", cri, ".annot"))
-#   bim_file <- fread(paste0("~/repos/ldsc/1000G_EUR_Phase3_plink/1000G.EUR.QC.", cri, ".bim"), header = F)
+#   baseline_annot <- fread(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/baseline/baseline.", cri, ".annot"))
+#   bim_file <- fread(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/1000G_EUR_Phase3_plink/1000G.EUR.QC.", cri, ".bim"), header = F)
 #   colnames(bim_file) <- c("CHR", "SNP", "CM", "BP", "minor_allele", "major_allele")
 #   bim_file <- bim_file[,-c("minor_allele", "major_allele")]
 #   
@@ -995,7 +995,7 @@ foreach(gi=1:length(gwas_summary_files)) %dopar% {
 #   for(cli in cluster_ids){
 #     cat(paste0(cli, " "))
 #     
-#     cluster_code <- fread(paste0("~/repos/ldsc/custom_genesets_2/cluster_", cli, ".chr_", cri, ".annot"))
+#     cluster_code <- fread(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets_2/cluster_", cli, ".chr_", cri, ".annot"))
 #     cluster_annot <- cbind(bim_file, cluster_code)
 #     # cluster_annot <- merge(baseline_annot, cluster_annot, by = "SNP")
 #     # sum(cluster_annot$BP.x != cluster_annot$BP.y)
@@ -1029,25 +1029,25 @@ foreach(gi=1:length(gwas_summary_files)) %dopar% {
 #     merged_annot$CM[merged_annot$CM == "0"] <- "0.0"
 #     
 #     #write to disk
-#     fwrite(merged_annot, paste0("~/repos/ldsc/custom_genesets_2/thickCluster_", cli, ".chr_", cri, ".annot"), sep = "\t")
+#     fwrite(merged_annot, paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets_2/thickCluster_", cli, ".chr_", cri, ".annot"), sep = "\t")
 #     
 #   }
 # }
 # 
 # for(cri in 1:n_chromosomes){
 #   for(cli in cluster_ids){ 
-#     file.rename(from = paste0("~/repos/ldsc/custom_genesets_2/cluster_", cli, ".chr_", cri, ".annot"), 
-#                 to = paste0("~/repos/ldsc/custom_genesets_2/thincluster_", cli, ".chr_", cri, ".annot"))
-#     file.rename(from = paste0("~/repos/ldsc/custom_genesets_2/cluster_", cli, ".chr_", cri, ".annot.gz"), 
-#                 to = paste0("~/repos/ldsc/custom_genesets_2/thincluster_", cli, ".chr_", cri, ".annot.gz"))
-#     file.rename(from = paste0("~/repos/ldsc/custom_genesets_2/thickCluster_", cli, ".chr_", cri, ".annot"), 
-#                 to = paste0("~/repos/ldsc/custom_genesets_2/cluster_", cli, ".chr_", cri, ".annot"))
+#     file.rename(from = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets_2/cluster_", cli, ".chr_", cri, ".annot"), 
+#                 to = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets_2/thincluster_", cli, ".chr_", cri, ".annot"))
+#     file.rename(from = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets_2/cluster_", cli, ".chr_", cri, ".annot.gz"), 
+#                 to = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets_2/thincluster_", cli, ".chr_", cri, ".annot.gz"))
+#     file.rename(from = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets_2/thickCluster_", cli, ".chr_", cri, ".annot"), 
+#                 to = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/custom_genesets_2/cluster_", cli, ".chr_", cri, ".annot"))
 #   }
 # }
 # 
 # #get list of all genes in transcriptome DEA
 # if(!exists("genes_tested_in_transcriptome_DEA")){
-#   load("~/data/smontgom/genes_tested_in_transcriptome_DEA.RData")
+#   load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/genes_tested_in_transcriptome_DEA.RData")
 # }
 # 
 # foreach(cri=1:n_chromosomes, .packages = c("data.table")) %dopar% {
@@ -1094,7 +1094,7 @@ foreach(gi=1:length(gwas_summary_files)) %dopar% {
 # 
 # #now compute partitioned heritabilities??????
 # #gwas sumstats locations
-# gwas_dir <- "~/data/smontgom/imputed_gwas_hg38_1.1/"
+# gwas_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/imputed_gwas_hg38_1.1/"
 # gwas_summary_files <- list.files(gwas_dir)
 # gwas_summary_files <- gwas_summary_files[-grep(gwas_summary_files, pattern = "README")]
 # 

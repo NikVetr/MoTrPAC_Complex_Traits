@@ -111,8 +111,8 @@ CairoFonts(
 pes <- c(NA,
          NA,
          rep(0.25, 8), 0.125) / 2
-imgsrc <- c("~/repos/MoTrPAC_Complex_Traits/figures/treadmill_rat.png",
-            "~/repos/MoTrPAC_Complex_Traits/figures/motrpac_human.png")
+imgsrc <- c("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/treadmill_rat.png",
+            "/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/motrpac_human.png")
 
 #### edge parameters ####
 edges <- do.call(rbind, list(c(1,2),
@@ -148,7 +148,7 @@ prop_head_width <- 2.1 + as.numeric(edges[,1]==1) * 0.1 + as.numeric(edges[,1] %
 #### abridged figure plotting ####
 
 #set up the plot
-cairo_pdf(paste0("~/repos/MoTrPAC_Complex_Traits/figures/fig0_summary_chart_short.pdf"),
+cairo_pdf(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig0_summary_chart_short.pdf"),
           width = 1000/72,
           height = 450/72,
           family="Arial Unicode MS", pointsize = 18.5)

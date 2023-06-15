@@ -50,12 +50,12 @@ cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(motrpac_gtex_m
 cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
 
 #### figure 1 ####
-gwas_dir <- "~/data/smontgom/imputed_gwas_hg38_1.1/"
+gwas_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/imputed_gwas_hg38_1.1/"
 gwas_summary_files <- list.files(gwas_dir)
 gwas_summary_files <- gwas_summary_files[-grep(gwas_summary_files, pattern = "README")]
 gwas_names <- stringr::str_replace_all(gwas_summary_files, ".txt.gz", "")
 coloc_phenotypes <- stringr::str_replace_all(gwas_names, "imputed_", "")
-ldsc_output_dir <- "~/repos/ldsc/output/"
+ldsc_output_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/output/"
 ldsc_results_paths <- list.files(ldsc_output_dir)
 ldsc_log_paths <- paste0(ldsc_output_dir, ldsc_results_paths[grep(ldsc_results_paths, pattern = "log")])
 ldsc_results_paths <- paste0(ldsc_output_dir, ldsc_results_paths[grep(ldsc_results_paths, pattern = "results")])
@@ -85,7 +85,7 @@ estimated_h2_ldsc <- sapply(setNames(unique(log_files$gwas), unique(log_files$gw
 estimated_h2_ldsc[estimated_h2_ldsc < 0] <- min(estimated_h2_ldsc[estimated_h2_ldsc > 0])
 estimated_h2_ldsc_pval <- sapply(setNames(unique(log_files$gwas), unique(log_files$gwas)), function(gwas) mean(log_files$pval[log_files$gwas == gwas]))
 
-mesc_output_basic <- fread(file = "~/data/smontgom/mesc_out_basic.txt")
+mesc_output_basic <- fread(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/mesc_out_basic.txt")
 estimated_h2_mesc <- mesc_output_basic[mesc_output_basic$Quantity == "h2",]
 estimated_h2_mesc <- sapply(setNames(unique(estimated_h2_mesc$trait), unique(estimated_h2_mesc$trait)), 
                             function(gwas) mean(estimated_h2_mesc$Estimate[estimated_h2_mesc$trait == gwas]))
@@ -117,7 +117,7 @@ bonf_p_h2 <- 0.05 / length(estimated_h2med_over_h2_mesc_pval)
 # abline(0,1)
 
 #subset to insteresting trait categories
-trait_categories <- read.csv("~/data/smontgom/gwas_metadata.csv", header = T)
+trait_categories <- read.csv("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gwas_metadata.csv", header = T)
 traitwise_partitions <- trait_categories[,c("Tag", "Category")]
 traitname_map <- trait_categories[,c("Tag", "new_Phenotype")]
 log_files$trait_category <- traitwise_partitions$Category[match(log_files$gwas, traitwise_partitions$Tag)]
@@ -129,7 +129,7 @@ total_h2_sigma_thresh <- 7
 traits_with_satisfactory_heritaility <- unique(log_files$gwas[log_files$h2 / log_files$h2se > total_h2_sigma_thresh])
 
 #do the gcor
-ldsc_directory <- "~/repos/ldsc/"
+ldsc_directory <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/"
 
 #let's get the gwas summary stats into a format that munge_sumstats.py can process
 traitnames <- traits_with_satisfactory_heritaility
@@ -410,7 +410,7 @@ text(labels = latex2exp::TeX(paste0("$10^{", round(seq(minrangeh2medoh2[1], minr
 text(x = mean(c(xl, xr)) + 2.5, y = yb + ydisp + 0.25, labels = latex2exp::TeX("$h^{2}_{mediated}$ / $h^{2}_{SNP}$"), pos = 1, cex = 0.751, font = 2)
 
 #now do the tissue transcriptome correlation matrix
-zcor = as.matrix(read.table("~/data/smontgom/zcor_transcriptome_pass1b.tsv"))
+zcor = as.matrix(read.table("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/zcor_transcriptome_pass1b.tsv"))
 col_df = data.frame(row.names=rownames(zcor))
 col_df$Tissue = gsub('_.*','',rownames(col_df))
 col_df$Time = sapply(rownames(col_df), function(x) unname(unlist(strsplit(x, '_')))[3])
@@ -791,10 +791,10 @@ dev.off()
 if(!exists("called_grex_script")){called_grex_script <- F}
 if(!called_grex_script){
   called_grex_script <- T
-  source("~/repos/MoTrPAC_Complex_Traits/fig2b_GREx_RelativeEffectSize.R")
+  source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/fig2b_GREx_RelativeEffectSize.R")
 }
 if(!exists("relative_expression_data")){
-  load("~/data/smontgom/relative_expression_motrpac_gtex")
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/relative_expression_motrpac_gtex")
 }
 
 
@@ -1019,7 +1019,7 @@ text(labels = latex2exp::TeX(paste0("$10^{", round(seq(minrangeh2medoh2[1], minr
 text(x = mean(c(xl, xr)) + 2.5, y = yb + ydisp + 0.25, labels = latex2exp::TeX("$h^{2}_{mediated}$ / $h^{2}_{SNP}$"), pos = 1, cex = 0.751, font = 2)
 
 #now do the tissue transcriptome correlation matrix
-zcor = as.matrix(read.table("~/data/smontgom/zcor_transcriptome_pass1b.tsv"))
+zcor = as.matrix(read.table("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/zcor_transcriptome_pass1b.tsv"))
 col_df = data.frame(row.names=rownames(zcor))
 col_df$Tissue = gsub('_.*','',rownames(col_df))
 col_df$Time = sapply(rownames(col_df), function(x) unname(unlist(strsplit(x, '_')))[3])
@@ -1452,8 +1452,8 @@ box("plot")
 
 #invgamma hyperpriors
 x_var <- 1:500/1000
-load("~/data/smontgom/GREx_sds_expression")
-load("~/data/smontgom/GREx_invgamma_estimate")
+load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/GREx_sds_expression")
+load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/GREx_invgamma_estimate")
 var_dens <- sapply(invgamma_estimates, function(invgamma_estimate)
   dinvgamma(x_var, shape = invgamma_estimate[1], scale = invgamma_estimate[2]))
 colnames(var_dens) <- names(invgamma_estimates)
@@ -1548,7 +1548,7 @@ for(sex_i in c("male", "female")){
 
 #node intersects plot
 par(mar = c(4,5,4,1), xpd = NA)
-load("~/data/smontgom/node_metadata_list.RData")
+load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/node_metadata_list.RData")
 ensembl_genes <- orig_ensembl_genes <- lapply(split(node_metadata_list$`8w`$human_ensembl_gene[!is.na(node_metadata_list$`8w`$human_ensembl_gene)], 
                                                     node_metadata_list$`8w`$tissue[!is.na(node_metadata_list$`8w`$human_ensembl_gene)]), unique)
 symbol_map <- unique(node_metadata_list$`8w`[,c("human_gene_symbol", "human_ensembl_gene")])
@@ -1646,7 +1646,7 @@ text(x = xr + (0.375 + 1 / xyrat) / nrow(jacmat) * (xr - xl), y = yb - (yt-yb)/3
 #now do the opentargets curves
 if(!exists("n_traits_above_at_least_1")){
   use_indirect <- F
-  load(paste0("~/data/smontgom/open-targets_tissue-x-disease_", 
+  load(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/open-targets_tissue-x-disease_", 
               ifelse(use_indirect, "indirect", "direct"), 
               "-associations"))
   breakpoints <- 0:100/100
@@ -1737,7 +1737,7 @@ dev.off()
 
 
 #### figure 2: relative expression cdf ####
-load("~/data/smontgom/relative_expression_motrpac_gtex")
+load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/relative_expression_motrpac_gtex")
 nnmap <- as.data.frame(bic_animal_tissue_code[,4:5])
 
 qs2use <- 1:9999/10000
@@ -1875,8 +1875,8 @@ CairoFonts(
 pes <- c(NA,
          NA,
          rep(0.25, 8), 0.125) / 2
-imgsrc <- c("~/repos/MoTrPAC_Complex_Traits/figures/treadmill_rat.png",
-            "~/repos/MoTrPAC_Complex_Traits/figures/motrpac_human.png")
+imgsrc <- c("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/treadmill_rat.png",
+            "/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/motrpac_human.png")
 
 # flowchart edge parameters
 edges <- do.call(rbind, list(c(1,2),
@@ -1913,14 +1913,14 @@ prop_head_width <- 2.1 + as.numeric(edges[,1]==1) * 0.1 + as.numeric(edges[,1] %
 if(!exists("called_grex_script")){called_grex_script <- F}
 if(!called_grex_script){
   called_grex_script <- T
-  source("~/repos/MoTrPAC_Complex_Traits/fig2b_GREx_RelativeEffectSize.R")
+  source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/fig2b_GREx_RelativeEffectSize.R")
 }
 if(!exists("relative_expression_data")){
-  load("~/data/smontgom/relative_expression_motrpac_gtex")
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/relative_expression_motrpac_gtex")
 }
 
 # actual plotting
-grDevices::cairo_pdf(filename = paste0("~/repos/MoTrPAC_Complex_Traits/figures/fig2_high-level-overview_redux.pdf"), 
+grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig2_high-level-overview_redux.pdf"), 
                      width = 1350 / 72, height = 1125 / 72 * 1.5, family="Arial Unicode MS", pointsize = 18.5)
 
 layout_mat <- kronecker(rbind(
@@ -2017,7 +2017,7 @@ cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(motrpac_gtex_m
             Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
 cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
 par(mar = c(4,5,4,1), xpd = NA)
-load("~/data/smontgom/node_metadata_list.RData")
+load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/node_metadata_list.RData")
 ensembl_genes <- orig_ensembl_genes <- lapply(split(node_metadata_list$`8w`$human_ensembl_gene[!is.na(node_metadata_list$`8w`$human_ensembl_gene)], 
                                                     node_metadata_list$`8w`$tissue[!is.na(node_metadata_list$`8w`$human_ensembl_gene)]), unique)
 symbol_map <- unique(node_metadata_list$`8w`[,c("human_gene_symbol", "human_ensembl_gene")])
@@ -2115,7 +2115,7 @@ text(x = xr + (0.375 + 1 / xyrat) / nrow(jacmat) * (xr - xl), y = yb - (yt-yb)/3
 #now do the opentargets curves
 if(!exists("n_traits_above_at_least_1")){
   use_indirect <- F
-  load(paste0("~/data/smontgom/open-targets_tissue-x-disease_", 
+  load(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/open-targets_tissue-x-disease_", 
               ifelse(use_indirect, "indirect", "direct"), 
               "-associations"))
   breakpoints <- 0:100/100
@@ -2274,8 +2274,8 @@ box("plot")
 
 #invgamma hyperpriors
 x_var <- 1:500/1000
-load("~/data/smontgom/GREx_sds_expression")
-load("~/data/smontgom/GREx_invgamma_estimate")
+load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/GREx_sds_expression")
+load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/GREx_invgamma_estimate")
 var_dens <- sapply(invgamma_estimates, function(invgamma_estimate)
   dinvgamma(x_var, shape = invgamma_estimate[1], scale = invgamma_estimate[2]))
 colnames(var_dens) <- names(invgamma_estimates)

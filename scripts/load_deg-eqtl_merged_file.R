@@ -38,19 +38,19 @@ tissue_codes = tissue_codes[tissue_codes != '']
 # system("scp nikgvetr@smsh11dsu-srcf-d15-38.scg.stanford.edu:/oak/stanford/groups/smontgom/shared/motrpac/mawg_data/pass1b-06/transcript-rna-seq/mapping/pass1b-06_transcript-rna-seq_feature-mapping_20201002.txt /Users/nikolai/data/smontgom/")
 
 GTEx_logo <- readJPEG("~/Documents/Documents - nikolai/GTEx_logo.jpg")
-eqtl = '~/data/smontgom/GTEx_Analysis_v8_eQTL'
+eqtl = '/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/GTEx_Analysis_v8_eQTL'
 #deg = 'gs://mawg-data/pass1b-06/transcript-rna-seq/dea/'
-deg = '~/data/smontgom/dea/'
+deg = '/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/dea/'
 #map = dl_read_gcp('gs://mawg-data/pass1b-06/transcript-rna-seq/mapping/pass1b-06_transcript-rna-seq_feature-mapping_20201002.txt', sep='\t')
-# map = fread('~/data/smontgom/pass1b-06_transcript-rna-seq_feature-mapping_20201002.txt', sep='\t', header=T)
-# map = fread('~/data/smontgom/pass1b-06_transcript-rna-seq_feature-mapping_20210721.txt', sep='\t', header=T)
-gene_map <- fread("~/data/smontgom/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
+# map = fread('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/pass1b-06_transcript-rna-seq_feature-mapping_20201002.txt', sep='\t', header=T)
+# map = fread('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/pass1b-06_transcript-rna-seq_feature-mapping_20210721.txt', sep='\t', header=T)
+gene_map <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")
 gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID <- gsub(gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID, pattern = "\\..*", replacement = "")
 map <- unique(gene_map[,c("RAT_ENSEMBL_ID", "HUMAN_ORTHOLOG_ENSEMBL_ID", "HUMAN_ORTHOLOG_SYMBOL")])
 colnames(map) <- c("feature_ID", "human_ensembl_gene", "human_gene_symbol")
 
-gwas = '~/data/smontgom/imputed_gwas_hg38_1.1'
-coloc = '~/data/smontgom/results_enloc_priors'
+gwas = '/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/imputed_gwas_hg38_1.1'
+coloc = '/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/results_enloc_priors'
 
 motrpac_gtex_map = c('t30-blood-rna'='Whole_Blood',
                      't52-hippocampus'='Brain_Hippocampus',
@@ -99,14 +99,14 @@ motrpac_gtex_map = c('t30-blood-rna'='Whole_Blood',
 #                timewise_dea = timewise_dea)
 # save(rna_dea, file='/oak/stanford/groups/smontgom/shared/motrpac/shared_rdata/rna_dea_20210114.RData')
 
-if(!file.exists("~/data/smontgom/rna_dea_20210114.RData")){
+if(!file.exists("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/rna_dea_20210114.RData")){
   system("scp nikgvetr@smsh11dsu-srcf-d15-38.scg.stanford.edu:/oak/stanford/groups/smontgom/shared/motrpac/shared_rdata/rna_dea_20210114.RData /Users/nikolai/data/smontgom/",
          show.output.on.console = TRUE)
 }
 
 if(!exists("rna_dea")){
-  load('~/data/smontgom/rna_dea_20210114.RData')
-  load('~/data/smontgom/dea/transcript_rna_seq_20210804.RData')
+  load('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/rna_dea_20210114.RData')
+  load('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/dea/transcript_rna_seq_20210804.RData')
   rna_dea$training_dea <- as.data.table(transcript_rna_seq$training_dea)
   rna_dea$timewise_dea <- as.data.table(transcript_rna_seq$timewise_dea)
   rm(transcript_rna_seq)
@@ -156,7 +156,7 @@ if(!exists("deg_eqtl_list")){
 }
 
 # gene_ID_map <- unique.data.frame(as.data.frame(do.call(rbind, deg_eqtl_list)[,c("feature_ID","human_ensembl_gene")]))
-# write.table(gene_ID_map, file = "~/data/smontgom/motrpac_geneID_map.txt", col.names = T)
+# write.table(gene_ID_map, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/motrpac_geneID_map.txt", col.names = T)
 # deg_eqtl_list[["t68-liver"]]
 # for(i in 1:length(names(motrpac_gtex_map))){
 #   print(nrow(deg_eqtl_list[[names(motrpac_gtex_map)[i]]]))

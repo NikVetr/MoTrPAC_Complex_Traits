@@ -14,13 +14,13 @@ library(MotrpacRatTraining6mo) # v1.6.0
 
 
 #dload data
-ot_dir <- "~/data/smontgom/opentargets/"
+ot_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/opentargets/"
 desired_folders <- c("associationByOverallIndirect", "associationByOverallDirect", "evidence", "targets", "diseases")
 desired_types <- c("parquet", "json")
 for(dt in desired_types){
   for(df in desired_folders){
     if(!dir.exists(paste0(ot_dir, dt, "/", df, "/"))){
-      system(paste0("cd ~/data/smontgom/opentargets/", dt, "; ",
+      system(paste0("cd /Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/opentargets/", dt, "; ",
                     "wget --recursive --no-parent --no-host-directories --cut-dirs 8 ", 
                     "ftp://ftp.ebi.ac.uk/pub/databases/opentargets/platform/22.04/output/etl/", dt, "/", df))
     }  
@@ -28,7 +28,7 @@ for(dt in desired_types){
 }
 
 #snag DE genesets
-load("~/data/smontgom/node_metadata_list.RData")
+load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/node_metadata_list.RData")
 ensembl_genes <- orig_ensembl_genes <- lapply(split(node_metadata_list$`8w`$human_ensembl_gene[!is.na(node_metadata_list$`8w`$human_ensembl_gene)], 
                        node_metadata_list$`8w`$tissue[!is.na(node_metadata_list$`8w`$human_ensembl_gene)]), unique)
 symbol_map <- unique(node_metadata_list$`8w`[,c("human_gene_symbol", "human_ensembl_gene")])
@@ -52,8 +52,8 @@ for(fileset in names(files)){
   }
 }
 
-overall_associations <- fread("~/data/smontgom/opentargets/associationByOverallIndirect.csv")
-direct_associations <- fread("~/data/smontgom/opentargets/associationByOverallDirect.csv")
+overall_associations <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/opentargets/associationByOverallIndirect.csv")
+direct_associations <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/opentargets/associationByOverallDirect.csv")
 
 use_indirect <- F
 if(use_indirect){
@@ -68,9 +68,9 @@ associations_to_use <- split(associations_to_use, associations_to_use$targetId)
 ## path to ClinVar (EVA) evidence dataset 
 ## directory stored on your local machine
 #from tutorials https://platform-docs.opentargets.org/data-access/datasets#accessing-and-querying-datasets and https://therinspark.com/starting.html
-evidencePath <- "~/data/smontgom/opentargets/parquet/evidence/sourceId=eva"
-indAssPath <- "~/data/smontgom/opentargets/parquet/associationByOverallIndirect/"
-diseasePath <- "~/data/smontgom/opentargets/parquet/diseases/"
+evidencePath <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/opentargets/parquet/evidence/sourceId=eva"
+indAssPath <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/opentargets/parquet/associationByOverallIndirect/"
+diseasePath <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/opentargets/parquet/diseases/"
 
 ## establish connection
 Sys.setenv(JAVA_HOME="/Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home")
@@ -122,7 +122,7 @@ tissue_x_disease <- lapply(setNames(names(ensembl_genes),names(ensembl_genes)), 
   dismat
 })
 
-save(tissue_x_disease, file = paste0("~/data/smontgom/open-targets_tissue-x-disease_", 
+save(tissue_x_disease, file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/open-targets_tissue-x-disease_", 
                                        ifelse(use_indirect, "indirect", "direct"), 
                                        "-associations"))
 
@@ -398,7 +398,7 @@ sumdf$ensembl_ID <- sumdf$gene
 sumdf$gene <- symbol_map$human_gene_symbol[match(sumdf$ensembl_ID, symbol_map$human_ensembl_gene)]
 
 sumdf <- sumdf[with(sumdf, order(n_tissue, indirect_association.score, decreasing = T)),]
-fwrite(sumdf, file = "~/data/smontgom/OpenTargets_MoTrPAC_Top_Associations.csv", sep = ",", col.names = T)
+fwrite(sumdf, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/OpenTargets_MoTrPAC_Top_Associations.csv", sep = ",", col.names = T)
 
 #subset table to just those genes that passed evidence threshold
 thresh <- 0.8
@@ -484,7 +484,7 @@ paste0(sumdf$direct_association.diseaseId, " ~ ", sumdf$ensembl_ID) %in%
 paste0(passing_gene_x_trait$trait, " ~ ", passing_gene_x_trait$gene) %in% 
   paste0(sumdf$direct_association.diseaseId, " ~ ", sumdf$ensembl_ID)
 
-fwrite(sumdf, file = "~/repos/MoTrPAC_Complex_Traits/supplemental_files/OpenTargets_MoTrPAC_80%Up_Associations.csv", sep = ",", col.names = T)
+fwrite(sumdf, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/supplemental_files/OpenTargets_MoTrPAC_80%Up_Associations.csv", sep = ",", col.names = T)
 
 #exclude easy tissues from this table
 easy_tissues <- c("BAT", "BLOOD", "SKM-GN", 'SKM-VL', 'WAT-SC')
@@ -515,14 +515,14 @@ length(uniquely_hard_traits)
 paste0(unique(just_hard_sumdf$gene), collapse = ", ")
 
 #write to file
-fwrite(hard_sumdf, file = "~/repos/MoTrPAC_Complex_Traits/supplemental_files/OpenTargets_MoTrPAC_80%Up_Associations_InaccessibleTissues.csv", 
+fwrite(hard_sumdf, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/supplemental_files/OpenTargets_MoTrPAC_80%Up_Associations_InaccessibleTissues.csv", 
        sep = ",", col.names = T)
-fwrite(uniquely_hard_sumdf, file = "~/repos/MoTrPAC_Complex_Traits/supplemental_files/OpenTargets_MoTrPAC_80%Up_Associations_InaccessibleTissues_Unique.csv", 
+fwrite(uniquely_hard_sumdf, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/supplemental_files/OpenTargets_MoTrPAC_80%Up_Associations_InaccessibleTissues_Unique.csv", 
        sep = ",", col.names = T)
 
 #create large excel workbook
 library(xlsx)
-supp_files_dir <- "~/repos/MoTrPAC_Complex_Traits/supplemental_files/"
+supp_files_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/supplemental_files/"
 xlsx::write.xlsx(sumdf, file=paste0(supp_files_dir, "OpenTargets_MoTrPAC_80%Up_Associations.xlsx"), 
                  sheetName="all", row.names=FALSE)
 xlsx::write.xlsx(hard_sumdf, file=paste0(supp_files_dir, "OpenTargets_MoTrPAC_80%Up_Associations.xlsx"), 
@@ -531,7 +531,7 @@ xlsx::write.xlsx(uniquely_hard_sumdf, file=paste0(supp_files_dir, "OpenTargets_M
                  sheetName="unique_traits_inaccessible_tissues", row.names=FALSE, append=T)
 
 #contrast with relative DE values
-relative_DE_results <- fread(file = "~/repos/MoTrPAC_Complex_Traits/supplemental_files/relative_effects_twas_integrated_results.csv")
+relative_DE_results <- fread(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/supplemental_files/relative_effects_twas_integrated_results.csv")
 table(relative_DE_results$tissue[relative_DE_results$male.phenotypic_expression_Z > 2 | relative_DE_results$female.phenotypic_expression_Z > 2])
 
 

@@ -109,8 +109,8 @@ if(run_sds_estimation){
     tissue_filename_keyword <- gsub(" ", "_", gsub(" - ", "_", motrpac_gtex_map[tissue]))
     
     #read in new and old expression files
-    d <- fread(file = paste0("/Volumes/SSD500GB/gtex-pipeline/log2-normalized-expression/log2-normalized-expression_",tissue,".expression.bed.gz"))
-    d_orig_genes <- gsub('\\..*','',fread(file = paste0("/Volumes/SSD500GB/gtex-pipeline/GTEx_Analysis_v8_eQTL_expression_matrices/",
+    d <- fread(file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/gtex-pipeline/log2-normalized-expression/log2-normalized-expression_",tissue,".expression.bed.gz"))
+    d_orig_genes <- gsub('\\..*','',fread(file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/gtex-pipeline/GTEx_Analysis_v8_eQTL_expression_matrices/",
                                                         tissue_filename_keyword,".v8.normalized_expression.bed.gz"))$gene_id)
     d$gene_id <- gsub('\\..*','',d$gene_id)
     d <- d[d$gene_id %in% d_orig_genes,]
@@ -121,7 +121,7 @@ if(run_sds_estimation){
     n_peer_factors_to_use <- n_peer_factors$n_factors[sum(n_peer_factors$N <= n_indiv)]
     
     #read in covariates and subset to the correct # of peer factors
-    covariates <- as.data.frame(fread(file = paste0("/Volumes/SSD500GB/gtex-pipeline/GTEx_Analysis_v8_eQTL_covariates/", tissue_filename_keyword,".v8.covariates.txt")))
+    covariates <- as.data.frame(fread(file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/gtex-pipeline/GTEx_Analysis_v8_eQTL_covariates/", tissue_filename_keyword,".v8.covariates.txt")))
     covariates_to_include <- match(setdiff(covariates$ID, covariates$ID[grep("Inferr", covariates$ID)][-(1:n_peer_factors_to_use)]), covariates$ID)
     covariates <- covariates[covariates_to_include,]
     
@@ -132,10 +132,10 @@ if(run_sds_estimation){
     }, mc.cores = 12))
     colnames(d_resid) <- colnames(d)[expr_cols]
     
-    # ec <- fread(file = paste0("~/repos/gtex-pipeline/expression_data/GTEx_Analysis_v8_",tissue,"_expected_count.gct.gz"))
+    # ec <- fread(file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/gtex-pipeline/expression_data/GTEx_Analysis_v8_",tissue,"_expected_count.gct.gz"))
     # ec$gene_id <- gsub('\\..*','',ec$gene_id)
     # 
-    # tpm <- fread(file = paste0("~/repos/gtex-pipeline/expression_data/GTEx_Analysis_v8_",tissue,"_tpm.gct.gz"))
+    # tpm <- fread(file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/gtex-pipeline/expression_data/GTEx_Analysis_v8_",tissue,"_tpm.gct.gz"))
     # tpm$gene_id <- gsub('\\..*','',tpm$gene_id)
     # 
     # diff(as.integer(sapply(colnames(d), function(name) grep(name, colnames(ec)))))
@@ -213,11 +213,11 @@ if(run_sds_estimation){
     sds_expression[[tissue]] <- posterior_mean_sds
   }
   
-  save(x = sds_expression, file = "~/data/smontgom/GREx_sds_expression")
-  save(x = invgamma_estimates, file = "~/data/smontgom/GREx_invgamma_estimate")
+  save(x = sds_expression, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/GREx_sds_expression")
+  save(x = invgamma_estimates, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/GREx_invgamma_estimate")
 } else {
-  load("~/data/smontgom/GREx_sds_expression")
-  load("~/data/smontgom/GREx_invgamma_estimate")
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/GREx_sds_expression")
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/GREx_invgamma_estimate")
 }
 
 
@@ -229,7 +229,7 @@ if(run_sds_estimation){
 # rownames(sds_expression) <- tissues
 
 
-GTEx_SampleSize <- read.csv("~/data/smontgom/GTEx_SampleSizes.csv", header = T)
+GTEx_SampleSize <- read.csv("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/GTEx_SampleSizes.csv", header = T)
 colnames(GTEx_SampleSize) <- gsub("X..", "", colnames(GTEx_SampleSize))
 GTEx_SampleSize <- data.frame(tissue = names(motrpac_gtex_map), sample_size = GTEx_SampleSize$RNASeq.and.Genotyped.samples[match(motrpac_gtex_map, GTEx_SampleSize$Tissue)])
 # dev.off()
@@ -237,7 +237,7 @@ GTEx_SampleSize <- data.frame(tissue = names(motrpac_gtex_map), sample_size = GT
 
 
 #### process GWAS ####
-ldsc_directory <- "~/repos/ldsc/"
+ldsc_directory <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ldsc/"
 
 process_GWASy_sumstats <- F
 if(process_GWASy_sumstats){
@@ -251,9 +251,9 @@ if(process_GWASy_sumstats){
       cat(paste0(" ", cri))
       if(!dir.exists(paste0(ldsc_directory, "/GTEx_v8_log2norm_sumstats/", tissue, "/", cri))){dir.create(paste0(ldsc_directory, "/GTEx_v8_log2norm_sumstats/", tissue, "/", cri))}
       
-      RSID_POS_MAP <- fread(paste0("~/data/smontgom/RSID_POS_MAP_",cri,".txt"))
+      RSID_POS_MAP <- fread(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/RSID_POS_MAP_",cri,".txt"))
       
-      eQTL_sumstats <- read_parquet(paste0("~/repos/gtex-pipeline/tensorQTL_output/log2-normalized-expression_", tissue,".cis_qtl_pairs.chr", cri, ".parquet"))
+      eQTL_sumstats <- read_parquet(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/gtex-pipeline/tensorQTL_output/log2-normalized-expression_", tissue,".cis_qtl_pairs.chr", cri, ".parquet"))
       eQTL_sumstats$ENSG <- gsub('\\..*','',eQTL_sumstats$phenotype_id)
       
       vids <- eQTL_sumstats$variant_id
@@ -286,7 +286,7 @@ if(process_GWASy_sumstats){
 
 #compare to heritability estimates from https://github.com/WheelerLab/GenArchDB
 library(data.table)
-h2dir <- "~/repos/GenArchDB/GenArch_reml-no-constrain_h2/"
+h2dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/GenArchDB/GenArch_reml-no-constrain_h2/"
 h2_files <- list.files(h2dir)
 h2_files <- h2_files[intersect(grep("GTEx", h2_files), grep(".TS.", h2_files))]
 h2_tissue_to_file <- sapply(motrpac_gtex_map, function(tissue) h2_files[intersect_rec(sapply(strsplit(tissue, "_")[[1]], function(x) grep(x, h2_files)))][1])
@@ -295,8 +295,8 @@ h2 <- fread(paste0(h2dir, h2_tissue_to_file[tissue]))
 h2$gene_id <- gsub('\\..*','',h2$ensid)
 
 #compare to gcta heritability estimates
-gcta_directory <- "/Volumes/SSD500GB/gcta_1.93.2beta_mac/"
-gcta_directory <- "~/repos/gcta_1.93.2beta_mac/"
+gcta_directory <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/gcta_1.93.2beta_mac/"
+gcta_directory <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/gcta_1.93.2beta_mac/"
 load(paste0(gcta_directory, "gcta_output_GTEx_allTissues.RData")) #gcta_output
 
 do_EDA <- F
@@ -371,12 +371,12 @@ for(tissue in tissues){
   #      sqrt(gcta_output[[tissue]]$h2[match(deg_eqtl_list[[tissue]]$human_ensembl_gene, gcta_output[[tissue]]$ENSG)] + 
   #             2 * gcta_output[[tissue]]$SE[match(deg_eqtl_list[[tissue]]$human_ensembl_gene, gcta_output[[tissue]]$ENSG)]))
 }
-save(deg_eqtl_list, file = "~/data/smontgom/relative_effect_sizes_deg_eqtl_list.RData")
-load("~/data/smontgom/relative_effect_sizes_deg_eqtl_list.RData")
+save(deg_eqtl_list, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/relative_effect_sizes_deg_eqtl_list.RData")
+load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/relative_effect_sizes_deg_eqtl_list.RData")
 
 #remove unexpressed genes
 # where either "reference_average_intensity" or "comparison_timewise_intensity" in the timewise-dea tables is 0
-# load('~/data/smontgom/dea/transcript_rna_seq_20210804.RData')
+# load('/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/dea/transcript_rna_seq_20210804.RData')
 # sum(transcript_rna_seq$timewise_dea$reference_average_intensity == 0 | transcript_rna_seq$timewise_dea$comparison_average_intensity == 0)
 # bad_genes <- transcript_rna_seq$timewise_dea[transcript_rna_seq$timewise_dea$reference_average_intensity == 0 | 
 #                                              transcript_rna_seq$timewise_dea$comparison_average_intensity == 0,
@@ -395,7 +395,7 @@ EZ_PZ <- lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti
     probs = qs2use, na.rm = T)))
 
 
-load(file = "~/data/smontgom/node_metadata_list.RData")
+load(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/node_metadata_list.RData")
 abs.min <- function(x) x[which.min(abs(x))]
 relative_expression_data <- 
   lapply(setNames(c("male", "female"),c("male", "female")), function(sex_i) list(
@@ -454,7 +454,7 @@ relative_expression_data <-
       }))
     
   ))
-save(file = "~/data/smontgom/relative_expression_motrpac_gtex", relative_expression_data)
+save(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/relative_expression_motrpac_gtex", relative_expression_data)
 
 
 #get sumstats for paper
@@ -505,7 +505,7 @@ range(relative_expression_count$genetic_expression_sexhomo_max_both_effects$`8w`
 
 #### just the plotting ####
 
-load("~/data/smontgom/relative_expression_motrpac_gtex")
+load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/relative_expression_motrpac_gtex")
 
 EZ_PZ <- relative_expression_data[["male"]][[1]]
 
@@ -815,17 +815,17 @@ dev.off()
 #### make supplementary table for relative expression data ####
 
 if(!exists("deg_eqtl_list") | any(!sapply(deg_eqtl_list, function(x) "phenotypic_expression_Z" %in% names(x)))){
-  load("~/data/smontgom/relative_effect_sizes_deg_eqtl_list.RData")
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/relative_effect_sizes_deg_eqtl_list.RData")
   names(deg_eqtl_list) <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[names(deg_eqtl_list)]
 }
 
-load(file = "~/data/smontgom/node_metadata_list.RData")
+load(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/node_metadata_list.RData")
 node_metadata_list <- split(node_metadata_list$`8w`, node_metadata_list$`8w`$tissue)
 
 twas_alpha <- 0.05
 if(!exists("twas_list")){
-  load("~/data/smontgom/ihw_results_all.twas.RData")
-  load("~/data/smontgom/PrediXcan_output_all.twas.RData")
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ihw_results_all.twas.RData")
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/PrediXcan_output_all.twas.RData")
   ihw_pvals <- IHW::adj_pvalues(ihw_results)
   some.twas$adj_pvalue <- ihw_pvals
   some.twas$tissue <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[some.twas$tissue]
@@ -872,7 +872,7 @@ integrated_results <- do.call(rbind, lapply(intersect(names(twas_list), names(de
 
 }))
 
-fwrite(integrated_results, file = "~/repos/MoTrPAC_Complex_Traits/supplemental_files/relative_effects_twas_integrated_results.csv", sep = ",", col.names = T)
+fwrite(integrated_results, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/supplemental_files/relative_effects_twas_integrated_results.csv", sep = ",", col.names = T)
 plot(integrated_results$male.phenotypic_expression_Z, integrated_results$num_twas_hits)
 plot(integrated_results$female.phenotypic_expression_Z, integrated_results$num_twas_hits)
 plot(integrated_results$male.phenotypic_expression_Z, integrated_results$female.phenotypic_expression_Z,
@@ -951,4 +951,4 @@ relative_expression_data <-
       }))
     
   ))
-save(file = "~/data/smontgom/relative_expression_motrpac_gtex", relative_expression_data)
+save(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/relative_expression_motrpac_gtex", relative_expression_data)
