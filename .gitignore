@@ -1,2 +1,4 @@
 **.DS_Store
 data/external/
+data/external/mcmc_output/
+mcmc_output/
