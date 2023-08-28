@@ -676,206 +676,14 @@ plot(log10(d$cell_count / d$row_count), log10((d$col_count - d$cell_count) / (d$
 data_subset[order(d$cell_count / d$row_count, decreasing = T),]
 
 
-# base = paste0("deviation_from_expected_logodds_split_the_difference", ifelse(use_random_DE_genes, "_randomgenes", ""))
+# base = paste0("deviation_from_expected_logodds_split_the_difference_2", ifelse(use_random_DE_genes, "_randomgenes", ""))
 # stan_program <- '
-# data {
-#     int<lower=1> row_n;
-#     int<lower=1> col_n;
-#     int<lower=1> colcat_n;
-#     int<lower=0> total[row_n * col_n];
-#     int<lower=1,upper=row_n> row_index[row_n * col_n];
-#     int<lower=1,upper=col_n> col_index[row_n * col_n];
-#     int<lower=1,upper=colcat_n> colcat_index[col_n];
-#     int<lower=0> row_count[row_n * col_n];
-#     int<lower=0> col_count[row_n * col_n];
-#     int<lower=0> cell_count[row_n * col_n];
-# }
-# transformed data {
-#     int<lower=1> n = row_n * col_n;
-#     int<lower=0> cell_count_compl[n];
-#     int<lower=0> row_count_compl[n];
-#     for(i in 1:n){
-#       cell_count_compl[i] = col_count[i] - cell_count[i];
-#       row_count_compl[i] = total[i] - row_count[i];
-#     }
-# }
-# parameters {
-#     //col params
-#     real col_mean;
-#     real<lower=0> col_sd;
-#     vector[colcat_n] raw_colcat_logodds;
-#     real<lower=0> colcat_sd;
-#     vector[col_n] raw_col_logodds;
-#     real<lower=0> cell_sd;
-#     vector[n] raw_cell_logodds;
-# 
-#     //biases in deviations terms
-#     real overall_bias;
-#     vector[row_n] raw_row_bias;
-#     vector[col_n] raw_col_bias;
-#     vector[colcat_n] raw_colcat_bias;
-#     vector[n] raw_cell_bias;
-#     real<lower=0> row_bias_sd;
-#     real<lower=0> col_bias_sd;
-#     real<lower=0> colcat_bias_sd;
-#     real<lower=0> cell_bias_sd;
-# }
-# transformed parameters {
-#     //recenter params
-#     vector[colcat_n] colcat_logodds = raw_colcat_logodds * colcat_sd + col_mean;
-#     vector[col_n] col_logodds = raw_col_logodds * col_sd + colcat_logodds[colcat_index];
-#     vector[n] cell_logodds = raw_cell_logodds * cell_sd + col_logodds[col_index];
-# 
-#     //incorporate bias
-#     vector[colcat_n] colcat_bias = raw_colcat_bias * colcat_bias_sd;
-#     vector[col_n] col_bias = raw_col_bias * col_bias_sd + colcat_bias[colcat_index];
-#     vector[row_n] row_bias = raw_row_bias * row_bias_sd;
-#     vector[n] cell_bias = raw_cell_bias * cell_bias_sd;
-#     vector[n] cell_logodds_focal = cell_logodds +
-#               (overall_bias + row_bias[row_index] + col_bias[col_index] + cell_bias) / 2;
-#     vector[n] cell_logodds_compl = cell_logodds -
-#               (overall_bias + row_bias[row_index] + col_bias[col_index] + cell_bias) / 2;
-# }
-# model {
-#     //priors and hyperpriors
-# 
-#     //marginal params
-#     col_mean ~ normal(0,2);
-#     col_sd ~ std_normal();
-#     raw_colcat_logodds ~ std_normal();
-#     colcat_sd ~ std_normal();
-#     raw_col_logodds ~ std_normal();
-#     raw_cell_logodds ~ std_normal();
-#     cell_sd ~ std_normal();
-# 
-#     //bias params
-#     overall_bias ~ std_normal();
-# 
-#     raw_colcat_bias ~ std_normal();
-#     colcat_bias_sd ~ std_normal();
-# 
-#     raw_col_bias ~ std_normal();
-#     col_bias_sd ~ std_normal();
-# 
-#     raw_row_bias ~ std_normal();
-#     row_bias_sd ~ std_normal();
-# 
-#     raw_cell_bias ~ std_normal();
-#     cell_bias_sd ~ std_normal();
-# 
-#     //likelihood
-#     cell_count ~ binomial_logit(row_count, cell_logodds_focal);
-#     cell_count_compl ~ binomial_logit(row_count_compl, cell_logodds_compl);
-# 
-# }
-# generated quantities {
-#     vector[n] cell_total_prob_bias = inv_logit(cell_logodds_focal) - inv_logit(cell_logodds_compl);
-# }
+
 # '
 
 # base = paste0("deviation_from_expected_logodds_split_the_difference_MVN_priors", ifelse(use_random_DE_genes, "_randomgenes", ""))
 # stan_program <- '
-# data {
-#     int<lower=1> row_n;
-#     int<lower=1> col_n;
-#     int<lower=1> colcat_n;
-#     int<lower=0> total[row_n * col_n];
-#     int<lower=1,upper=row_n> row_index[row_n * col_n];
-#     int<lower=1,upper=col_n> col_index[row_n * col_n];
-#     int<lower=1,upper=colcat_n> colcat_index[col_n];
-#     int<lower=0> row_count[row_n * col_n];
-#     int<lower=0> col_count[row_n * col_n];
-#     int<lower=0> cell_count[row_n * col_n];
-# }
-# transformed data {
-#     int<lower=1> n = row_n * col_n;
-#     int<lower=0> cell_count_compl[n];
-#     int<lower=0> row_count_compl[n];
-#     for(i in 1:n){
-#       cell_count_compl[i] = col_count[i] - cell_count[i];
-#       row_count_compl[i] = total[i] - row_count[i];
-#     }
-# }
-# parameters {
-#     //col params
-#     real col_mean;
-#     real<lower=0> col_sd;
-#     vector[colcat_n] raw_colcat_logodds;
-#     real<lower=0> colcat_sd;
-#     vector[col_n] raw_col_logodds;
-#     real<lower=0> cell_sd;
-#     vector[n] raw_cell_logodds;
-# 
-#     //biases in deviations terms
-#     real overall_bias;
-#     vector[row_n] raw_row_bias;
-#     vector[col_n] raw_col_bias;
-#     vector[colcat_n] raw_colcat_bias;
-#     vector[n] raw_cell_bias;
-#     real<lower=0> row_bias_sd;
-#     real<lower=0> col_bias_sd;
-#     real<lower=0> colcat_bias_sd;
-#     real<lower=0> cell_bias_sd;
-#     
-#     //correlation params pre-multiply raw bias terms
-#     cholesky_factor_corr[col_n] L_col_bias;
-#     cholesky_factor_corr[row_n] L_row_bias;
-# }
-# transformed parameters {
-#     //recenter params
-#     vector[colcat_n] colcat_logodds = raw_colcat_logodds * colcat_sd + col_mean;
-#     vector[col_n] col_logodds = raw_col_logodds * col_sd + colcat_logodds[colcat_index];
-#     vector[n] cell_logodds = raw_cell_logodds * cell_sd + col_logodds[col_index];
-# 
-#     //incorporate bias
-#     vector[colcat_n] colcat_bias = raw_colcat_bias * colcat_bias_sd;
-#     vector[col_n] col_bias = L_col_bias * raw_col_bias * col_bias_sd + colcat_bias[colcat_index];
-#     vector[row_n] row_bias = L_row_bias * raw_row_bias * row_bias_sd;
-#     vector[n] cell_bias = raw_cell_bias * cell_bias_sd;
-#     vector[n] cell_logodds_focal = cell_logodds +
-#               (overall_bias + row_bias[row_index] + col_bias[col_index] + cell_bias) / 2;
-#     vector[n] cell_logodds_compl = cell_logodds -
-#               (overall_bias + row_bias[row_index] + col_bias[col_index] + cell_bias) / 2;
-# }
-# model {
-#     //priors and hyperpriors
-# 
-#     //marginal params
-#     col_mean ~ normal(0,2);
-#     col_sd ~ std_normal();
-#     raw_colcat_logodds ~ std_normal();
-#     colcat_sd ~ std_normal();
-#     raw_col_logodds ~ std_normal();
-#     raw_cell_logodds ~ std_normal();
-#     cell_sd ~ std_normal();
-# 
-#     //bias params
-#     overall_bias ~ std_normal();
-# 
-#     raw_colcat_bias ~ std_normal();
-#     colcat_bias_sd ~ std_normal();
-# 
-#     raw_col_bias ~ std_normal();
-#     col_bias_sd ~ std_normal();
-# 
-#     raw_row_bias ~ std_normal();
-#     row_bias_sd ~ std_normal();
-# 
-#     raw_cell_bias ~ std_normal();
-#     cell_bias_sd ~ std_normal();
-#     
-#     //bias correlation params
-#     L_col_bias ~ lkj_corr_cholesky(1.0);
-#     L_row_bias ~ lkj_corr_cholesky(1.0);
-#     
-#     //likelihood
-#     cell_count ~ binomial_logit(row_count, cell_logodds_focal);
-#     cell_count_compl ~ binomial_logit(row_count_compl, cell_logodds_compl);
-# 
-# }
-# generated quantities {
-#     vector[n] cell_total_prob_bias = inv_logit(cell_logodds_focal) - inv_logit(cell_logodds_compl);
-# }
+
 # '
 
 #data goes tiss1-trait1, tiss2-trait1, tiss3-trait1...
@@ -895,181 +703,11 @@ d <- list(cell_count = data_subset$count,
           L_row = t(chol(tissue_corr_mat[tissues, tissues]))
       )
 
-base = paste0("deviation_from_expected_logodds_split_the_difference_informative-MVN-matrix-normal_priors", ifelse(use_random_DE_genes, "_randomgenes", ""))
-stan_program <- '
-data {
-    int<lower=1> row_n;
-    int<lower=1> col_n;
-    int<lower=1> colcat_n;
-    int<lower=0> total[row_n * col_n];
-    int<lower=1,upper=row_n> row_index[row_n * col_n];
-    int<lower=1,upper=col_n> col_index[row_n * col_n];
-    int<lower=1,upper=colcat_n> colcat_index[col_n];
-    int<lower=0> row_count[row_n * col_n];
-    int<lower=0> col_count[row_n * col_n];
-    int<lower=0> cell_count[row_n * col_n];
-    cholesky_factor_corr[row_n * col_n] L_interaction;
-    cholesky_factor_corr[col_n] L_col;
-    cholesky_factor_corr[row_n] L_row;
-}
-transformed data {
-    int<lower=1> n = row_n * col_n;
-    int<lower=0> cell_count_compl[n];
-    int<lower=0> row_count_compl[n];
-    for(i in 1:n){
-      cell_count_compl[i] = col_count[i] - cell_count[i];
-      row_count_compl[i] = total[i] - row_count[i];
-    }
-}
-parameters {
-    //col params
-    real col_mean;
-    real<lower=0> col_sd;
-    vector[colcat_n] raw_colcat_logodds;
-    real<lower=0> colcat_sd;
-    vector[col_n] raw_col_logodds;
-    real<lower=0> cell_sd;
-    vector[n] raw_cell_logodds;
+stan_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/Stan_models/"
+base = paste0("deviation_from_expected_logodds_split_the_difference_informative-matrix-normal_priors", ifelse(use_random_DE_genes, "_randomgenes", ""))
+stan_program <- paste0(readLines(paste0(stan_dir, base, ".stan")), collapse = "\n")
 
-    //biases in deviations terms
-    real overall_bias;
-    vector[row_n] raw_row_bias;
-    vector[col_n] raw_col_bias;
-    vector[colcat_n] raw_colcat_bias;
-    vector[n] raw_cell_bias;
-    real<lower=0> row_bias_sd;
-    real<lower=0> col_bias_sd;
-    real<lower=0> colcat_bias_sd;
-    real<lower=0> cell_bias_sd;
-}
-transformed parameters {
-    //recenter params
-    vector[colcat_n] colcat_logodds = raw_colcat_logodds * colcat_sd + col_mean;
-    vector[col_n] col_logodds = L_col * raw_col_logodds * col_sd + colcat_logodds[colcat_index];
-    vector[n] cell_logodds = L_interaction * raw_cell_logodds * cell_sd + col_logodds[col_index];
-
-    //incorporate bias
-    vector[colcat_n] colcat_bias = raw_colcat_bias * colcat_bias_sd;
-    vector[col_n] col_bias = L_col * raw_col_bias * col_bias_sd + colcat_bias[colcat_index];
-    vector[row_n] row_bias = L_row * raw_row_bias * row_bias_sd;
-    vector[n] cell_bias = L_interaction * raw_cell_bias * cell_bias_sd;
-    vector[n] cell_logodds_focal = cell_logodds +
-              (overall_bias + row_bias[row_index] + col_bias[col_index] + cell_bias) / 2;
-    vector[n] cell_logodds_compl = cell_logodds -
-              (overall_bias + row_bias[row_index] + col_bias[col_index] + cell_bias) / 2;
-}
-model {
-    //priors and hyperpriors
-
-    //marginal params
-    col_mean ~ normal(0,2);
-    col_sd ~ std_normal();
-    raw_colcat_logodds ~ std_normal();
-    colcat_sd ~ std_normal();
-    raw_col_logodds ~ std_normal();
-    raw_cell_logodds ~ std_normal();
-    cell_sd ~ std_normal();
-
-    //bias params
-    overall_bias ~ std_normal();
-
-    raw_colcat_bias ~ std_normal();
-    colcat_bias_sd ~ std_normal();
-
-    raw_col_bias ~ std_normal();
-    col_bias_sd ~ std_normal();
-
-    raw_row_bias ~ std_normal();
-    row_bias_sd ~ std_normal();
-
-    raw_cell_bias ~ std_normal();
-    cell_bias_sd ~ std_normal();
-    
-    //likelihood
-    cell_count ~ binomial_logit(row_count, cell_logodds_focal);
-    cell_count_compl ~ binomial_logit(row_count_compl, cell_logodds_compl);
-
-}
-generated quantities {
-    vector[n] cell_total_prob_bias = inv_logit(cell_logodds_focal) - inv_logit(cell_logodds_compl);
-}
-'
 # base = paste0("deviation_from_expected_logodds_split_the_difference", ifelse(use_random_DE_genes, "_randomgenes", ""))
-# stan_program <- '
-# data {
-#     int<lower=1> row_n;
-#     int<lower=1> col_n;
-#     int<lower=1> colcat_n;
-#     int<lower=0> total[row_n * col_n];
-#     int<lower=1,upper=row_n> row_index[row_n * col_n];
-#     int<lower=1,upper=col_n> col_index[row_n * col_n];
-#     int<lower=1,upper=colcat_n> colcat_index[col_n];
-#     int<lower=0> row_count[row_n * col_n];
-#     int<lower=0> col_count[row_n * col_n];
-#     int<lower=0> cell_count[row_n * col_n];
-# }
-# transformed data {
-#     int<lower=1> n = row_n * col_n;
-#     int<lower=0> cell_count_compl[n];
-#     int<lower=0> row_count_compl[n];
-#     for(i in 1:n){
-#       cell_count_compl[i] = col_count[i] - cell_count[i];
-#       row_count_compl[i] = total[i] - row_count[i];
-#     }
-# }
-# parameters {
-#     //col params
-#     real col_mean;
-#     real<lower=0> col_sd;
-#     vector[col_n] raw_col_logodds;
-#     real<lower=0> cell_sd;
-#     vector[n] raw_cell_logodds;
-# 
-#     //biases in deviations terms
-#     vector[col_n] raw_col_bias;
-#     vector[n] raw_cell_bias;
-#     real<lower=0> col_bias_sd;
-#     real<lower=0> cell_bias_sd;
-# }
-# transformed parameters {
-#     //recenter params
-#     vector[col_n] col_logodds = raw_col_logodds * col_sd;
-#     vector[n] cell_logodds = raw_cell_logodds * cell_sd + col_logodds[col_index];
-# 
-#     //incorporate bias
-#     vector[col_n] col_bias = raw_col_bias * col_bias_sd;
-#     vector[n] cell_bias = raw_cell_bias * cell_bias_sd;
-#     vector[n] cell_logodds_focal = cell_logodds +
-#               (col_bias[col_index] + cell_bias) / 2;
-#     vector[n] cell_logodds_compl = cell_logodds -
-#               (col_bias[col_index] + cell_bias) / 2;
-# }
-# model {
-#     //priors and hyperpriors
-# 
-#     //marginal params
-#     col_mean ~ normal(0,2);
-#     col_sd ~ std_normal();
-#     raw_col_logodds ~ std_normal();
-#     raw_cell_logodds ~ std_normal();
-#     cell_sd ~ std_normal();
-# 
-#     //bias params
-#     raw_col_bias ~ std_normal();
-#     col_bias_sd ~ std_normal();
-# 
-#     raw_cell_bias ~ std_normal();
-#     cell_bias_sd ~ std_normal();
-# 
-#     //likelihood
-#     cell_count ~ binomial_logit(row_count, cell_logodds_focal);
-#     cell_count_compl ~ binomial_logit(row_count_compl, cell_logodds_compl);
-# 
-# }
-# generated quantities {
-#     vector[n] cell_total_prob_bias = inv_logit(cell_logodds_focal) - inv_logit(cell_logodds_compl);
-# }
-# '
 
 #try the even simpler model out again
 # data_subset <- data1
@@ -1104,70 +742,10 @@ generated quantities {
 # a <- logit(d$cell_count / d$row_count) - logit(d$overall_prob)
 # mean(a[a!=Inf & a!=-Inf])
 # 
+
 # base = paste0("deviation_from_expected_logodds_fixed", ifelse(use_random_DE_genes, "_randomgenes", ""))
 # stan_program <- '
-# data {
-#     int<lower=1> row_n;
-#     int<lower=1> col_n;
-#     int<lower=1> n;
-#     int<lower=1> colcat_n;
-#     int<lower=0> total[n];
-#     int<lower=1,upper=row_n> row_index[n];
-#     int<lower=1,upper=col_n> col_index[n];
-#     int<lower=1,upper=colcat_n> colcat_index[col_n];
-#     int<lower=0> row_count[n];
-#     int<lower=0> col_count[n];
-#     int<lower=0> cell_count[n];
-#     vector<lower=0, upper=1>[n] overall_prob;
-# }
-# transformed data {
-#     vector[n] overall_logodds = logit(overall_prob);
-# }
-# parameters {
-#     //biases in deviations terms
-#     real overall_bias;
-#     vector[row_n] raw_row_bias;
-#     vector[col_n] raw_col_bias;
-#     vector[colcat_n] raw_colcat_bias;
-#     vector[n] raw_cell_bias;
-#     real<lower=0> row_bias_sd;
-#     real<lower=0> col_bias_sd;
-#     real<lower=0> colcat_bias_sd;
-#     real<lower=0> cell_bias_sd;
-# }
-# transformed parameters {
-#     //incorporate bias
-#     vector[colcat_n] colcat_bias = raw_colcat_bias * colcat_bias_sd;
-#     vector[col_n] col_bias = raw_col_bias * col_bias_sd + colcat_bias[colcat_index];
-#     vector[row_n] row_bias = raw_row_bias * row_bias_sd;
-#     vector[n] cell_bias = raw_cell_bias * cell_bias_sd;
-#     
-#     //add to expected logodds w/ no bias
-#     vector[n] cell_logodds = overall_logodds + overall_bias + row_bias[row_index] + col_bias[col_index] + cell_bias;
-# }
-# model {
-#     //bias params
-#     overall_bias ~ std_normal();
-#     
-#     raw_colcat_bias ~ std_normal();
-#     colcat_bias_sd ~ std_normal();
-#     
-#     raw_col_bias ~ std_normal();
-#     col_bias_sd ~ std_normal();
-#     
-#     raw_row_bias ~ std_normal();
-#     row_bias_sd ~ std_normal();
-#     
-#     raw_cell_bias ~ std_normal();
-#     cell_bias_sd ~ std_normal();
-#     
-#     //likelihood
-#     cell_count ~ binomial_logit(row_count, cell_logodds);
-#     
-# }
-# generated quantities {
-#     vector[n] cell_total_prob_bias = inv_logit(cell_logodds) - overall_prob;
-# }
+
 # '
 
 fit_model <- F
@@ -1181,8 +759,8 @@ if(fit_model){
   mod <- cmdstan_model(f)
   
   #write model
-  write_stan_file(stan_program, dir = "~/Desktop/", basename = paste0(base, ifelse(use_all_cats, "_allCats", "")))
-  write_stan_json(d, paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".json"))
+  write_stan_file(stan_program, dir = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/mcmc_output/", basename = paste0(base, ifelse(use_all_cats, "_allCats", "")))
+  write_stan_json(d, paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/mcmc_output/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".json"))
   
   #fit model
   out <- mod$sample(chains = 4, iter_sampling = 5E3, iter_warmup = 5E3, data = d, parallel_chains = 4, 
@@ -1190,10 +768,10 @@ if(fit_model){
   summ <- out$summary()
   summ[order(summ$ess_bulk),]
   summ[order(summ$rhat, decreasing = T),]
-  save(out, file = paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
-  save(summ, file = paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.summ"))
+  save(out, file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/mcmc_output/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
+  save(summ, file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/mcmc_output/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.summ"))
 } else {
-  load(paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
+  load(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/mcmc_output/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
 }
 
 #NOTE -- MAYBE COMPLEMENTARY SET SHOULD BE SET OF NON-DEGS?
@@ -2457,8 +2035,8 @@ if(fit_model){
   mod <- cmdstan_model(f)
   
   #write model
-  write_stan_file(stan_program, dir = "~/Desktop/", basename = paste0(base, ifelse(use_all_cats, "_allCats", "")))
-  write_stan_json(d, paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".json"))
+  write_stan_file(stan_program, dir = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/mcmc_output/", basename = paste0(base, ifelse(use_all_cats, "_allCats", "")))
+  write_stan_json(d, paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/mcmc_output/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".json"))
   
   #fit model
   out <- mod$sample(chains = 4, iter_sampling = 1E3, iter_warmup = 1E3, data = d, parallel_chains = 4, 
@@ -2467,9 +2045,9 @@ if(fit_model){
   summ <- out$summary()
   summ[order(summ$ess_bulk),]
   summ[order(summ$rhat, decreasing = T),]
-  save(out, file = paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
+  save(out, file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/mcmc_output/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
 } else {
-  load(paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
+  load(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/mcmc_output/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
 }
 
 samps <- data.frame(as_draws_df(out$draws()))
@@ -3741,8 +3319,8 @@ if(fit_model){
   mod <- cmdstan_model(f)
   
   #write model
-  write_stan_file(stan_program, dir = "~/Desktop/", basename = paste0(base, ifelse(use_all_cats, "_allCats", "")))
-  write_stan_json(d, paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".json"))
+  write_stan_file(stan_program, dir = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/mcmc_output/", basename = paste0(base, ifelse(use_all_cats, "_allCats", "")))
+  write_stan_json(d, paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/mcmc_output/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".json"))
   
   #fit model
   out <- mod$sample(chains = 4, iter_sampling = 5E3, iter_warmup = 5E3, data = d, parallel_chains = 4, 
@@ -3750,10 +3328,10 @@ if(fit_model){
   summ <- out$summary()
   summ[order(summ$ess_bulk),]
   summ[order(summ$rhat, decreasing = T),]
-  save(out, file = paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
-  save(summ, file = paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.summ"))
+  save(out, file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/mcmc_output/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
+  save(summ, file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/mcmc_output/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.summ"))
 } else {
-  load(paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
+  load(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/mcmc_output/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
 }
 
 samps <- data.frame(as_draws_df(out$draws()))
@@ -5507,7 +5085,7 @@ dev.off()
 if(base != "deviation_from_expected_logodds_split_the_difference"){
   
   base = "deviation_from_expected_logodds_split_the_difference"
-  load(paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
+  load(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/mcmc_output/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
   
   samps <- data.frame(as_draws_df(out$draws()))
   prop_greater_than_0 <- function(x) mean(x>0)
@@ -6380,7 +5958,7 @@ dev.off()
 if(base != "deviation_from_expected_logodds_split_the_difference_informative-MVN-matrix-normal_priors"){
   
   base = "deviation_from_expected_logodds_split_the_difference_informative-MVN-matrix-normal_priors"
-  load(paste0("~/Desktop/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
+  load(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/mcmc_output/", paste0(base, ifelse(use_all_cats, "_allCats", "")),".cmdStanR.fit"))
   
   samps <- data.frame(as_draws_df(out$draws()))
   prop_greater_than_0 <- function(x) mean(x>0)

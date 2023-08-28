@@ -24,10 +24,10 @@ library(doParallel)
 library(parallel)
 
 #### define functions ####
-source(file = "~/scripts/montgomery_lab/deg-trait_functions.R")
+source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/deg-trait_functions.R")
 
 #### load deg-eqtl data ####
-source(file = "~/scripts/montgomery_lab/load_deg-eqtl_merged_file.R")
+source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/load_deg-eqtl_merged_file.R")
 
 #initialize parallelization
 foreach_parallel <- F
@@ -325,14 +325,21 @@ do_ihw <- F
 if(do_ihw){
   load(paste0(gcta_directory, "gcta_output_GTEx_allTissues.RData")) #gcta_output
   gcta_output_df <- do.call(rbind, gcta_output)
+  gcta_output_df <- gcta_output_df[!(gcta_output_df$tissue %in% c("t64-ovaries", "t63-testes")),]
   gcta_output_df$tissue <- as.factor(gcta_output_df$tissue)
   gcta_output_df$p <- gcta_output_df$p*2
-  ihw_results_gcta <- IHW::ihw(p ~ tissue, data = gcta_output_df, alpha = 0.1)
   gcta_alpha <- 0.1
+  ihw_results_gcta <- IHW::ihw(p ~ tissue, data = gcta_output_df, alpha = gcta_alpha)
+  1 - mean(ihw_results_gcta@df$adj_pvalue < gcta_alpha)
+  sum(ihw_results_gcta@df$adj_pvalue > gcta_alpha)
   sum(ihw_results_gcta@df$adj_pvalue < gcta_alpha)
   # hist(ihw_results_gcta@df$adj_pvalue, breaks = 20)
   gcta_output_df$adj_p <- ihw_results_gcta@df$adj_pvalue
-  gcta_output <- lapply(setNames(tissues, tissues), function(tiss) gcta_output_df[gcta_output_df$tissue == tiss & gcta_output_df$adj_p < gcta_alpha,])
+
+  range(sort(sapply(split(gcta_output_df$adj_p, gcta_output_df$tissue), function(x)  mean(x > gcta_alpha))))
+  range(sort(sapply(split(gcta_output_df$adj_p, gcta_output_df$tissue), function(x)  sum(x < gcta_alpha))))
+  gcta_output <- lapply(setNames(tissues, tissues), function(tiss) 
+    gcta_output_df[gcta_output_df$tissue == tiss & gcta_output_df$adj_p < gcta_alpha,])
   save(gcta_output, file = paste0(gcta_directory, "gcta_output_GTEx_allTissues_list_IHW.RData"))
 } else {
   load(paste0(gcta_directory, "gcta_output_GTEx_allTissues_list_IHW.RData"))

@@ -710,6 +710,16 @@ estimate_correlations <- function(y, t, optimize_jointly = F, ncores = 12, nearP
   #iterate through all pairs of dimensions, optimizing bivariate probit probability
   estimated_corrs <- mclapply(1:(ncols-1), function(ci1) sapply((ci1+1):ncols, function(ci2){
     
+    #print current location
+    if(print_progress){
+      mcprint(paste0(ci1, ", ", ci2, "... "))  
+    }
+    
+    #easy check for viability (see below)
+    if(length(y[[ci1]]) == 0 | length(y[[ci2]]) == 0){
+      return(0)
+    }
+    
     #find compatible intersect and subset
     all_poss <- intersect(t[[ci1]], t[[ci2]])
     n <- length(all_poss)
@@ -717,6 +727,8 @@ estimate_correlations <- function(y, t, optimize_jointly = F, ncores = 12, nearP
     y2 <- y[[ci2]][y[[ci2]] %in% all_poss]
     
     #return 0 if there are no obs in y1 or y2
+    #need obs in {0,0} + {1,1} quadrants OR in {0,0} + {1,0} + {0,1} for estimate
+    #otherwise can trivially rotate location 360 degrees in cartesian plane
     if(length(y1) == 0 | length(y2) == 0){
       return(0)
     }
@@ -740,11 +752,6 @@ estimate_correlations <- function(y, t, optimize_jointly = F, ncores = 12, nearP
                                   fn = ll_biv_probit, 
                                   data = list(ct2x2 = ct2x2, mus = mus), method = "nlm", lower = -1, upper = 1,
                                   control = list(maxit = 1E3, trace = 0, dowarn = F))
-    }
-    
-    #print current location
-    if(print_progress){
-      mcprint(paste0(ci1, ", ", ci2, ", ", optim_out$p1))  
     }
     
     #return estimate
@@ -975,6 +982,22 @@ rrect <- function(loc, w, h, pe = 0.25, npts = 50, rot = 0, hat_prop = 0.15, bol
   
 }
 
+blend_with_white <- function(color, alpha) {
+  # Split the color into red, green, and blue components
+  red <- col2rgb(color)["red", ] / 255
+  green <- col2rgb(color)["green", ] / 255
+  blue <- col2rgb(color)["blue", ] / 255
+  
+  # Blend each component with the corresponding component of white (255)
+  blended_red <- (alpha * red) + ((1 - alpha) * 255 / 255)
+  blended_green <- (alpha * green) + ((1 - alpha) * 255 / 255)
+  blended_blue <- (alpha * blue) + ((1 - alpha) * 255 / 255)
+  
+  # Convert the blended components back to a hex color
+  blended_color <- rgb(blended_red, blended_green, blended_blue)
+  return(blended_color)
+}
+
 grad_arrow_curve <- function(arrow_locs, prop_head_width = 2, prop_shaft_length = 0.1,
                              cols = c("white", "black"), nslices = 500, direc = "h", w = 0.25,
                              raster = T, xpd = NA, raster_res = 51, interp_raster = T,
@@ -1041,7 +1064,8 @@ grad_arrow_curve <- function(arrow_locs, prop_head_width = 2, prop_shaft_length 
     #write to temporary png
     tmp <- tempfile()
     
-    png(tmp, width = par("din")[1], height = par("din")[2], units = "in", res = raster_res, bg = "transparent", type="cairo")
+    png(tmp, width = par("din")[1], height = par("din")[2], units = "in", 
+        res = raster_res, bg = "transparent", type="cairo")
     par(mar = c(0,0,0,0), xpd = NA)
     plot.new(); plot.window(xlim=gr_usr[1:2], ylim=gr_usr[3:4], xaxs = "i", yaxs = "i")
     
@@ -1057,8 +1081,14 @@ grad_arrow_curve <- function(arrow_locs, prop_head_width = 2, prop_shaft_length 
     }
     if(direc == "h"){
       polygon(x = head_coords$x, y = head_coords$y, col = colsgrad[nslices], border = NA)
+      #hack for white background
+      # polygon(x = head_coords$x, y = head_coords$y, col = blend_with_white(cols[2], col_alpha), border = NA)
+      
     } else if(direc == "v"){
       polygon(x = head_coords$x, y = head_coords$y, col = colsgrad[nslices], border = NA)
+      #hack for white background
+      # polygon(x = head_coords$x, y = head_coords$y, col = blend_with_white(cols[2], col_alpha), border = NA)
+      
     }
     dev.off()
     
@@ -1223,6 +1253,8 @@ text3 <- function(x, y, pos = NULL, cex = 1, labels = NULL, drect = F, col = 1, 
     abline(h=y - strheight(latex2exp::TeX("GIs"), cex = cex) / 2, lwd = 0.5)
   }
 }
+
+
 
 
 text_cols <- function(string, cols, x, y, cex = 1, ...){
@@ -1568,6 +1600,179 @@ correct_l2xp_vec <- function(x){
   new_out[empties] <- ""
   new_out
 }
+
+nice_ticks <- function(d, nt = 5, buffer = c(L = T, U = F)){
+  d <- round(d, max(c(0, -floor(log10(diff(range(d)) / 1000)))))
+  magvar <- 10^floor(log10(diff(range(d)) / nt))
+  vals <- seq(from = min(d) - min(d) %% magvar, 
+              to = max(d) - max(d) %% magvar, 
+              by = magvar)
+  tick_sub <- floor(length(vals) / nt)
+  tick0 <-  which.min(abs(vals))
+  new_vals <- vals[c(rev(seq(from = tick0, to = 1, by = -tick_sub)[-1]), 
+                     tick0, 
+                     seq(from = tick0, to = length(vals), by = tick_sub)[-1])]
+  if(min(new_vals) > min(d) & buffer["L"]){
+    new_vals <- c(new_vals[1] - diff(new_vals[1:2]), new_vals)
+  }
+  
+  if(max(new_vals) < max(d) & buffer["U"]){
+    new_vals <- c(new_vals, new_vals[length(new_vals)] + diff(new_vals[1:2]))
+  }
+  
+  new_vals
+}
+
+text.rects <- function(x, y, pos = NULL, cex = 1, labels = NULL, replacement = "a"){
+  lapply(1:length(x), function(i) {
+    text.rect(x = x[i], y = y[i], pos = pos[i], cex = cex, labels = labels[i], replacement = "a")}) 
+}
+
+text.rect <- function(x, y, pos = NULL, cex = 1, labels = NULL, drect = F, replacement = "a", ...){
+  
+  if(is.null(labels) | is.na(labels)){return(NA)}
+  
+  #convert text label to expression
+  if(all(class(labels) == "character")){
+    word_expression <- correct_l2xp_vec(labels)  
+  } else {
+    word_expression <- labels
+  }
+  
+  #find general params
+  strw <- strwidth(word_expression, cex = cex)
+  strh <- strheight(word_expression, cex = cex)
+  base_strh <- strheight(correct_l2xp_vec("GIs"), cex = cex)
+  
+  #adjust base location
+  adj_x <- x + ifelse(any(pos %in% c(2,4)), ifelse(any(pos == 2), -1, 1) * strw / 2, 0)
+  adj_y <- y + ifelse(any(pos %in% c(1,3)), ifelse(any(pos == 1), -1, 1) * strh / 2, 0)
+  
+  #adjust in case of ledding
+  nobot <- remove_bottom(labels, replacement)
+  ebot <- strheight(latex2exp::TeX(nobot), cex = cex) - strh
+  
+  notop <- remove_top(labels, replacement)
+  etop <- strheight(latex2exp::TeX(notop), cex = cex) - strh
+  
+  nobottop <- remove_tb(labels, replacement)
+  ebottop <- strheight(latex2exp::TeX(nobottop), cex = cex) - strh
+  
+  #ugh this was obnoxious to figure out
+  ebt_delta <- ebottop - (ebot + etop)
+  adj_ledding <- ifelse(abs(ebt_delta) > 1E-6, 
+                        ebot / 2 - (ebottop - ebot) / 2, 
+                        ebot / 2 - etop / 2)
+  adj_ledding <- adj_ledding - ifelse(base_strh > strh, (base_strh - strh) / 2, 0)
+  adj_ledding <- 0 #for use with plain 
+  
+  #position adjustment
+  pos.adj <- rep(0,4)
+  pos.adj[pos] <- strh/2 * ifelse(pos %in% c(2,4), xyrat() * 1.5, 1)
+  
+  #return bounding text box
+  return(c(xleft = adj_x - strw / 2 + pos.adj[4] - pos.adj[2], 
+           xright = adj_x + strw / 2 + pos.adj[4] - pos.adj[2], 
+           ybottom = adj_y - strh / 2 + adj_ledding - pos.adj[1] + pos.adj[3], 
+           ytop = adj_y + strh / 2 + adj_ledding - pos.adj[1] + pos.adj[3]))
+  
+}
+
+expand.rect <- function(x, prop = 0.01){
+  w <- x[2] - x[1]
+  h <- x[4] - x[3]
+  
+  wider <- (w / xyrat()) > h
+  wadj <- ifelse(wider, w * prop / 2, h * prop / 2 * xyrat())
+  hadj <- ifelse(wider, w * prop / 2 / xyrat(), h * prop / 2)
+  
+  c(xleft = x[1] - wadj, 
+    xright = x[2] + wadj, 
+    ybottom = x[3] - hadj, 
+    ytop = x[4] + hadj)
+  
+}
+
+respect_boundaries <- function(z, extra = 0){
+  
+  #shrink boundary if desired
+  pusr <- expand.rect(par("usr"), -extra)
+  
+  #shrink rectangle if too big
+  rw <- z[2] - z[1]
+  rh <- z[4] - z[3]
+  pw <- pusr[2] - pusr[1]
+  ph <- pusr[4] - pusr[3]
+  
+  ediffs <- diffs <- (pusr - z) * c(-1,1,-1,1) #all should be positive if bounded
+  diffs <- diffs * (diffs < 0)
+  ediffs[1:2] <- sum(diffs[1:2])
+  ediffs[3:4] <- sum(diffs[3:4])
+  ediffs <- ediffs * (abs(ediffs - diffs) > 1E-9)
+  
+  #ediffs get the other edge adjusted
+  z + diffs * c(-1,1,-1,1) + ediffs * c(-1,1,-1,1) * -1
+  
+}
+
+push_rects <- function(z, p, prop_push = 0){
+  #want to push all boxes in given directions by same visual distance in current graphical device
+  fig_vis_dims <- c(x = diff(par("usr")[1:2]), y = diff(par("usr")[3:4]) * xyrat())
+  longer_dim <- which.max(fig_vis_dims)
+  push_by <- fig_vis_dims[longer_dim] * prop_push #distance to push on longer dim
+  
+  #find direction to push
+  midp <- c(x = mean(z[1:2]), y = mean(z[3:4]))
+  p2p_vec <- (p - midp) * c(1,xyrat()) #this corresponds to direction vec in a visual square
+  angrad <- atan2(p2p_vec[2], p2p_vec[1])
+  disp_amount <- c(x = push_by * cos(angrad), 
+                   y = push_by * sin(angrad) / xyrat())
+  z - c(disp_amount[1], disp_amount[1], disp_amount[2], disp_amount[2])
+  
+}
+
+
+closest_side <- function(z, p){
+  
+  side_midps <- do.call(rbind, list(c(x = mean(z[1:2]), y = z[3]),
+                     c(x = mean(z[1:2]), y = z[4]),
+                     c(x = z[1], y = mean(z[3:4])),
+                     c(x = z[2], y = mean(z[3:4]))))
+  side_midps_transf <- side_midps %*% matrix(c(1,0,0,xyrat()),2,2)
+  z_transf <- p * c(1, xyrat()) 
+  closest_side_ind <- which.min(apply(t(t(side_midps_transf) - z_transf)^2, 1, sum))
+  side_midps[closest_side_ind,]
+  
+}
+
+raster_points <- function(raster_res = 51, ...){
+  
+  #get plotting params
+  usr <- par("usr")
+  upct <- par("plt")
+  gr_usr <- usr + c(diff(usr[1:2]) / diff(upct[1:2]) * (c(0,1) - upct[1:2]),
+                    diff(usr[3:4]) / diff(upct[3:4]) * (c(0,1) - upct[3:4]))
+  
+  #write to temporary png
+  tmp <- tempfile()
+  png(tmp, width = par("din")[1], height = par("din")[2], units = "in", res = raster_res, bg = "transparent", type="cairo")
+  par(mar = c(0,0,0,0), xpd = NA)
+  plot.new(); plot.window(xlim=gr_usr[1:2], ylim=gr_usr[3:4], xaxs = "i", yaxs = "i")
+  
+  #plot the points
+  points(...)
+  
+  #close png
+  dev.off()
+  
+  #draw to file
+  rasterImage(png::readPNG(tmp), gr_usr[1], gr_usr[3], gr_usr[2], gr_usr[4], interpolate = T, xpd = NA)
+  
+  #delete temp file
+  rm(tmp)
+  
+}
+
 
 NULL
 

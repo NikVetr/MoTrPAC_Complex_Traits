@@ -227,7 +227,7 @@ if(exists("cl")){
   registerDoParallel(cl)
 }
 getDoParWorkers()
-# detach(“package:data.table”, unload=TRUE) 
+
 foreach(cri=1:n_chromosomes) %dopar% {
 # for(cri in 1:n_chromosomes){
   for(cli in cluster_ids){ #redundant across clusters
@@ -303,6 +303,7 @@ if(exists("cl")){
   cl <- makeCluster(8, outfile="")
   registerDoParallel(cl)
 }
+
 foreach(gi=1:length(gwas_summary_files)) %dopar% {
 # for(gi in 1:length(gwas_summary_files)){
   for(cli in cluster_ids){ #redundant across clusters
@@ -699,6 +700,7 @@ if(exists("cl")){
   cl <- makeCluster(2, outfile="")
   registerDoParallel(cl)
 }
+
 getDoParWorkers()
 # detach(“package:data.table”, unload=TRUE) 
 foreach(cri=1:n_chromosomes) %dopar% {
@@ -749,6 +751,7 @@ foreach(cri=1:n_chromosomes, .packages = c("data.table")) %dopar% {
     fwrite(thin_annot, paste0(ldsc_directory, "custom_genesets/cts_thin_annot/cluster_", cli, ".chr_", cri, ".annot.gz"))
   }
 }
+
 foreach(cri=1:n_chromosomes, .packages = c("data.table")) %dopar% {
   # for(cri in 1:n_chromosomes){
   for(cli in cluster_ids[1]){
@@ -761,6 +764,7 @@ foreach(cri=1:n_chromosomes, .packages = c("data.table")) %dopar% {
     fwrite(baseline_annot, paste0(ldsc_directory, "custom_genesets/cts_thin_annot/baseline.chr_", cri, ".annot.gz"), sep = "\t")
   }
 }
+
 foreach(cri=1:n_chromosomes, .packages = c("data.table")) %dopar% {
 # for(cri in 1:n_chromosomes){
   cat(paste0("(", cri, ", ", cli, ")"))
@@ -780,6 +784,7 @@ if(exists("cl")){
   cl <- makeCluster(2, outfile="")
   registerDoParallel(cl)
 }
+
 #process ld files?? I guess ugh
 foreach(cri=1:n_chromosomes) %dopar% {
   
@@ -826,12 +831,24 @@ foreach(gi=1:length(gwas_summary_files)) %dopar% {
   
   cat(paste0(" (", gi, " / ", length(gwas_summary_files), ")")) 
   # command_ldsc <- paste0("python2 ldsc.py --h2-cts ", "gwas_sumstats/proper_format/", gwas_summary_files[gi], ".sumstats.gz --ref-ld-chr custom_genesets/cluster_", cluster_ids[1], "-", cluster_ids[length(cluster_ids)], ".chr_ --w-ld-chr weights_hm3_no_hla/weights. --overlap-annot --ref-ld-chr-cts cluster_cts.ldcts --frqfile-chr 1000G_Phase3_frq/1000G.EUR.QC. --n-blocks 200 --out output/cts/", strsplit(gwas_summary_files[gi], ".txt.gz")[[1]][1], "_cluster_", cluster_ids[1], "-", cluster_ids[length(cluster_ids)], "")
-  command_ldsc <- paste0("python2 ldsc.py --h2-cts ", "gwas_sumstats/proper_format/", gwas_summary_files[gi], ".sumstats.gz --ref-ld-chr custom_genesets/cts_thin_annot/baseline.chr_ --w-ld-chr weights_hm3_no_hla/weights. --overlap-annot --ref-ld-chr-cts cluster_cts_2.ldcts --frqfile-chr 1000G_Phase3_frq/1000G.EUR.QC. --n-blocks 200 --out output/cts/", strsplit(gwas_summary_files[gi], ".txt.gz")[[1]][1], "_cluster_", cluster_ids[1], "-", cluster_ids[length(cluster_ids)], "")
+  command_ldsc <- paste0("python2 ldsc.py", 
+                         "--h2-cts ", "gwas_sumstats/proper_format/", gwas_summary_files[gi], ".sumstats.gz ", 
+                         "--ref-ld-chr custom_genesets/cts_thin_annot/baseline.chr_ ", 
+                         "--w-ld-chr weights_hm3_no_hla/weights. ", 
+                         "--overlap-annot ", 
+                         "--ref-ld-chr-cts cluster_cts_2.ldcts ", 
+                         "--frqfile-chr 1000G_Phase3_frq/1000G.EUR.QC. ", 
+                         "--n-blocks 200 ", 
+                         "--out output/cts/", strsplit(gwas_summary_files[gi], ".txt.gz")[[1]][1], "_cluster_", cluster_ids[1], "-", cluster_ids[length(cluster_ids)], "")
   # command_ldsc <- paste0("python2 ldsc.py --h2-cts ", "gwas_sumstats/proper_format/", gwas_summary_files[gi], ".sumstats.gz --ref-ld-chr 1000G_EUR_Phase3_baseline/baseline. --w-ld-chr weights_hm3_no_hla/weights. --overlap-annot --ref-ld-chr-cts cluster_cts.ldcts --frqfile-chr 1000G_Phase3_frq/1000G.EUR.QC. --n-blocks 1000 --out output/cts/", strsplit(gwas_summary_files[gi], ".txt.gz")[[1]][1], "_cluster_", cluster_ids[1], "-", cluster_ids[length(cluster_ids)], "")
   # command_ldsc <- paste0("python2 ldsc.py --h2-cts ", "gwas_sumstats/proper_format/", gwas_summary_files[gi], ".sumstats.gz --ref-ld-chr custom_genesets/cluster_1.chr_ --w-ld-chr weights_hm3_no_hla/weights. --overlap-annot --ref-ld-chr-cts cluster_cts.ldcts --frqfile-chr 1000G_Phase3_frq/1000G.EUR.QC. --out output/cts/", strsplit(gwas_summary_files[gi], ".txt.gz")[[1]][1], "_Cluster_1")
   command <- paste0(command_changedir, command_initiateLDSC, command_ldsc)
   system(command)
 }
+
+
+#### estimate h2_SNP in all genes and in all rat orthologs ####
+# see  next script, figure2s...
 
 
 #### STOP HERE ####
