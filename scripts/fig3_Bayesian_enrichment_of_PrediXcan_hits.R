@@ -1860,6 +1860,11 @@ dev.off()
 }
 
 #### diff frequentist test for reviewer ####
+
+#load in some meadata
+trait_categories <- read.csv("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gwas_metadata.csv", header = T)
+trait_categories$Category[trait_categories$new_Phenotype == "Multiple_Sclerosis"] <- "Psychiatric-neurologic" #correct original coding from "Cardiometabolic"
+
 library(fgsea)
 trait_name_key <- setNames(trait_categories$new_Phenotype, trait_categories$Tag)
 
@@ -1955,12 +1960,12 @@ sort(trait_category_ps / (trait_category_thresh / 0.05))
 sort(trait_category_ps)
 
 # #try just set unioning the tissue DE genes and combining the predixcan pvals? with HMP also?
-# tissue_x_twas <- lapply(setNames(unique(some.twas$trait), 
-#                                  unique(some.twas$trait)), 
-#                         function(traiti) {
-#                           print(traiti)
-#                           some.twas[some.twas$trait == traiti & compatible_twas_genes,]
-#                         })
+tissue_x_twas <- lapply(setNames(unique(some.twas$trait),
+                                 unique(some.twas$trait)),
+                        function(traiti) {
+                          print(traiti)
+                          some.twas[some.twas$trait == traiti & compatible_twas_genes,]
+                        })
 # all_DE_genes <- unlist(lapply(seq_along(DE_genes_x_tissue), function(i) paste0(names(DE_genes_x_tissue)[i], ".", DE_genes_x_tissue[[i]])))
 # gsea_output_pooled <- parallel::mclapply(tissue_x_twas, 
 #                                          function(trait_twas){
@@ -2276,6 +2281,7 @@ plot.scatter <- function(x, y, xlabel = "", ylabel = "", main.title = "",
   #upper margin Spearman corr
   rho <- cor.test(x = x, y = y, method = 'spearman')
   rho_pval <- strsplit(formatC(rho$p.value, format = "e", digits = 1), "e")[[1]]
+  print(summary(rho))
   rholab <- c(paste0("Spearman's $\\rho$ = ", 
                    round(rho$estimate, 2), ","), 
                    paste0("p-value = ", 

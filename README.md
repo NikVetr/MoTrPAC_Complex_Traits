@@ -20,52 +20,55 @@ GitHub is also limited in how much storage can be devoted to each repository, bu
 
 ## Dependencies
 
-### R packages 
+### R (4.0.4) packages used in these scripts include:
 
-* Cairo  
-* DESeq2  
-* EnsDb.Hsapiens.v79  
-* EnsDb.Hsapiens.v86  
-* MASS  
-* MotrpacRatTraining6mo  
-* MotrpacRatTraining6moData  
-* arrow  
-* biomaRt  
-* caret  
-* circlize  
-* clusterProfiler  
-* cmdstanr  
-* data.table  
-* doParallel  
-* dplyr  
-* edgeR  
-* ensembldb  
-* fitdistrplus  
-* foreach  
-* ggplot2  
-* invgamma  
-* jpeg  
-* jsonlite  
-* ks  
-* limma  
-* org.Hs.eg.db  
-* org.Rn.eg.db  
-* parallel  
-* plotrix  
-* posterior  
-* pracma  
-* sparklyr  
-* sparklyr.nested  
-* testit  
-* xlsx  
+* fgsea: 1.16.0
+* Cairo: 1.5.15
+* DESeq2: 1.30.1
+* EnsDb.Hsapiens.v79: 2.99.0
+* EnsDb.Hsapiens.v86: 2.99.0
+* MASS: 7.3.57
+* MotrpacRatTraining6mo: 1.6.4
+* MotrpacRatTraining6moData: 1.9.1
+* arrow: 8.0.0
+* biomaRt: 2.46.3
+* caret: 6.0.92
+* circlize: 0.4.15
+* clusterProfiler: 3.18.1
+* cmdstanr: 0.3.0.9000
+* data.table: 1.14.8
+* doParallel: 1.0.17
+* dplyr: 1.1.2
+* edgeR: 3.32.1
+* ensembldb: 2.14.1
+* fitdistrplus: 1.1.8
+* foreach: 1.5.2
+* ggplot2: 3.4.2
+* invgamma: 1.1
+* jpeg: 0.1.9
+* jsonlite: 1.8.4
+* ks: 1.13.5
+* limma: 3.46.0
+* org.Hs.eg.db: 3.12.0
+* org.Rn.eg.db: 3.12.0
+* parallel: 4.0.4
+* plotrix: 3.8.2
+* posterior: 1.2.2
+* pracma: 2.3.8
+* sparklyr: 1.7.7
+* sparklyr.nested: 0.0.3
+* testit: 0.13
+* xlsx: 0.6.5
 
-### Command-line tools
+### alongside external software and command-line tools
 
-* [plink2](https://www.cog-genomics.org/plink/2.0/)  
-* [GCTA](https://yanglab.westlake.edu.cn/software/gcta/#Overview)  
+* [plink2](https://www.cog-genomics.org/plink/2.0/) (2.00a3)
+* [GCTA](https://yanglab.westlake.edu.cn/software/gcta/#Overview) (1.93.2)
 * [MESC](https://github.com/douglasyao/mesc)  
-* [LDSC](https://github.com/bulik/ldsc)  
-* [Stan](https://mc-stan.org/cmdstanr/)  
+* [LDSC](https://github.com/bulik/ldsc) (1.0.1)
+* [Stan](https://mc-stan.org/) (2.21.0)
+
+Please follow the installation instructions at the above links to install these packages.
 
 ### Datasets  
 
@@ -73,38 +76,38 @@ The following paths, files, and R data objects are used within these scripts. He
 we provide documentation on their sources. When possible, these datasets are also
 included in `/data`. 
 
-* `/Volumes/SSD500GB/gtex-pipeline/expression_genotypes/GTEx_v8_noChr_noRSID.bim`:  
-* `/Volumes/SSD500GB/gtex-pipeline/GTEx_Analysis_v8_eQTL_covariates/`:  
-* `/Volumes/SSD500GB/gtex-pipeline/GTEx_Analysis_v8_eQTL_expression_matrices/`:  
-* `/Volumes/SSD500GB/gtex-pipeline/log2-normalized-expression/log2-normalized-expression_*.expression.bed.gz`:  
-* `~/data/smontgom/41467_2021_23579_MOESM6_ESM.csv`: [Dataset 5](https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-021-23579-x/MediaObjects/41467_2021_23579_MOESM6_ESM.xlsx)
+* `/data/external/gtex-pipeline/expression_genotypes/GTEx_v8_noChr_noRSID.bim`:  
+* `/data/external/gtex-pipeline/GTEx_Analysis_v8_eQTL_covariates/`:  
+* `/data/external/gtex-pipeline/GTEx_Analysis_v8_eQTL_expression_matrices/`:  
+* `/data/external/gtex-pipeline/log2-normalized-expression/log2-normalized-expression_*.expression.bed.gz`:  
+* `data/external/41467_2021_23579_MOESM6_ESM.csv`: [Dataset 5](https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-021-23579-x/MediaObjects/41467_2021_23579_MOESM6_ESM.xlsx)
 from the human exercise meta-analysis by Amar et al.: <https://pubmed.ncbi.nlm.nih.gov/34108459/> 
-* `~/data/smontgom/eqtl/spredixcan_igwas_gtexmashrv8_*`: Barbeira et al. `S-PrediXcan` results
+* `data/external/eqtl/spredixcan_igwas_gtexmashrv8_*`: Barbeira et al. `S-PrediXcan` results
 available [here](https://zenodo.org/record/3518299#.Y9rPqezMIUE), provided as a 
 supplement to their manuscript: <https://pubmed.ncbi.nlm.nih.gov/33499903/>   
-* `~/data/smontgom/est_gcor_mat.RData`:  
-* `~/data/smontgom/GENES_HUMAN.txt`:  
-* `~/data/smontgom/GENES_RAT.txt`:  
-* `~/data/smontgom/GTEx_Analysis_v8_sbgenes/signif.sbgenes.txt`:  
-* `~/data/smontgom/GTEx_v8_ExpressionScores/tissues/`:  
-* `~/data/smontgom/gwas_metadata.csv`:  
-* `~/data/smontgom/imputed_gwas_hg38_1.1/`: GWAS imputed and harmonized for colocalization 
+* `data/external/est_gcor_mat.RData`:  
+* `data/external/GENES_HUMAN.txt`:  
+* `data/external/GENES_RAT.txt`:  
+* `data/external/GTEx_Analysis_v8_sbgenes/signif.sbgenes.txt`:  
+* `data/external/GTEx_v8_ExpressionScores/tissues/`:  
+* `data/external/gwas_metadata.csv`:  
+* `data/external/imputed_gwas_hg38_1.1/`: GWAS imputed and harmonized for colocalization 
 analysis with GTEx v8. Provided [here](https://zenodo.org/record/3629742#.Y9rTQOzMIUF) by Barbeira et al. as a supplement to their 
 manuscript: <https://pubmed.ncbi.nlm.nih.gov/33499903/>  
-* `~/data/smontgom/meta_analysis_results.RData`:  
-* `~/data/smontgom/old_dea_deseq_20201121/*_training-dea_20201121.RData`:  
-* `~/data/smontgom/open-targets_tissue-x-disease_*`:  
-* `~/data/smontgom/opentargets/associationByOverallDirect.csv`:  
-* `~/data/smontgom/opentargets/associationByOverallIndirect.csv`:  
-* `~/data/smontgom/PANTHER17_human_rat_ref_genome_orthologs.tsv`:  
-* `~/data/smontgom/relative_expression_motrpac_gtex`:  
-* `~/data/smontgom/RGD_ORTHOLOGS_20201001.txt`: Data downloaded from RGD FTP website 
+* `data/external/meta_analysis_results.RData`:  
+* `data/external/old_dea_deseq_20201121/*_training-dea_20201121.RData`:  
+* `data/external/open-targets_tissue-x-disease_*`:  
+* `data/external/opentargets/associationByOverallDirect.csv`:  
+* `data/external/opentargets/associationByOverallIndirect.csv`:  
+* `data/external/PANTHER17_human_rat_ref_genome_orthologs.tsv`:  
+* `data/external/relative_expression_motrpac_gtex`:  
+* `data/external/RGD_ORTHOLOGS_20201001.txt`: Data downloaded from RGD FTP website 
 on 10/01/2020 by Pierre Jean (<ftp://ftp.rgd.mcw.edu/pub/data_release/orthologs/>). 
 
 This file contain mapping between rat, human, and mouse primarily through NCBI gene IDs.  
-* `~/data/smontgom/RSID_POS_MAP_*.txt`:  
-* `~/data/smontgom/zcor_transcriptome_pass1b.tsv`:  
-* `~/repos/ldsc/1000G_EUR_Phase3_plink/1000G.EUR.QC.*.bim`:  
-* `~/repos/ldsc/baseline/baseline.*.annot`:  
-* `~/repos/ldsc/custom_genesets/cluster_*.chr_*.annot`: 
-* `~/repos/ldsc/ENSG_coord.txt`:  
+* `data/external/RSID_POS_MAP_*.txt`:  
+* `data/external/zcor_transcriptome_pass1b.tsv`:  
+* `data/external/ldsc/1000G_EUR_Phase3_plink/1000G.EUR.QC.*.bim`:  
+* `data/external/ldsc/baseline/baseline.*.annot`:  
+* `data/external/ldsc/custom_genesets/cluster_*.chr_*.annot`: 
+* `data/external/ldsc/ENSG_coord.txt`:  
