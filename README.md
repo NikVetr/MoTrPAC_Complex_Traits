@@ -88,10 +88,10 @@ analysis with GTEx v8. Provided [here](https://zenodo.org/record/3629742/files/h
 manuscript: <https://pubmed.ncbi.nlm.nih.gov/33499903/>. Untar before use.
 * `data/external/RGD_ORTHOLOGS_20201001.txt`: Data downloaded from RGD FTP website 
 on 10/01/2020 by Pierre Jean (<ftp://ftp.rgd.mcw.edu/pub/data_release/orthologs/>, <gs://mawg-data/external-datasets/rat-id-mapping/RGD_ORTHOLOGS_20201001.txt>).
-* `data/external/GTEx_Analysis_v8_eQTL_all_associations`: eQTL mapping file downloaded from GTEx <gs://gtex-resources/GTEx_Analysis_v8_QTLs/GTEx_Analysis_v8_eQTL_all_associations/>
-* `data/external/dea`: Differential expression analysis results from MoTrPAC PASS-1B: <gs://mawg-data/pass1b-06/transcript-rna-seq/dea/>
-* `data/external/rna_dea_20210114.RData`: DE results in a compatible data format <gs://mawg-data/pass1b-06/transcript-rna-seq/dea/>
-* `data/external/transcript_rna_seq_20211008.RData`: Specific version of RNA DEA <gs://motrpac-data-freeze-pass/pass1b-06/v1.1/analysis/transcriptomics/transcript-rna-seq/dea/transcript_rna_seq_20211008.Rdata>
+* `data/external/GTEx_Analysis_v8_eQTL_all_associations`: eQTL mapping file downloaded from GTEx at <gs://gtex-resources/GTEx_Analysis_v8_QTLs/GTEx_Analysis_v8_eQTL_all_associations/>
+* `data/external/dea`: Differential expression analysis results from MoTrPAC PASS-1B downloaded from <gs://mawg-data/pass1b-06/transcript-rna-seq/dea/>
+* `data/external/rna_dea_20210114.RData`: DE results in a compatible data format downloaded from <gs://mawg-data/pass1b-06/transcript-rna-seq/dea/>
+* `data/external/transcript_rna_seq_20211008.RData`: Specific version of RNA DEA downloaded from <gs://motrpac-data-freeze-pass/pass1b-06/v1.1/analysis/transcriptomics/transcript-rna-seq/dea/transcript_rna_seq_20211008.Rdata>
 * `data/external/RSID_POS_MAP.txt`: Mapping file between RSIDs and genome positions for build used <https://drive.google.com/file/d/1COG3UXpdMtfDgF9QQ3LCE4UrgLQQRCNK/view?usp=drive_link>
 * `data/external/old_dea_deseq_20201121`: Earlier DE results that explicitly incorporate a sex term  <https://drive.google.com/file/d/1kC84BEUUWzOEN30HoqwCWXweKyRixZ9X/view?usp=drive_link>
 * `data/external/GTEx_Analysis_v8_eQTL`: Filtered eQTL results from GTEx <https://storage.googleapis.com/gtex_analysis_v8/single_tissue_qtl_data/GTEx_Analysis_v8_eQTL.tar>
