@@ -67,47 +67,31 @@ GitHub is also limited in how much storage can be devoted to each repository, bu
 * [MESC](https://github.com/douglasyao/mesc)  
 * [LDSC](https://github.com/bulik/ldsc) (1.0.1)
 * [Stan](https://mc-stan.org/) (2.21.0)
+* [revTWMR](https://github.com/eleporcu/revTWMR)
+* [TWMR](https://github.com/eleporcu/TWMR)
+* [GTEx Pipeline](https://github.com/broadinstitute/gtex-pipeline/)
+* [Fusion](https://github.com/gusevlab/fusion_twas/tree/master)
+* [MetaXcan](https://github.com/hakyimlab/MetaXcan)
+* [GenArchDB](https://github.com/jlbren/GenArchDB)
 
-Please follow the installation instructions at the above links to install these packages.
+Please follow the installation instructions at the above links to install these software. For links to GitHub repos, please clone them into /data/external/ for scripts included here to run correctly, or else modify these scripts accordingly.
 
 ### Datasets  
 
-The following paths, files, and R data objects are used within these scripts. Here
-we provide documentation on their sources. When possible, these datasets are also
-included in `/data`. 
+The following external files are used by these scripts. Please download them and place them in /data/exernal/.
 
-* `/data/external/gtex-pipeline/expression_genotypes/GTEx_v8_noChr_noRSID.bim`:  
-* `/data/external/gtex-pipeline/GTEx_Analysis_v8_eQTL_covariates/`:  
-* `/data/external/gtex-pipeline/GTEx_Analysis_v8_eQTL_expression_matrices/`:  
-* `/data/external/gtex-pipeline/log2-normalized-expression/log2-normalized-expression_*.expression.bed.gz`:  
-* `data/external/41467_2021_23579_MOESM6_ESM.csv`: [Dataset 5](https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-021-23579-x/MediaObjects/41467_2021_23579_MOESM6_ESM.xlsx)
-from the human exercise meta-analysis by Amar et al.: <https://pubmed.ncbi.nlm.nih.gov/34108459/> 
-* `data/external/eqtl/spredixcan_igwas_gtexmashrv8_*`: Barbeira et al. `S-PrediXcan` results
-available [here](https://zenodo.org/record/3518299#.Y9rPqezMIUE), provided as a 
-supplement to their manuscript: <https://pubmed.ncbi.nlm.nih.gov/33499903/>   
-* `data/external/est_gcor_mat.RData`:  
-* `data/external/GENES_HUMAN.txt`:  
-* `data/external/GENES_RAT.txt`:  
-* `data/external/GTEx_Analysis_v8_sbgenes/signif.sbgenes.txt`:  
-* `data/external/GTEx_v8_ExpressionScores/tissues/`:  
-* `data/external/gwas_metadata.csv`:  
+* `data/external/eqtl/`: Barbeira et al. `S-PrediXcan` results
+available [here](https://zenodo.org/record/3518299#:~:text=Download-,spredixcan_eqtl.tar.gz,-md5%3Ac0474256186dc58ed41705475455ebee), provided as a 
+supplement to their manuscript: <https://pubmed.ncbi.nlm.nih.gov/33499903/>. Untar and unzip before use.   
 * `data/external/imputed_gwas_hg38_1.1/`: GWAS imputed and harmonized for colocalization 
-analysis with GTEx v8. Provided [here](https://zenodo.org/record/3629742#.Y9rTQOzMIUF) by Barbeira et al. as a supplement to their 
-manuscript: <https://pubmed.ncbi.nlm.nih.gov/33499903/>  
-* `data/external/meta_analysis_results.RData`:  
-* `data/external/old_dea_deseq_20201121/*_training-dea_20201121.RData`:  
-* `data/external/open-targets_tissue-x-disease_*`:  
-* `data/external/opentargets/associationByOverallDirect.csv`:  
-* `data/external/opentargets/associationByOverallIndirect.csv`:  
-* `data/external/PANTHER17_human_rat_ref_genome_orthologs.tsv`:  
-* `data/external/relative_expression_motrpac_gtex`:  
+analysis with GTEx v8. Provided [here](https://zenodo.org/record/3629742/files/harmonized_imputed_gwas.tar?download=1) by Barbeira et al. as a supplement to their 
+manuscript: <https://pubmed.ncbi.nlm.nih.gov/33499903/>. Untar before use.
 * `data/external/RGD_ORTHOLOGS_20201001.txt`: Data downloaded from RGD FTP website 
-on 10/01/2020 by Pierre Jean (<ftp://ftp.rgd.mcw.edu/pub/data_release/orthologs/>). 
-
-This file contain mapping between rat, human, and mouse primarily through NCBI gene IDs.  
-* `data/external/RSID_POS_MAP_*.txt`:  
-* `data/external/zcor_transcriptome_pass1b.tsv`:  
-* `data/external/ldsc/1000G_EUR_Phase3_plink/1000G.EUR.QC.*.bim`:  
-* `data/external/ldsc/baseline/baseline.*.annot`:  
-* `data/external/ldsc/custom_genesets/cluster_*.chr_*.annot`: 
-* `data/external/ldsc/ENSG_coord.txt`:  
+on 10/01/2020 by Pierre Jean (<ftp://ftp.rgd.mcw.edu/pub/data_release/orthologs/>, <gs://mawg-data/external-datasets/rat-id-mapping/RGD_ORTHOLOGS_20201001.txt>).
+* `data/external/GTEx_Analysis_v8_eQTL_all_associations`: eQTL mapping file downloaded from GTEx <gs://gtex-resources/GTEx_Analysis_v8_QTLs/GTEx_Analysis_v8_eQTL_all_associations/>
+* `data/external/dea`: Differential expression analysis results from MoTrPAC PASS-1B: <gs://mawg-data/pass1b-06/transcript-rna-seq/dea/>
+* `data/external/rna_dea_20210114.RData`: DE results in a compatible data format <gs://mawg-data/pass1b-06/transcript-rna-seq/dea/>
+* `data/external/transcript_rna_seq_20211008.RData`: Specific version of RNA DEA <gs://motrpac-data-freeze-pass/pass1b-06/v1.1/analysis/transcriptomics/transcript-rna-seq/dea/transcript_rna_seq_20211008.Rdata>
+* `data/external/RSID_POS_MAP.txt`: Mapping file between RSIDs and genome positions for build used <https://drive.google.com/file/d/1COG3UXpdMtfDgF9QQ3LCE4UrgLQQRCNK/view?usp=drive_link>
+* `data/external/old_dea_deseq_20201121`: Earlier DE results that explicitly incorporate a sex term  <https://drive.google.com/file/d/1kC84BEUUWzOEN30HoqwCWXweKyRixZ9X/view?usp=drive_link>
+* `data/external/GTEx_Analysis_v8_eQTL`: Filtered eQTL results from GTEx <https://storage.googleapis.com/gtex_analysis_v8/single_tissue_qtl_data/GTEx_Analysis_v8_eQTL.tar>
