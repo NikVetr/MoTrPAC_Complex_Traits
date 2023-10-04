@@ -95,3 +95,5 @@ on 10/01/2020 by Pierre Jean (<ftp://ftp.rgd.mcw.edu/pub/data_release/orthologs/
 * `data/external/RSID_POS_MAP.txt`: Mapping file between RSIDs and genome positions for build used <https://drive.google.com/file/d/1COG3UXpdMtfDgF9QQ3LCE4UrgLQQRCNK/view?usp=drive_link>
 * `data/external/old_dea_deseq_20201121`: Earlier DE results that explicitly incorporate a sex term  <https://drive.google.com/file/d/1kC84BEUUWzOEN30HoqwCWXweKyRixZ9X/view?usp=drive_link>
 * `data/external/GTEx_Analysis_v8_eQTL`: Filtered eQTL results from GTEx <https://storage.googleapis.com/gtex_analysis_v8/single_tissue_qtl_data/GTEx_Analysis_v8_eQTL.tar>
+
+Finally, scripts for generating particular figures will sometimes rely on files generated previously by other scripts. Unfortunately, filesizes sometimes exceeded maximum storage allowances on open repositories such as Zenodo. I've tried to order the scripts in a manner where those intermediate files are generated during execution of the script, but if something is not cooperating, please do not hesitate to reach out to me at nikgvetr@stanford.edu for assistance!
