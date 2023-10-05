@@ -1,4 +1,4 @@
-#### specify settings ####
+#### specify settings #### 
 random_seed <- 1
 set.seed(random_seed)
 
@@ -17,6 +17,7 @@ use_all_genes_for_trait_tiss_corrmats <- settings[5]
 estimate_trait_corr_mats <- F
 use_tissue_specific_corr_mats <- F
 estimate_composite_corrmat <- F
+estimate_tissue_corrmat <- F
 fit_model <- F
 
 #### load libraries ####
@@ -48,7 +49,7 @@ library(MotrpacRatTraining6mo) # v1.6.0
 
 
 #### define functions ####
-source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/deg-trait_functions.R")
+source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/deg-trait_functions.R")
 
 #### get ortholog map ####
 gene_map <- MotrpacRatTraining6moData::RAT_TO_HUMAN_GENE
@@ -261,11 +262,19 @@ DE_genes_x_tissue <- split(node_metadata_list$`8w`$human_ensembl_gene, node_meta
 DE_genes_x_tissue <- lapply(lapply(DE_genes_x_tissue, na.remove), unique)
 all_genes_x_tissue <- lapply(rna_dea_ensembl, function(x) unique(na.remove(gene_map$HUMAN_ORTHOLOG_ENSEMBL_ID[match(x, gene_map$RAT_ENSEMBL_ID)])))
 if(use_all_genes_for_trait_tiss_corrmats){
-  tissue_corr_mat <- estimate_correlations(y = DE_genes_x_tissue, t = all_genes_x_tissue, print_progress = T)
-  save(tissue_corr_mat, file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/tissue_corr_mat", 
-                                      ifelse(use_random_Pred_genes | use_random_DE_genes, "_random-genes", ""), 
-                                      ifelse(use_all_genes_for_trait_tiss_corrmats, "", "_intersecting-genes"), 
-                                      ".RData"))
+  if(estimate_tissue_corrmat){
+    tissue_corr_mat <- estimate_correlations(y = DE_genes_x_tissue, t = all_genes_x_tissue, print_progress = T)
+    save(tissue_corr_mat, file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/tissue_corr_mat", 
+                                        ifelse(use_random_Pred_genes | use_random_DE_genes, "_random-genes", ""), 
+                                        ifelse(use_all_genes_for_trait_tiss_corrmats, "", "_intersecting-genes"), 
+                                        ".RData"))  
+  } else {
+    load(file = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/tissue_corr_mat", 
+                                        ifelse(use_random_Pred_genes | use_random_DE_genes, "_random-genes", ""), 
+                                        ifelse(use_all_genes_for_trait_tiss_corrmats, "", "_intersecting-genes"), 
+                                        ".RData"))
+  }
+  
   pheatmap::pheatmap(tissue_corr_mat, breaks = -10:10/10, color = colorspace::diverging_hcl(21))
 }
 
@@ -364,11 +373,18 @@ twas_by_tissue <- lapply(setNames(unique(some.twas$tissue), MotrpacRatTraining6m
   some.twas[some.twas$tissue == tiss & compatible_twas_genes,]
 })
 compatible_twas_genes <- some.twas$gene_name %in% possible_genes
-twas_by_tissue_orig <- lapply(setNames(unique(some.twas$tissue), 
-                                  MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[unique(some.twas$tissue)]), 
-                         function(tiss) {print(tiss)
-                           some.twas[some.twas$tissue == tiss & compatible_twas_genes,]
-                         })
+
+if(!file.exists("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/twas_by_tissue_orig.RData")){
+  twas_by_tissue_orig <- lapply(setNames(unique(some.twas$tissue), 
+                                         MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[unique(some.twas$tissue)]), 
+                                function(tiss) {print(tiss)
+                                  some.twas[some.twas$tissue == tiss & compatible_twas_genes,]
+                                })
+  save(twas_by_tissue_orig, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/twas_by_tissue_orig.RData")
+} else {
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/twas_by_tissue_orig.RData")
+}
+
 n_genes_in_nodes_matrix <- t(sapply(tissues, function(tiss){
   print(tiss)
   sapply(setNames(salient_twas, salient_twas), function(trait_i){
@@ -1757,9 +1773,12 @@ qi_100 <- apply(focal_samps, 2, quantile, probs = c(0.0, 1.0))[,tord]
 posterior_means <- apply(focal_samps, 2, mean)[tord]
 inside_cols <- rep("black", length(tord))
 inside_cols[overlaps_with_zero(qi_95)] <- "white"
+
+par(xpd=F)
 tmp <- vioplot::vioplot(x = focal_samps[,tord], T, 
                         col = cols$category[colnames(focal_samps)][tord], outline=FALSE, yaxt = "n",
-                        names = colnames(focal_samps)[tord], range = 0, ylab = "", lineCol = MotrpacRatTraining6moData::TISSUE_COLORS[colnames(focal_samps)][tord],
+                        names = colnames(focal_samps)[tord], range = 0, ylab = "", 
+                        lineCol = cols$category[colnames(focal_samps)][tord],
                         xlab = "", cex.lab = 2, plotCentre = "point", 
                         colMed = cols$category[colnames(focal_samps)][tord],
                         horizontal = T)
@@ -2516,10 +2535,10 @@ dev.off()
 
 #### prop pos hits bayesian model ####
 twas_with_hits <- colnames(prop_degs_are_twas)
-# tissue_code <- MotrpacBicQC::bic_animal_tissue_code
-# tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
-# tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
-# tissue_code_vec <- setNames(tissue_code$tissue_name_release, tissue_code$abbreviation)
+tissue_code <- MotrpacBicQC::bic_animal_tissue_code
+tissue_code <- tissue_code[,c("tissue_name_release", "abbreviation")]
+tissue_code <- tissue_code[tissue_code$tissue_name_release != "" & !is.na(tissue_code$abbreviation)]
+tissue_code_vec <- setNames(tissue_code$tissue_name_release, tissue_code$abbreviation)
 tissue_code_vec <- MotrpacRatTraining6moData::TISSUE_ABBREV_TO_CODE
 possible_genes <- intersect(all_orthologs_tested, all_twas_genes_tested)
 compatible_twas_genes <- some.twas$gene_name %in% possible_genes
@@ -3687,10 +3706,10 @@ samps <- data.frame(as_draws_df(out$draws()))
 dev.off()
 hist(apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, mean))
 hist(apply(subset_samps("col_bias", c("raw", "sd"), samps = samps), 2, mean), breaks = 10)
-hist(samps$col_sd_comp)
-hist(invlogit(apply(subset_samps("col_means_compl", c("raw", "sd"), samps = samps), 2, mean)))
-hist(invlogit(apply(subset_samps("logodds_compl", c("raw", "sd"), samps = samps), 2, mean)))
-hist(invlogit(apply(subset_samps("logodds_focal", c("raw", "sd"), samps = samps), 2, mean)))
+# hist(samps$col_sd_comp)
+# hist(invlogit(apply(subset_samps("col_means_compl", c("raw", "sd"), samps = samps), 2, mean)))
+# hist(invlogit(apply(subset_samps("logodds_compl", c("raw", "sd"), samps = samps), 2, mean)))
+# hist(invlogit(apply(subset_samps("logodds_focal", c("raw", "sd"), samps = samps), 2, mean)))
 hist(invlogit(apply(subset_samps("logodds", c("raw", "sd"), samps = samps), 2, mean)))
 
 hist(apply(subset_samps("logodds", c("raw", "compl", "sd", "mean", "bias"), samps = samps), 2, mean))
@@ -3708,7 +3727,7 @@ cbind(subdata[order(((apply(subset_samps("cell_total_prob_bias", c("raw", "sd"),
               c("count_inters", "total_inters", "tissue", "trait")], 
       sort(apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)))
 plot(d$count / d$total, apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0))
-plot(d$count / d$total, invlogit(apply(subset_samps("logodds_focal", c("raw", "sd", "compl"), samps = samps), 2, mean)), cex = d$total / max(d$total) * 5); abline(0,1,col=2,lty=2)
+# plot(d$count / d$total, invlogit(apply(subset_samps("logodds_focal", c("raw", "sd", "compl"), samps = samps), 2, mean)), cex = d$total / max(d$total) * 5); abline(0,1,col=2,lty=2)
 
 sum((apply(subset_samps("col_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)) > 0.9)
 sum((apply(subset_samps("col_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)) < 0.1)
@@ -3759,14 +3778,177 @@ prop_greater_than_0(subset_samps("raw_logodds\\.1\\.", c("sd", "compl"), samps =
 posterior_mean_prob_bias[1,]
 #YEP!
 
-trait_means <- invlogit(apply(subset_samps("col_bias", c("raw", "sd", "compl"), samps = samps) + 
-                                subset_samps("col_means_compl", c("raw", "sd"), samps = samps), 
-                              2, mean))
+# trait_means <- invlogit(apply(subset_samps("col_bias", c("raw", "sd", "compl"), samps = samps) + 
+#                                 subset_samps("col_means_compl", c("raw", "sd"), samps = samps), 
+#                               2, mean))
 trait_means <- invlogit(apply(subset_samps("col_bias", c("raw", "sd", "compl"), samps = samps), 
                               2, mean))
 names(trait_means) <- traits
 trait_bias_probs <- apply(subset_samps("col_bias", c("raw", "sd", "compl"), samps = samps), 2, prop_greater_than_0)
 names(trait_bias_probs) <- traits
+
+
+#### proportion of DEGs & TWAS hits in + & - directions ####
+twas_with_hits <- colnames(prop_degs_are_twas)
+deg_sigtwas_proportion <- array(NA, dim = c(length(motrpac_gtex_map), length(twas_with_hits), 4, 3, 2), 
+                                dimnames = list(names(motrpac_gtex_map), twas_with_hits, paste0(2^(0:3), "w"), c("p", "n", "genes"), c("male", "female")))
+nuniq <- function(x) length(unique(x))
+tissue_abbr_rev <- MotrpacRatTraining6moData::TISSUE_ABBREV_TO_CODE
+
+load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/relative_effect_sizes_deg_eqtl_list.RData")
+trace_8w_backwards <- T
+# paths <- data.table::fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/feature_repfdr_states_20220117.tsv")
+paths <- MotrpacRatTraining6moData::GRAPH_STATES
+paths <- paths[paths$ome == "TRNSCRPT",]
+paths <- lapply(setNames(unique(paths$tissue),unique(paths$tissue)), function(tiss) paths[paths$tissue == tiss,])
+
+for(tissue_i in names(motrpac_gtex_map)){
+  
+  print(tissue_i)
+  
+  sig_twas_by_trait <- lapply(setNames(twas_with_hits, twas_with_hits), 
+                              function(trait_i) sig_twas_by_tissue[[tissue_i]][sig_twas_by_tissue[[tissue_i]]$trait == trait_i,])
+  sig_twas_by_trait_genes <- lapply(setNames(twas_with_hits, twas_with_hits), 
+                                    function(trait_i) sig_twas_by_trait[[trait_i]]$gene_name)
+  sig_twas_by_trait_signs <- lapply(setNames(twas_with_hits, twas_with_hits), 
+                                    function(trait_i){
+                                      signs <- sign(sig_twas_by_trait[[trait_i]]$zscore)
+                                      names(signs) <- sig_twas_by_trait_genes[[trait_i]]
+                                      signs
+                                    })
+  
+  paths_tiss <- as.data.frame(paths[[MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue_i]]])
+  
+  for(timepoint in paste0(2^(0:3), "w")){
+    
+    for(sex in c("male", "female")){
+      
+      if(trace_8w_backwards){
+        timepoint_to_use <- "8w"
+      } else {
+        timepoint_to_use <- timepoint
+      }
+      
+      #get human gene symbols
+      DE_genes_in_Nodes <- node_metadata_list[[timepoint_to_use]]$human_gene_symbol[
+        node_metadata_list[[timepoint_to_use]]$tissue == tissue_code$abbreviation[tissue_code$tissue_name_release == tissue_i]]
+      #get rat ensembl genes
+      DE_genes_in_Nodes_ensembl <- node_metadata_list[[timepoint_to_use]]$ensembl_gene[
+        node_metadata_list[[timepoint_to_use]]$tissue == tissue_code$abbreviation[tissue_code$tissue_name_release == tissue_i]]
+      if(length(DE_genes_in_Nodes) == 0){next()}
+      
+      #snag signs
+      DE_genes_in_Nodes_sign <- cbind(as.data.frame(do.call(rbind, strsplit(node_metadata_list[[timepoint_to_use]]$node[
+        node_metadata_list[[timepoint_to_use]]$tissue == tissue_code$abbreviation[tissue_code$tissue_name_release == tissue_i]], split = "_"))),
+        gene = DE_genes_in_Nodes)
+      colnames(DE_genes_in_Nodes_sign) <- c("time", "female", "male", "gene")
+      DE_genes_in_Nodes_sign$female[grep(pattern = "F1", DE_genes_in_Nodes_sign$female)] <- 1
+      DE_genes_in_Nodes_sign$female[grep(pattern = "F-1", DE_genes_in_Nodes_sign$female)] <- -1
+      DE_genes_in_Nodes_sign$male[grep(pattern = "M1", DE_genes_in_Nodes_sign$male)] <- 1
+      DE_genes_in_Nodes_sign$male[grep(pattern = "M-1", DE_genes_in_Nodes_sign$male)] <- -1
+      DE_genes_in_Nodes_sign$ensembl_gene <- DE_genes_in_Nodes_ensembl
+      
+      #remove genes with no known human gene symbol
+      DE_genes_in_Nodes_sign <- DE_genes_in_Nodes_sign[!is.na(DE_genes_in_Nodes_sign$gene),]
+      
+      #filter down to sex
+      DE_genes_signs <- as.integer(DE_genes_in_Nodes_sign[,sex])
+      names(DE_genes_signs) <- DE_genes_in_Nodes_sign$gene
+      
+      #get relative expression scores
+      sex_i <- sex
+      relative_effect_sizes <- deg_eqtl_list[[tissue_i]][deg_eqtl_list[[tissue_i]]$sex == sex_i & 
+                                                           deg_eqtl_list[[tissue_i]]$comparison_group == timepoint,]
+      
+      
+      if(trace_8w_backwards){
+        new_nodes <- paths_tiss[match(DE_genes_in_Nodes_sign$ensembl_gene, paths_tiss$feature_ID), paste0("state_", timepoint)]
+        
+        new_DE_genes_in_Nodes_sign <- cbind(as.data.frame(do.call(rbind, strsplit(new_nodes, split = "_"))), gene = DE_genes_in_Nodes_sign$gene)
+        colnames(new_DE_genes_in_Nodes_sign) <- c("female", "male", "gene")
+        new_DE_genes_in_Nodes_sign$female[grep(pattern = "F1", new_DE_genes_in_Nodes_sign$female)] <- 1
+        new_DE_genes_in_Nodes_sign$female[grep(pattern = "F-1", new_DE_genes_in_Nodes_sign$female)] <- -1
+        new_DE_genes_in_Nodes_sign$male[grep(pattern = "M1", new_DE_genes_in_Nodes_sign$male)] <- 1
+        new_DE_genes_in_Nodes_sign$male[grep(pattern = "M-1", new_DE_genes_in_Nodes_sign$male)] <- -1
+        new_DE_genes_in_Nodes_sign$female[grep(pattern = "F0", new_DE_genes_in_Nodes_sign$female)] <- 0
+        new_DE_genes_in_Nodes_sign$male[grep(pattern = "M0", new_DE_genes_in_Nodes_sign$male)] <- 0
+        
+        #NA nodes get a 0 too
+        new_DE_genes_in_Nodes_sign[is.na(new_DE_genes_in_Nodes_sign)] <- 0
+        
+        DE_genes_signs <- setNames(as.integer(new_DE_genes_in_Nodes_sign[,sex]), DE_genes_in_Nodes_sign$gene)
+        
+      }
+      
+      
+      results <- t(sapply(setNames(twas_with_hits, twas_with_hits), function(trait_i) {
+        twas_signs <- sig_twas_by_trait_signs[[trait_i]]
+        shared_genes <- intersect(names(DE_genes_signs), names(twas_signs))
+        sign_of_effect <- twas_signs[shared_genes] * DE_genes_signs[shared_genes]
+        
+        #get proportion of positive hits
+        npos <- sum(sign_of_effect > 0.5)
+        nneg <- sum(sign_of_effect < -0.5)
+        nzero <- length(sign_of_effect) - npos - nneg
+        prop_positive <- (npos + nzero * 0.5) / length(sign_of_effect)
+        #prop_positive <- mean(sign_of_effect > 0)
+        
+        sign_of_effect_symbol <- rep("+", length(shared_genes))
+        sign_of_effect_symbol[sign_of_effect == -1] <- "-"
+        eff_size <- round(abs(relative_effect_sizes$phenotypic_expression_Z[match(shared_genes, relative_effect_sizes$gene_name)]), 2)
+        shared_gene_names <- paste0(shared_genes, " (",  sign_of_effect_symbol, ", ", eff_size, ")")
+        
+        return(list(prop_positive = prop_positive, n = length(shared_genes), genes = paste0(shared_gene_names, collapse = " ~ ")))
+      }))
+      
+      # DELT <- as.data.frame(deg_eqtl_list_TWAS_cluster_subset[[tissue_i]])
+      # 
+      # #subset to time, sex, and unique gene entries
+      # DELT <- DELT[DELT$comparison_group == time,]
+      # DELT <- DELT[DELT$sex == sex,]
+      # # DELT <- DELT[-which(is.na(DELT$gene_name)),] #get rid of na genes
+      # if(nrow(DELT) == 0){next()}
+      # DELT <- DELT[match(unique(DELT$gene_name), DELT$gene_name),] #pull out only first gene entry
+      # 
+      # 
+      # DE_inds <- which(DELT$adj_p_value <= 1.1)
+      # # TWAS_inds <- apply(DELT[,grep(colnames(DELT), pattern = "BH_PValue")] < 0.05, 2, which)
+      # TWAS_inds <- apply(log(DELT[,grep(colnames(DELT), pattern = ".pvalue")]) <= (log(0.05) - log(n_twas_comparisons_clusters)), 2, which)
+      # if(length(TWAS_inds) == 0){next()}
+      # 
+      # intersect_inds <- lapply(TWAS_inds, function(twi) intersect(DE_inds, twi))
+      # # intersect_inds <- lapply(intersect_inds, function(ii) ii[DELT$gene_name[ii] %in% cluster_genes]) #subset to just monotonic sex-homogenous clusters
+      # intersect_genes <- lapply(intersect_inds, function(ii) unique(DELT$gene_name[ii]))
+      # 
+      # 
+      # intersect_sign_logFC <- lapply(intersect_inds, function(ii) sign(DELT$logFC[ii]))
+      # names(intersect_sign_logFC) <- gsub(names(intersect_sign_logFC), pattern = ".pvalue", replacement = "")
+      # intersect_sign_TWAS <- lapply(gsub(names(intersect_inds), pattern = ".pvalue", replacement = ""), function(ii) 
+      #                        sign(DELT[intersect_inds[paste0(ii, ".pvalue")][[1]], paste0(ii, ".zscore")]))
+      # intersect_sign_match <- lapply(1:length(intersect_sign_logFC), function(i) intersect_sign_logFC[[i]]*intersect_sign_TWAS[[i]])
+      # 
+      # intersect_genes_strings <- lapply(1:length(intersect_sign_logFC), function(i) 
+      #   paste0(intersect_genes[[i]], " (", c("-", "", "+")[intersect_sign_match[[i]] + 2], ")", collapse = " ~ "))
+      # intersect_genes_strings <- unlist(intersect_genes_strings)
+      # intersect_genes_strings[intersect_genes_strings == " ()"] <- ""
+      # 
+      # intersect_sign_match <- sapply(intersect_sign_match, function(x) mean(x == 1))
+      # intersect_sign_match_n <- sapply(intersect_inds, function(x) length(x))
+      # deg_sigtwas_proportion[tissue_i,names(n_intersect),time, "p", sex] <- intersect_sign_match
+      # deg_sigtwas_proportion[tissue_i,names(n_intersect),time, "n", sex] <- intersect_sign_match_n
+      # deg_sigtwas_proportion[tissue_i,names(n_intersect),time, "genes", sex] <- intersect_genes_strings
+      
+      deg_sigtwas_proportion[tissue_i,rownames(results),timepoint, "p", sex] <- unlist(results[,"prop_positive"])
+      deg_sigtwas_proportion[tissue_i,rownames(results),timepoint, "n", sex] <- unlist(results[,"n"])
+      deg_sigtwas_proportion[tissue_i,rownames(results),timepoint, "genes", sex] <- unlist(results[,"genes"])
+      
+    }
+    
+  }
+  
+}
+save(deg_sigtwas_proportion, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/deg_sigtwas_proportion.txt")
+
 
 #### figure 5 preprocessing ####
 
@@ -3806,9 +3988,9 @@ prop_greater_than_0(subset_samps("raw_logodds\\.1\\.", c("sd", "compl"), samps =
 posterior_mean_prob_bias[1,]
 #YEP!
 
-trait_means <- invlogit(apply(subset_samps("col_bias", c("raw", "sd", "compl"), samps = samps) + 
-                                subset_samps("col_means_compl", c("raw", "sd"), samps = samps), 
-                              2, mean))
+# trait_means <- invlogit(apply(subset_samps("col_bias", c("raw", "sd", "compl"), samps = samps) + 
+#                                 subset_samps("col_means_compl", c("raw", "sd"), samps = samps), 
+#                               2, mean))
 trait_means <- invlogit(apply(subset_samps("col_bias", c("raw", "sd", "compl"), samps = samps), 
                               2, mean))
 names(trait_means) <- traits
@@ -3843,7 +4025,7 @@ cell_sigs <- deg_sigtwas_proportion_posterior_prob_bias < alpha_post | deg_sigtw
 trait_sigs <- trait_bias_probs < alpha_post | trait_bias_probs > (1-alpha_post)
 
 #### figure 5 plotting ####
-
+load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/deg_sigtwas_proportion.txt")
 subset_to_traits <- T
 cairo_pdf(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/prop_pos_hits_bayesian_scatterplot", 
                  ifelse(subset_to_traits, "_sub.pdf", "")), 
@@ -4032,7 +4214,7 @@ for(subset_i in 1:2){
         #draw circle?
         ends_y <- c(min(yseq) - ry / yloc_factor - ry / 18, min(yseq) - ry / 18)
         arc(t1 = 3*pi/2, t2 = pi/2+1E-6, r1 = diff(range(ends_y))/2, r2 = diff(range(ends_y))/2, 
-            center = c(0.5, mean(ends_y)), lwd = 3, res = 50, adjx = 210 + ifelse(subset_i == 1, 30, 50))
+            center = c(0.5, mean(ends_y)), lwd = 3, res = 50, adjx = 210 + ifelse(subset_i == 1, 50, 70))
         points(0.5, ends_y[2], pch = -9658, cex = 3)
       }
     } else {
@@ -5386,167 +5568,6 @@ rownames(twas_intersect) <- NULL
 twas_intersect <- as.data.table(twas_intersect)
 fwrite(x = twas_intersect, file = "~/data/twas_intersect_table_uncalibrated_Pr.txt")
 fread(file = "~/data/twas_intersect_table_uncalibrated_Pr.txt")
-
-#### proportion of DEGs & TWAS hits in + & - directions ####
-twas_with_hits <- colnames(prop_degs_are_twas)
-deg_sigtwas_proportion <- array(NA, dim = c(length(motrpac_gtex_map), length(twas_with_hits), 4, 3, 2), 
-                                dimnames = list(names(motrpac_gtex_map), twas_with_hits, paste0(2^(0:3), "w"), c("p", "n", "genes"), c("male", "female")))
-nuniq <- function(x) length(unique(x))
-tissue_abbr_rev <- MotrpacRatTraining6moData::TISSUE_ABBREV_TO_CODE
-
-load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/relative_effect_sizes_deg_eqtl_list.RData")
-trace_8w_backwards <- T
-# paths <- data.table::fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/feature_repfdr_states_20220117.tsv")
-paths <- MotrpacRatTraining6moData::GRAPH_STATES
-paths <- paths[paths$ome == "TRNSCRPT",]
-paths <- lapply(setNames(unique(paths$tissue),unique(paths$tissue)), function(tiss) paths[paths$tissue == tiss,])
-
-for(tissue_i in names(motrpac_gtex_map)){
-  
-  print(tissue_i)
-  
-  sig_twas_by_trait <- lapply(setNames(twas_with_hits, twas_with_hits), 
-                              function(trait_i) sig_twas_by_tissue[[tissue_i]][sig_twas_by_tissue[[tissue_i]]$trait == trait_i,])
-  sig_twas_by_trait_genes <- lapply(setNames(twas_with_hits, twas_with_hits), 
-                                    function(trait_i) sig_twas_by_trait[[trait_i]]$gene_name)
-  sig_twas_by_trait_signs <- lapply(setNames(twas_with_hits, twas_with_hits), 
-                                    function(trait_i){
-                                      signs <- sign(sig_twas_by_trait[[trait_i]]$zscore)
-                                      names(signs) <- sig_twas_by_trait_genes[[trait_i]]
-                                      signs
-                                    })
-  
-  paths_tiss <- as.data.frame(paths[[MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue_i]]])
-  
-  for(timepoint in paste0(2^(0:3), "w")){
-    
-    for(sex in c("male", "female")){
-      
-      if(trace_8w_backwards){
-        timepoint_to_use <- "8w"
-      } else {
-        timepoint_to_use <- timepoint
-      }
-      
-      #get human gene symbols
-      DE_genes_in_Nodes <- node_metadata_list[[timepoint_to_use]]$human_gene_symbol[
-        node_metadata_list[[timepoint_to_use]]$tissue == tissue_code$abbreviation[tissue_code$tissue_name_release == tissue_i]]
-      #get rat ensembl genes
-      DE_genes_in_Nodes_ensembl <- node_metadata_list[[timepoint_to_use]]$ensembl_gene[
-        node_metadata_list[[timepoint_to_use]]$tissue == tissue_code$abbreviation[tissue_code$tissue_name_release == tissue_i]]
-      if(length(DE_genes_in_Nodes) == 0){next()}
-      
-      #snag signs
-      DE_genes_in_Nodes_sign <- cbind(as.data.frame(do.call(rbind, strsplit(node_metadata_list[[timepoint_to_use]]$node[
-        node_metadata_list[[timepoint_to_use]]$tissue == tissue_code$abbreviation[tissue_code$tissue_name_release == tissue_i]], split = "_"))),
-        gene = DE_genes_in_Nodes)
-      colnames(DE_genes_in_Nodes_sign) <- c("time", "female", "male", "gene")
-      DE_genes_in_Nodes_sign$female[grep(pattern = "F1", DE_genes_in_Nodes_sign$female)] <- 1
-      DE_genes_in_Nodes_sign$female[grep(pattern = "F-1", DE_genes_in_Nodes_sign$female)] <- -1
-      DE_genes_in_Nodes_sign$male[grep(pattern = "M1", DE_genes_in_Nodes_sign$male)] <- 1
-      DE_genes_in_Nodes_sign$male[grep(pattern = "M-1", DE_genes_in_Nodes_sign$male)] <- -1
-      DE_genes_in_Nodes_sign$ensembl_gene <- DE_genes_in_Nodes_ensembl
-      
-      #remove genes with no known human gene symbol
-      DE_genes_in_Nodes_sign <- DE_genes_in_Nodes_sign[!is.na(DE_genes_in_Nodes_sign$gene),]
-      
-      #filter down to sex
-      DE_genes_signs <- as.integer(DE_genes_in_Nodes_sign[,sex])
-      names(DE_genes_signs) <- DE_genes_in_Nodes_sign$gene
-      
-      #get relative expression scores
-      sex_i <- sex
-      relative_effect_sizes <- deg_eqtl_list[[tissue_i]][deg_eqtl_list[[tissue_i]]$sex == sex_i & 
-                                                           deg_eqtl_list[[tissue_i]]$comparison_group == timepoint,]
-      
-      
-      if(trace_8w_backwards){
-        new_nodes <- paths_tiss[match(DE_genes_in_Nodes_sign$ensembl_gene, paths_tiss$feature_ID), paste0("state_", timepoint)]
-        
-        new_DE_genes_in_Nodes_sign <- cbind(as.data.frame(do.call(rbind, strsplit(new_nodes, split = "_"))), gene = DE_genes_in_Nodes_sign$gene)
-        colnames(new_DE_genes_in_Nodes_sign) <- c("female", "male", "gene")
-        new_DE_genes_in_Nodes_sign$female[grep(pattern = "F1", new_DE_genes_in_Nodes_sign$female)] <- 1
-        new_DE_genes_in_Nodes_sign$female[grep(pattern = "F-1", new_DE_genes_in_Nodes_sign$female)] <- -1
-        new_DE_genes_in_Nodes_sign$male[grep(pattern = "M1", new_DE_genes_in_Nodes_sign$male)] <- 1
-        new_DE_genes_in_Nodes_sign$male[grep(pattern = "M-1", new_DE_genes_in_Nodes_sign$male)] <- -1
-        new_DE_genes_in_Nodes_sign$female[grep(pattern = "F0", new_DE_genes_in_Nodes_sign$female)] <- 0
-        new_DE_genes_in_Nodes_sign$male[grep(pattern = "M0", new_DE_genes_in_Nodes_sign$male)] <- 0
-        
-        #NA nodes get a 0 too
-        new_DE_genes_in_Nodes_sign[is.na(new_DE_genes_in_Nodes_sign)] <- 0
-        
-        DE_genes_signs <- setNames(as.integer(new_DE_genes_in_Nodes_sign[,sex]), DE_genes_in_Nodes_sign$gene)
-        
-      }
-      
-      
-      results <- t(sapply(setNames(twas_with_hits, twas_with_hits), function(trait_i) {
-        twas_signs <- sig_twas_by_trait_signs[[trait_i]]
-        shared_genes <- intersect(names(DE_genes_signs), names(twas_signs))
-        sign_of_effect <- twas_signs[shared_genes] * DE_genes_signs[shared_genes]
-        
-        #get proportion of positive hits
-        npos <- sum(sign_of_effect > 0.5)
-        nneg <- sum(sign_of_effect < -0.5)
-        nzero <- length(sign_of_effect) - npos - nneg
-        prop_positive <- (npos + nzero * 0.5) / length(sign_of_effect)
-        #prop_positive <- mean(sign_of_effect > 0)
-        
-        sign_of_effect_symbol <- rep("+", length(shared_genes))
-        sign_of_effect_symbol[sign_of_effect == -1] <- "-"
-        eff_size <- round(abs(relative_effect_sizes$phenotypic_expression_Z[match(shared_genes, relative_effect_sizes$gene_name)]), 2)
-        shared_gene_names <- paste0(shared_genes, " (",  sign_of_effect_symbol, ", ", eff_size, ")")
-        
-        return(list(prop_positive = prop_positive, n = length(shared_genes), genes = paste0(shared_gene_names, collapse = " ~ ")))
-      }))
-      
-      # DELT <- as.data.frame(deg_eqtl_list_TWAS_cluster_subset[[tissue_i]])
-      # 
-      # #subset to time, sex, and unique gene entries
-      # DELT <- DELT[DELT$comparison_group == time,]
-      # DELT <- DELT[DELT$sex == sex,]
-      # # DELT <- DELT[-which(is.na(DELT$gene_name)),] #get rid of na genes
-      # if(nrow(DELT) == 0){next()}
-      # DELT <- DELT[match(unique(DELT$gene_name), DELT$gene_name),] #pull out only first gene entry
-      # 
-      # 
-      # DE_inds <- which(DELT$adj_p_value <= 1.1)
-      # # TWAS_inds <- apply(DELT[,grep(colnames(DELT), pattern = "BH_PValue")] < 0.05, 2, which)
-      # TWAS_inds <- apply(log(DELT[,grep(colnames(DELT), pattern = ".pvalue")]) <= (log(0.05) - log(n_twas_comparisons_clusters)), 2, which)
-      # if(length(TWAS_inds) == 0){next()}
-      # 
-      # intersect_inds <- lapply(TWAS_inds, function(twi) intersect(DE_inds, twi))
-      # # intersect_inds <- lapply(intersect_inds, function(ii) ii[DELT$gene_name[ii] %in% cluster_genes]) #subset to just monotonic sex-homogenous clusters
-      # intersect_genes <- lapply(intersect_inds, function(ii) unique(DELT$gene_name[ii]))
-      # 
-      # 
-      # intersect_sign_logFC <- lapply(intersect_inds, function(ii) sign(DELT$logFC[ii]))
-      # names(intersect_sign_logFC) <- gsub(names(intersect_sign_logFC), pattern = ".pvalue", replacement = "")
-      # intersect_sign_TWAS <- lapply(gsub(names(intersect_inds), pattern = ".pvalue", replacement = ""), function(ii) 
-      #                        sign(DELT[intersect_inds[paste0(ii, ".pvalue")][[1]], paste0(ii, ".zscore")]))
-      # intersect_sign_match <- lapply(1:length(intersect_sign_logFC), function(i) intersect_sign_logFC[[i]]*intersect_sign_TWAS[[i]])
-      # 
-      # intersect_genes_strings <- lapply(1:length(intersect_sign_logFC), function(i) 
-      #   paste0(intersect_genes[[i]], " (", c("-", "", "+")[intersect_sign_match[[i]] + 2], ")", collapse = " ~ "))
-      # intersect_genes_strings <- unlist(intersect_genes_strings)
-      # intersect_genes_strings[intersect_genes_strings == " ()"] <- ""
-      # 
-      # intersect_sign_match <- sapply(intersect_sign_match, function(x) mean(x == 1))
-      # intersect_sign_match_n <- sapply(intersect_inds, function(x) length(x))
-      # deg_sigtwas_proportion[tissue_i,names(n_intersect),time, "p", sex] <- intersect_sign_match
-      # deg_sigtwas_proportion[tissue_i,names(n_intersect),time, "n", sex] <- intersect_sign_match_n
-      # deg_sigtwas_proportion[tissue_i,names(n_intersect),time, "genes", sex] <- intersect_genes_strings
-      
-      deg_sigtwas_proportion[tissue_i,rownames(results),timepoint, "p", sex] <- unlist(results[,"prop_positive"])
-      deg_sigtwas_proportion[tissue_i,rownames(results),timepoint, "n", sex] <- unlist(results[,"n"])
-      deg_sigtwas_proportion[tissue_i,rownames(results),timepoint, "genes", sex] <- unlist(results[,"genes"])
-      
-    }
-    
-  }
-  
-}
-fwrite(deg_sigtwas_proportion, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/deg_sigtwas_proportion.txt")
 
 # #### add in "all tissues" group ####
 # 

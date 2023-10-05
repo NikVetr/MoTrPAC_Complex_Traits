@@ -34,7 +34,7 @@ library(MotrpacRatTraining6mo) # v1.6.0
 
 
 #### define functions ####
-source(file = "~/scripts/montgomery_lab/deg-trait_functions.R")
+source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/deg-trait_functions.R")
 
 #### get ortholog map ####
 # gencode_gene_map <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gencode.v39.RGD.20201001.human.rat.gene.ids.txt")

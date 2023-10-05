@@ -2,7 +2,7 @@
 library(Cairo)
 
 #### functions ####
-source(file = "~/scripts/montgomery_lab/deg-trait_functions.R")
+source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/deg-trait_functions.R")
 
 latext <- function(labs, x, y, cex = 1, boxh = NA, first_line_col = 1, first_line_hadj = NA, col = 1, pos = NULL, first_line_center_loc = NA, ...){
   new_labs <- strsplit(labs, split = "\n")[[1]]

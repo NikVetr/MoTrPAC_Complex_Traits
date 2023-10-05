@@ -24,7 +24,7 @@ library(MotrpacRatTraining6mo) # v1.6.0
 # also attaches MotrpacRatTraining6moData v1.8.0
 
 #### define functions ####
-source(file = "~/scripts/montgomery_lab/deg-trait_functions.R")
+source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/deg-trait_functions.R")
 
 #general graphical parameters
 motrpac_gtex_map = c('t30-blood-rna'='Whole Blood',
@@ -218,8 +218,8 @@ cols$category <- category_colors
 
 #### actually plot genetic correlations ####
 
-vertically_oriented <- T
-grDevices::cairo_pdf(filename = paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/figure2s_high-level-overview",
+vertically_oriented <- F
+grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/figure2s_high-level-overview",
                                        ifelse(vertically_oriented, "_vertical", "_horizontal"),".pdf"), 
                      width = ifelse(vertically_oriented, 775 / 72, 1300 / 72), height = ifelse(vertically_oriented, 1300/72, 600 / 72), family="Arial Unicode MS")
 if(vertically_oriented){
@@ -791,13 +791,11 @@ dev.off()
 #### figure 1 composite ####
 if(!exists("called_grex_script")){called_grex_script <- F}
 if(!called_grex_script){
-  called_grex_script <- T
-  source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/fig2b_GREx_RelativeEffectSize.R")
+  source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/analysis_GREx_RelativeEffectSize.R")
 }
 if(!exists("relative_expression_data")){
   load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/relative_expression_motrpac_gtex")
 }
-
 
 unique_trait_categories <- unique(traitwise_partitions$Category)
 if(length(salient.categories) < 9){
@@ -820,7 +818,7 @@ if(length(salient.categories) < 9){
 }
 cols$category <- category_colors
 
-grDevices::cairo_pdf(filename = paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/fig2_high-level-overview.pdf"), 
+grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig2_high-level-overview.pdf"), 
                      width = 1950 / 72, height = 1125 / 72, family="Arial Unicode MS", pointsize = 18.5)
 # layout(t(c(rep(1,1),rep(2,1))))
 # layout(rbind(c(1, 1, 1, 2, 2, 2),
@@ -1745,20 +1743,21 @@ qs2use <- 1:9999/10000
 qs2use <- c(1/10000, 1:99/100, 9999/10000)
 qs2use <- round(invlogit(seq(-9,9, length.out = 75)), 4)
 
-grDevices::cairo_pdf(filename = paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/figure2_relative-expression_quantile-function.pdf"), 
+grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/figure2_relative-expression_quantile-function.pdf"),
                      width = 1200 / 72, height = 600 / 72, family="Arial Unicode MS")
 par(mfrow = c(2,4), xpd = NA, mar = c(6,4.5,4,1))
 for(type in c(3,4)){
-  
-  EZ_PZ <- relative_expression_data[[type]]
+
+  EZ_PZ <- relative_expression_data[[1]][[type]]
   EZ_PZ <- lapply(EZ_PZ, function(x) x[match(paste0(sprintf("%.2f", qs2use*100), "%"), paste0(sprintf("%.2f", as.numeric(gsub("%", "", rownames(x)))), "%")),])
-  
+
   for(ti in paste0(2^(0:3), "w")){
+    EZ_PZ[[ti]] <- EZ_PZ[[ti]][,which(!apply(apply(EZ_PZ[[ti]], 2, is.na), 2, any))]
     f_p <- 0.4
     f_x <- 2
     ylims = c(min(sort(EZ_PZ[[ti]])[sort(EZ_PZ[[ti]]) != -Inf]),max(sort(EZ_PZ[[ti]],T)[sort(EZ_PZ[[ti]],T) != Inf]))
     ylims <- squish_middle_x(ylims, f_x)
-    
+
     plot(100,100,xlim = c(0,1.25), ylim = ylims, xpd=NA, ylab = "Standardized Effect Size (SD)", xlab = "", xaxt = "n", yaxt = "n", bty="n", cex.lab = 1.25, cex.axis = 1.25)
     text("Quantile", x = 0.5, y = ylims[1] - diff(ylims)/6, pos = 1, cex = 1.25)
     if(ti == "2w"){
@@ -1766,10 +1765,10 @@ for(type in c(3,4)){
     if(ti == "1w"){
       fig_label(ifelse(type == 1, "a)", "b)"), region = "figure", pos = "topleft", cex = 3.5)
       }
-    
+
     xylocs_tissue_names <- cbind(rep(1.05, ncol(EZ_PZ[[ti]])), redistribute(as.numeric(squish_middle_x(tail(EZ_PZ[[ti]], 1), f_x)), diff(ylims) / 24))
     rownames(xylocs_tissue_names) <- colnames(EZ_PZ[[ti]]); colnames(xylocs_tissue_names) <- c("x", "y")
-    
+
     #horiz axis
     segments(x0 = 0, y0 = ylims[1] - diff(ylims) / 100, x1 = 1, y1 = ylims[1] - diff(ylims) / 100, lwd = 2)
     segments(x0 = 0:10/10, y0 = ylims[1] - diff(ylims) / 100, x1 = 0:10/10, y1 = ylims[1] - diff(ylims) / 50, lwd = 2, xpd = NA)
@@ -1778,7 +1777,7 @@ for(type in c(3,4)){
     text(labels = horiz_axis_labels, x = 0:10/10 + 0.035, y = rep(ylims[1] - diff(ylims) / 25, 10), pos = 2, xpd = NA, srt = 90)
     segments(x0 = 0.5, y0 = ylims[1], x1 = 0.5, y1 = ylims[2], lwd = 2, lty = 2, col = "grey50")
     segments(x0 = 0:10/10, y0 = ylims[1], x1 = 0:10/10, y1 = ylims[2], lwd = 1, lty = 3, col = "grey75")
-    
+
     #vert axis
     segments(x0 = -1/100, y0 = ylims[1] + diff(ylims)/100, x1 = -1/100, y1 = ylims[2], lwd = 2)
     segments(x0 = -1/100, y0 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), x1 = -1/50,
@@ -1786,10 +1785,10 @@ for(type in c(3,4)){
     text(labels = round(unsquish_middle_x(seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), f_x), 2),
          x = -1/50, y = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), pos = 2, xpd = NA)
     segments(x0 = 0, y0 = 0, x1 = 1, y1 = 0, lwd = 2, lty = 2, col = "grey50")
-    segments(x0 = 0, y0 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), x1 = 1, 
+    segments(x0 = 0, y0 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), x1 = 1,
              y1 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), lwd = 1, lty = 3, col = "grey75")
-    
-    
+
+
     for(tissue in colnames(EZ_PZ[[ti]])){
       lines(squish_middle_p(qs2use, f_p), squish_middle_x(EZ_PZ[[ti]][,tissue], f_x), col = cols$Tissue[tissue])
       text(nnmap$abbreviation[match(tissue, nnmap$tissue_name_release)], x = xylocs_tissue_names[tissue,"x"], y = xylocs_tissue_names[tissue,"y"], pos = 4, xpd = NA,
@@ -1798,7 +1797,7 @@ for(type in c(3,4)){
                y0 = squish_middle_x(tail(EZ_PZ[[ti]][,tissue], 1), f_x), y1 = xylocs_tissue_names[tissue,"y"],
                lty = 3, col = cols$Tissue[tissue])
     }
-    shadowtext(x = -0.01, y = ylims[2] - diff(ylims) / 8, labels = ti, 
+    shadowtext(x = -0.01, y = ylims[2] - diff(ylims) / 8, labels = ti,
                cex = 5, col = cols$Time[ti], pos = 4, r = 0.2)
   }
 }
@@ -2307,6 +2306,7 @@ for(sex_i in c("male", "female")){
     })
     
     ti = "8w"
+    EZ_PZ[[ti]] <- EZ_PZ[[ti]][,which(!apply(apply(EZ_PZ[[ti]], 2, is.na), 2, any))]
     f_p <- 0.4
     f_x <- 2
     ylims = c(min(sort(EZ_PZ[[ti]])[sort(EZ_PZ[[ti]]) != -Inf]),max(sort(EZ_PZ[[ti]],T)[sort(EZ_PZ[[ti]],T) != Inf]))
@@ -2378,11 +2378,11 @@ dev.off()
 #### figure 2 (split 1/2) REDUX ####
 source(file = "~/scripts/montgomery_lab/deg-trait_functions.R")
 
-if(any(!(unlist(.Devices) %in% c("", "null device")))){
-  for(i in 1:(sum(!(unlist(.Devices) %in% c("", "null device"))))){
-    dev.off()
-  }
-}
+# if(any(!(unlist(.Devices) %in% c("", "null device")))){
+#   for(i in 1:(sum(!(unlist(.Devices) %in% c("", "null device"))))){
+#     dev.off()
+#   }
+# }
 
 # flowchart node parameters
 cols <- c(rgb(255,255,255,m=255),
@@ -2787,10 +2787,10 @@ fig_label(text = "c)", region = "plot", cex = 3, shrinkX = 3, shrinkY = 2.5)
 
 dev.off()
 
-#### figure 2 (split 2/2) REDUX ####
+#### figure 6 (split 2/2) REDUX ####
 
 # actual plotting
-grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig6_relative-expression.pdf"), 
+grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig2_relative-expression.pdf"), 
                      width = 1350 / 72, height = 1125 / 72 * 1.5 * 2 / 6, family="Arial Unicode MS", pointsize = 20.5)
 
 layout_mat <- kronecker(rbind(
@@ -2907,6 +2907,7 @@ for(sex_i in c("male", "female")){
     })
     
     ti = "8w"
+    EZ_PZ[[ti]] <- EZ_PZ[[ti]][,which(!apply(apply(EZ_PZ[[ti]], 2, is.na), 2, any))]
     f_p <- 0.4
     f_x <- 2
     ylims = c(min(sort(EZ_PZ[[ti]])[sort(EZ_PZ[[ti]]) != -Inf]),max(sort(EZ_PZ[[ti]],T)[sort(EZ_PZ[[ti]],T) != Inf]))

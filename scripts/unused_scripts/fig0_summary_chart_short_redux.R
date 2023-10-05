@@ -2,7 +2,7 @@
 library(Cairo)
 
 #### functions ####
-source(file = "~/scripts/montgomery_lab/deg-trait_functions.R")
+source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/deg-trait_functions.R")
 
 #### node parameters ####
 cols <- c(rgb(255,255,255,m=255),

@@ -17,6 +17,7 @@ thresh <- 0.2
 
 #dload data
 ot_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/opentargets/"
+if(!dir.exists(ot_dir)){dir.create(ot_dir)}
 desired_folders <- c("associationByOverallIndirect", "associationByOverallDirect", "evidence", "targets", "diseases")
 desired_types <- c("parquet", "json")
 for(dt in desired_types){

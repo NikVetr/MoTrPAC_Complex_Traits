@@ -27,10 +27,10 @@ library(MotrpacRatTraining6mo) # v1.6.0
 
 # TODO: add these scripts to this repo 
 #load de data
-source(file = "~/scripts/montgomery_lab/load_deg-eqtl_merged_file.R")
+source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/load_deg-eqtl_merged_file.R")
 
 #load functions
-source(file = "~/scripts/montgomery_lab/deg-trait_functions.R")
+source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/deg-trait_functions.R")
 
 
 #rat <-> human gene map 

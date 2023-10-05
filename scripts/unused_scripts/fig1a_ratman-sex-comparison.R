@@ -74,7 +74,7 @@ for(tissue in setdiff(names(motrpac_gtex_map), c("t63-testes", "t64-ovaries"))){
                     dds@rowRanges@elementMetadata@listData$SE_sex_male_vs_female)
   p_values[p_values > 0.5] <- 1-p_values[p_values > 0.5]
   p_values <- p_values*2
-  sex_DE_rats[[tissue]] <-data.table(ENSRNOG = rownames(dds),
+  sex_DE_rats[[tissue]] <- data.table(ENSRNOG = rownames(dds),
                                      p_value = p_values,
                                      effect_size = dds@rowRanges@elementMetadata@listData$sex_male_vs_female)
 }
