@@ -87,12 +87,12 @@ if(file.exists("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/ldsc_
 ldsc_results$gwas <- stringr::str_replace_all(ldsc_results$gwas, "imputed_", "")
 
 ldsc_results$logPVal_enrichment <- log10(ldsc_results$Enrichment_p)
-hist(ldsc_results$logPVal_enrichment)
-hist(ldsc_results$logPVal_enrichment + log10(nrow(ldsc_results)))
-abline(v = log10(0.1), col = 2)
-plot((ldsc_results$Prop._h2 - ldsc_results$Prop._SNPs) / ldsc_results$Prop._h2_std_error, ldsc_results$Enrichment_p)
-plot(ldsc_results$Enrichment / ldsc_results$Enrichment_std_error, ldsc_results$Enrichment_p)
-plot(ldsc_results$Prop._h2 / ldsc_results$Prop._SNPs, ldsc_results$Enrichment)
+# hist(ldsc_results$logPVal_enrichment)
+# hist(ldsc_results$logPVal_enrichment + log10(nrow(ldsc_results)))
+# abline(v = log10(0.1), col = 2)
+# plot((ldsc_results$Prop._h2 - ldsc_results$Prop._SNPs) / ldsc_results$Prop._h2_std_error, ldsc_results$Enrichment_p)
+# plot(ldsc_results$Enrichment / ldsc_results$Enrichment_std_error, ldsc_results$Enrichment_p)
+# plot(ldsc_results$Prop._h2 / ldsc_results$Prop._SNPs, ldsc_results$Enrichment)
 
 cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[tissue_abbrev], 
             Time=MotrpacRatTraining6moData::GROUP_COLORS[paste0(c(1,2,4,8), "w")],
@@ -223,4 +223,100 @@ if(file.exists("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/ldsc_
   ldsc_results_cts_alt_fullyconditional$logPVal_enrichment <- log10(ldsc_results_cts_alt_fullyconditional$Enrichment_p)
   fwrite(ldsc_results_cts_alt_fullyconditional, "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/ldsc_cluster_results_cts_alt_fullyconditional.txt")
 }
+
+
+#### plot preprocessing + plotting LDSC output ####
+#specify graph parameters
+max_point_cex <- 3.5
+point_cex_power <- 0.35
+n_points_for_legend = 7
+buffer_min_and_max = 0.05
+# minimum_enrichment_logPval <- min(ldsc_results_sub$logPVal_enrichment)
+opacity_insig_points <- 0.2
+opacity_sig_points <- 0.8
+
+plot_LDSC_comparison = T
+reorder_vertical <- T
+use_conditional_model = F
+use_cts_alt_model = T
+use_enrichment = F
+partition_by_category <- T
+use_heritability = !use_enrichment
+fix_axes = F
+fix_axes_bounds_enrichment = c(0,5)
+fix_axes_bounds_heritability = c(0,1)
+
+#filter by h2 sigma
+total_h2_sigma_thresh <- 7
+traits_with_satisfactory_heritaility <- unique(log_files$gwas[log_files$h2 / log_files$h2se > total_h2_sigma_thresh])
+
+# ldsc_results_sub <- ldsc_results[ldsc_results$gwas %in% traits_with_satisfactory_heritaility,]
+# if(use_conditional_model){
+#   ldsc_results_sub <- ldsc_results_conditional[ldsc_results_conditional$gwas %in% traits_with_satisfactory_heritaility,]
+# }
+
+trait_categories <- read.csv("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gwas_metadata.csv", header = T)
+traitname_map <- trait_categories[,c("Tag", "new_Phenotype")]
+traitwise_partitions <- trait_categories[,c("Tag", "Category")]
+categories <- sort(unique(traitwise_partitions$Category))
+
+#filter by category
+trait_categories <- read.csv("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/gwas_metadata.csv", header = T)
+traitwise_partitions <- trait_categories[,c("Tag", "Category")]
+traits_in_focal_categories <- traitwise_partitions$Tag[traitwise_partitions$Category %in% 
+                                                         c("Cardiometabolic", "Aging", "Anthropometric", 
+                                                           "Immune", "Psychiatric-neurologic")]
+traits_in_focal_categories <- traitwise_partitions$Tag
+
+#BH correction significant
+use_IHW_ldsc <- T
+if(length(ldsc_results$adj_p) == 0){
+  if(use_IHW_ldsc){
+    ihw_results_ldsc <- IHW::ihw(p ~ trait, data = data.frame(p = ldsc_results$Enrichment_p, trait = as.factor(ldsc_results$gwas)), alpha = 0.05)
+    ldsc_results$adj_p <- ihw_results_ldsc@df$adj_pvalue
+    
+    ihw_results_ldsc <- IHW::ihw(p ~ trait, data = data.frame(p = ldsc_results_conditional$Enrichment_p, trait = as.factor(ldsc_results_conditional$gwas)), alpha = 0.05)
+    ldsc_results_conditional$adj_p <- ihw_results_ldsc@df$adj_pvalue
+    
+    ihw_results_ldsc <- IHW::ihw(p ~ trait, data = data.frame(p = ldsc_results_cts_alt$Enrichment_p, trait = as.factor(ldsc_results_cts_alt$gwas)), alpha = 0.05)
+    ldsc_results_cts_alt$adj_p <- ihw_results_ldsc@df$adj_pvalue
+    
+    ihw_results_ldsc <- IHW::ihw(p ~ trait, data = data.frame(p = ldsc_results_cts_alt_fullyconditional$Enrichment_p, trait = as.factor(ldsc_results_cts_alt_fullyconditional$gwas)), alpha = 0.05)
+    ldsc_results_cts_alt_fullyconditional$adj_p <- ihw_results_ldsc@df$adj_pvalue
+  } else {
+    ldsc_results$adj_p <- p.adjust(ldsc_results$Enrichment_p, "BH")
+  }
+}
+
+#get final trait list
+traits_to_keep <- intersect(traits_with_satisfactory_heritaility, traits_in_focal_categories)
+traits_with_significant_hits <- unique(ldsc_results_cts_alt_fullyconditional$gwas[
+  ldsc_results_cts_alt_fullyconditional$adj_p < 0.05 & ldsc_results$Enrichment > 0])
+traits_to_keep <- intersect(traits_to_keep, traits_with_significant_hits)
+
+coloc_phenotypes_sub <- traits_to_keep
+
+ldsc_results_sub <- ldsc_results[ldsc_results$gwas %in% traits_to_keep,]
+
+if(use_conditional_model){
+  ldsc_results_sub <- ldsc_results_conditional[ldsc_results_conditional$gwas %in% traits_to_keep,]
+}
+
+if(use_cts_alt_model){
+  ldsc_results_sub <- ldsc_results_cts_alt[ldsc_results_cts_alt$gwas %in% traits_to_keep,]
+}
+
+use_fullyconditional_cts_alt_model = T
+if(use_fullyconditional_cts_alt_model){
+  ldsc_results_sub <- ldsc_results_cts_alt_fullyconditional[ldsc_results_cts_alt_fullyconditional$gwas %in% traits_to_keep,]
+}
+
+#get minimum p-val
+minimum_enrichment_logPval <- log10(min(ldsc_results_sub$adj_p))
+
+
+#identify traits with negative heritabilities
+bad_boys <- sort(unique(ldsc_results_sub$gwas[ldsc_results_sub$Enrichment < 0 | ldsc_results_sub$Prop._h2 < 0]))
+bad_boys_cols <- rep(1, length(gwas_names))
+# bad_boys_cols[match(bad_boys, coloc_phenotypes_sub)] <- 2
 

@@ -90,26 +90,32 @@ fwrite(data, "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/prop_po
 #      main = paste0("prop above line = ", round(mean((data$count_twas / data$total_twas + data$count_motr / data$total_motr)/2 < 
 #                                                       (data$count_inters / data$total_inters), na.rm = T), 2)),
 #      cex = data$total_inters / max(data$total_inters) * 5, pch = 19, col = adjustcolor(1,0.5))
-plot(data$count_compl / data$total_compl, data$count_inters / data$total_inters,
-     main = paste0("prop above line = ", round(mean((data$count_inters / data$total_inters > data$count_compl / data$total_compl), na.rm = T), 2)),
-     cex = data$total_inters / max(data$total_inters) * 5, pch = 19, col = adjustcolor(1,0.5))
-abline(0,1,lwd=2,lty=2,col=adjustcolor(2,0.5))
-abline(h=0.5,lwd=2,lty=2,col=adjustcolor(1,0.5))
-plot(data$count_all / data$total_all, data$count_inters / data$total_inters,
-     main = paste0("prop above line = ", round(mean((data$count_inters / data$total_inters > data$count_all / data$total_all), na.rm = T), 2)),
-     cex = data$total_inters / max(data$total_inters) * 5, pch = 19, col = adjustcolor(1,0.5))
-abline(0,1,lwd=2,lty=2,col=adjustcolor(2,0.5))
-abline(h=0.5,lwd=2,lty=2,col=adjustcolor(1,0.5))
+# plot(data$count_compl / data$total_compl, data$count_inters / data$total_inters,
+#      main = paste0("prop above line = ", round(mean((data$count_inters / data$total_inters > data$count_compl / data$total_compl), na.rm = T), 2)),
+#      cex = data$total_inters / max(data$total_inters) * 5, pch = 19, col = adjustcolor(1,0.5))
+# abline(0,1,lwd=2,lty=2,col=adjustcolor(2,0.5))
+# abline(h=0.5,lwd=2,lty=2,col=adjustcolor(1,0.5))
+# plot(data$count_all / data$total_all, data$count_inters / data$total_inters,
+#      main = paste0("prop above line = ", round(mean((data$count_inters / data$total_inters > data$count_all / data$total_all), na.rm = T), 2)),
+#      cex = data$total_inters / max(data$total_inters) * 5, pch = 19, col = adjustcolor(1,0.5))
+# abline(0,1,lwd=2,lty=2,col=adjustcolor(2,0.5))
+# abline(h=0.5,lwd=2,lty=2,col=adjustcolor(1,0.5))
 
 #make slightly fancier plot
+category_shapes <- setNames(15:19, c("Cardiometabolic", "Aging", "Anthropometric", 
+                                     "Immune", "Psychiatric-neurologic")
+)
+focal_traitcats <- c("Cardiometabolic", "Immune", "Endocrine system", "Anthropometric", "Allergy", "Aging")
+category_shapes <- setNames(c(24,19,15,43,23,25)[1:length(focal_traitcats)], focal_traitcats)
+
 pchs <- category_shapes[traitwise_partitions$Category[match(data$trait, traitwise_partitions$Tag)]]
 pchs[is.na(pchs)] <- 1
-plot(data$count_all / data$total_all, data$count_inters / data$total_inters,
-     main = "", 
-     pch = pchs,
-     cex = data$total_inters / max(data$total_inters) * 5, col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[data$tissue],0.5))
-abline(h=0.5,lwd=2,lty=2,col=adjustcolor(1,0.5))
-abline(v=0.5,lwd=2,lty=2,col=adjustcolor(1,0.5))
+# plot(data$count_all / data$total_all, data$count_inters / data$total_inters,
+#      main = "", 
+#      pch = pchs,
+#      cex = data$total_inters / max(data$total_inters) * 5, col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[data$tissue],0.5))
+# abline(h=0.5,lwd=2,lty=2,col=adjustcolor(1,0.5))
+# abline(v=0.5,lwd=2,lty=2,col=adjustcolor(1,0.5))
 
 
 basic_posteriors_masses <- 1 - pbeta(q = 0.5, shape1 = 1 + data$count_inters, shape2 = 1 + data$total_inters - data$count_inters)
@@ -1168,16 +1174,16 @@ samps <- data.frame(as_draws_df(out$draws()))
 # sum(apply(samps[,grep("logit_prop_21\\.", colnames(samps))], 2, prop_greater_than_0) > 0.95)
 # sum(apply(samps[,grep("logit_prop_21\\.", colnames(samps))], 2, prop_greater_than_0) < 0.05)
 
-dev.off()
-hist(apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, mean))
-hist(apply(subset_samps("col_bias", c("raw", "sd"), samps = samps), 2, mean), breaks = 10)
+# dev.off()
+# hist(apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, mean))
+# hist(apply(subset_samps("col_bias", c("raw", "sd"), samps = samps), 2, mean), breaks = 10)
 # hist(samps$col_sd_comp)
 # hist(invlogit(apply(subset_samps("col_means_compl", c("raw", "sd"), samps = samps), 2, mean)))
 # hist(invlogit(apply(subset_samps("logodds_compl", c("raw", "sd"), samps = samps), 2, mean)))
 # hist(invlogit(apply(subset_samps("logodds_focal", c("raw", "sd"), samps = samps), 2, mean)))
-hist(invlogit(apply(subset_samps("logodds", c("raw", "sd"), samps = samps), 2, mean)))
+# hist(invlogit(apply(subset_samps("logodds", c("raw", "sd"), samps = samps), 2, mean)))
 
-hist(apply(subset_samps("logodds", c("raw", "compl", "sd", "mean", "bias"), samps = samps), 2, mean))
+# hist(apply(subset_samps("logodds", c("raw", "compl", "sd", "mean", "bias"), samps = samps), 2, mean))
 prop_greater_than_0 <- function(x) mean(x>0)
 sum((apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)) > 0.95)
 sum((apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)) < 0.05)
@@ -1191,7 +1197,7 @@ subdata[which((apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps 
 cbind(subdata[order(((apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)))), 
               c("count_inters", "total_inters", "tissue", "trait")], 
       sort(apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)))
-plot(d$count / d$total, apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0))
+# plot(d$count / d$total, apply(subset_samps("cell_total_prob_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0))
 # plot(d$count / d$total, invlogit(apply(subset_samps("logodds_focal", c("raw", "sd", "compl"), samps = samps), 2, mean)), cex = d$total / max(d$total) * 5); abline(0,1,col=2,lty=2)
 
 sum((apply(subset_samps("col_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)) > 0.9)
@@ -1213,7 +1219,7 @@ trait_key[traits[which((apply(subset_samps("col_bias", c("raw", "sd"), samps = s
 cbind(trait_cats[which((apply(subset_samps("colcat_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)) < alpha)],
       apply(subset_samps("colcat_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0))
 #gcor proportion
-hist(samps$prop_gcor, probability = T)
+# hist(samps$prop_gcor, probability = T)
 mean(samps$prop_gcor > 0.9)
 
 

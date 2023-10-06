@@ -275,7 +275,7 @@ if(use_all_genes_for_trait_tiss_corrmats){
                        ".RData"))
   }
   
-  pheatmap::pheatmap(tissue_corr_mat, breaks = -10:10/10, color = colorspace::diverging_hcl(21))
+  # pheatmap::pheatmap(tissue_corr_mat, breaks = -10:10/10, color = colorspace::diverging_hcl(21))
 }
 
 #find some useful summary stats for ortholog mapping
@@ -505,7 +505,7 @@ if(use_all_genes_for_trait_tiss_corrmats){
     }
     
     trait_corr_mat <- trait_corr_mat_multi
-    pheatmap::pheatmap(trait_corr_mat, breaks = -10:10/10, color = colorspace::diverging_hcl(21))
+    # pheatmap::pheatmap(trait_corr_mat, breaks = -10:10/10, color = colorspace::diverging_hcl(21))
     
   }
 }
@@ -878,8 +878,8 @@ if(any(grepl("L_", colnames(samps)))){
   row_bias_corrs_samps <- do.call(abind::abind, list(lapply(1:nrow(samps), function(i){L <- matrix(unlist(L_row_bias_samps[i,]), length(tissues), length(tissues)); L %*% t(L)}), along = 3))
   row_bias_corrs_mean <- apply(row_bias_corrs_samps, c(1,2), mean)
   row_bias_corrs_gr0.5 <- apply(row_bias_corrs_samps, c(1,2), prop_greater_than_0)
-  hist(row_bias_corrs_gr0.5[upper.tri(row_bias_corrs_gr0.5)])
-  hist(row_bias_corrs_mean[upper.tri(row_bias_corrs_mean)])
+  # hist(row_bias_corrs_gr0.5[upper.tri(row_bias_corrs_gr0.5)])
+  # hist(row_bias_corrs_mean[upper.tri(row_bias_corrs_mean)])
 }
 
 # rowcatbias <- apply(subset_samps("rowcat_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)

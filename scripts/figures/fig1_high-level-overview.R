@@ -10,7 +10,7 @@ source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figu
 # }
 
 # flowchart node parameters
-cols <- c(rgb(255,255,255,m=255),
+node_cols <- c(rgb(255,255,255,m=255),
           rgb(255,255,255,m=255),
           rgb(240,172,1,m=255), 
           rgb(32,48,80,m=255), 
@@ -19,7 +19,7 @@ cols <- c(rgb(255,255,255,m=255),
           rgb(204,85,0,m=255), 
           rgb(54,1,63,m=255)
 )
-cols <- c(cols, rep(cols[8], 2), 1)
+node_cols <- c(node_cols, rep(node_cols[8], 2), 1)
 ws <- c(1, 0.65, rep(0.75, 8), 2.25) * 1.5
 hs <- c(0.75,
         0.75,
@@ -120,7 +120,7 @@ if(!exists("relative_expression_data")){
   load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/relative_expression_motrpac_gtex")
 }
 
-# actual plotting
+#### actual plotting ####
 grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig1_high-level-overview_redux_take-2.pdf"), 
                      width = 1350 / 72, height = 1125 / 72 * 1.5 * 4 / 6, family="Arial Unicode MS", pointsize = 18.5)
 
@@ -160,7 +160,7 @@ for(i in 1:nrow(edges)){
                        locs[edges[i,1],2], 
                        locs[edges[i,2],2]), w = shaft_width[i],
                      prop_shaft_length = prop_shaft_length[i], prop_head_width = prop_head_width[i],
-                     cols = cols[edges[i,]], col_alpha = arrow_alpha, direc = edge_dir[i], outline_col = edge_outline_cols[i], raster = raster, 
+                     cols = node_cols[edges[i,]], col_alpha = arrow_alpha, direc = edge_dir[i], outline_col = edge_outline_cols[i], raster = raster, 
                      nslices = nslices, raster_res = raster_res)  
     
   } else if(edge_dir[i] == "v"){
@@ -168,7 +168,7 @@ for(i in 1:nrow(edges)){
     if(edges[i,1]==1){
       edge_cols <- c("white", "black")
     } else {
-      edge_cols <- cols[edges[i,]]  
+      edge_cols <- node_cols[edges[i,]]  
     }
     
     grad_arrow_curve(c(locs[edges[i,1],1], 
@@ -193,7 +193,7 @@ for(i in 1:nrow(locs)){
   if(i %in% c(1,2)){
     addImg(png::readPNG(imgsrc[i]), x = locs[i,1], y = locs[i,2], width = ws[i])
   } else {
-    rrect(loc = locs[i,], w = ws[[i]], h = hs[[i]], border = cols[i], col = adjustcolor(cols[i], 0.1),
+    rrect(loc = locs[i,], w = ws[[i]], h = hs[[i]], border = node_cols[i], col = adjustcolor(node_cols[i], 0.1),
           lwd = 2, pe = pes[i], hat_prop = hat_prop, bold_border = ifelse(i == nrow(locs), 0.05, 0))
     # text(locs[i,1] - ws[i]/1.9, locs[i,2] + hs[i]/2, labels = i, cex = 1.25)  
   }
@@ -206,8 +206,8 @@ for(i in 1:nrow(locs)){
          x = locs[i,1] - ws[i]/2 + text_hdisp[i], 
          y = locs[i,2] + hs[i]/2 + text_vdisp[i], 
          pos = 4, cex = text_cex[i], 
-         boxh = ifelse(cols[i] == "#FFFFFF", NA, hs[i]), 
-         first_line_col = ifelse(cols[i] == "#FFFFFF", 1, cols[i]),
+         boxh = ifelse(node_cols[i] == "#FFFFFF", NA, hs[i]), 
+         first_line_col = ifelse(node_cols[i] == "#FFFFFF", 1, node_cols[i]),
          first_line_hadj = NA, first_line_center_loc = ifelse(i %in% c(1,2), NA, locs[i,1]))
   
 }
@@ -217,6 +217,8 @@ for(i in 1:nrow(locs)){
 cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(motrpac_gtex_map)], 
             Time=MotrpacRatTraining6moData::GROUP_COLORS[paste0(c(1,2,4,8), "w")],
             Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
+tissue_colors <- c(MotrpacRatTraining6moData::TISSUE_COLORS, THREE = "black")
+
 cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
 par(mar = c(4,5,4,1), xpd = NA)
 load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/node_metadata_list.RData")
@@ -228,7 +230,6 @@ n_tissues_per_gene <- table(all_genes)
 ensembl_genes$THREE <- names(n_tissues_per_gene)[n_tissues_per_gene > 2]
 
 
-tissue_colors <- c(MotrpacRatTraining6moData::TISSUE_COLORS, THREE = "black")
 jaccard <- function(x, y) length(intersect(x,y)) / length(union(x,y))
 jacmat <- sapply(orig_ensembl_genes, function(x) sapply(orig_ensembl_genes, function(y) jaccard(x,y)))
 jacmat_inds <- order(cmdscale(1-jacmat, k = 1))

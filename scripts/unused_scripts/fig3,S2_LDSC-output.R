@@ -225,7 +225,7 @@ if(file.exists("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/ldsc_
 }
 
 
-#### plotting LDSC output ####
+#### plot preprocessing + plotting LDSC output ####
 #specify graph parameters
 max_point_cex <- 3.5
 point_cex_power <- 0.35

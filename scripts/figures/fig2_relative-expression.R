@@ -1,6 +1,6 @@
 #### run preprocessing script ####
 source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_1_preprocessing.R")
-
+source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/analyses/analysis_GREx_RelativeEffectSize.R")
 
 #### figure plotting ####
 
@@ -67,7 +67,7 @@ fig_label(text = "b)", region = "plot", cex = 3, shrinkX = -3.75, shrinkY = 1.06
 #snp heritability
 par(mar = c(3,3.5,1,3.5)+1.5)
 if(!exists("gcta_output")){
-  load(file = "gcta_output_GTEx_allTissues_list_IHW.RData")
+  load(file = paste0(gcta_directory, "gcta_output_GTEx_allTissues_list_IHW.RData"))
   load(paste0(gcta_directory, "gcta_output_GTEx_allTissues.RData"))
 }
 n_h2s <- sum(sapply(gcta_output, function(i) nrow(i)))

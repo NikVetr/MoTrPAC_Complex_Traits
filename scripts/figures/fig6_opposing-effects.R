@@ -4,6 +4,11 @@ source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figu
 
 #### figure plotting ####
 #specify which traits are good and which are bad
+cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(motrpac_gtex_map)], 
+            Time=MotrpacRatTraining6moData::GROUP_COLORS[paste0(c(1,2,4,8), "w")],
+            Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
+cols$Tissue<- cols$Tissue[order(match(MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[names(cols$Tissue)], MotrpacRatTraining6moData::TISSUE_ORDER))]
+tissue_names <- sapply(strsplit(names(cols$Tissue), "-"), function(x) paste0(x[ifelse(length(x) == 2, c(2), list(2:3))[[1]]], collapse = " "))
 trait_goodness <- list("Standing_Height_UKB" = 0,
                        "BMI_UKB" = -1,
                        "Height" = 0,
@@ -90,7 +95,7 @@ n_deg_sigtwas_intersect
 # trait_patts <- c("triglycerides")
 
 
-cairo_pdf(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/pass1b_fig8_DE_protective_effect_opposing.pdf"), 
+cairo_pdf(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig6_protective_effect_opposing.pdf"), 
           width = 1400 / 72, height = 475 / 72 * length(trait_patts), family="Arial Unicode MS", pointsize = 12.5)
 par(mfrow = c(length(trait_patts),1), xpd = NA, mar = c(4,3,4,17.75))
 lwd <- 3

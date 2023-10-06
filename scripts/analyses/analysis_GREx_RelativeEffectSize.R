@@ -348,38 +348,41 @@ if(do_ihw){
 
 
 #### compute relative exercise effect z-scores ####
-load(paste0(gcta_directory, "gcta_output_GTEx_allTissues_list_IHW.RData"))
-for(tissue in tissues){
-  print(tissue)
-  male_inds <- which(deg_eqtl_list[[tissue]]$sex == "male")
-  female_inds <- which(deg_eqtl_list[[tissue]]$sex == "female")
-  
-  deg_eqtl_list[[tissue]]$phenotypic_expression_Z <- 0
-  deg_eqtl_list[[tissue]]$phenotypic_expression_Z[male_inds] <- deg_eqtl_list[[tissue]]$logFC[male_inds] / 
-    sds_expression[[tissue]]$est_sd_m[match(deg_eqtl_list[[tissue]]$human_ensembl_gene[male_inds], rownames(sds_expression[[tissue]]))]
-  deg_eqtl_list[[tissue]]$phenotypic_expression_Z[female_inds] <- deg_eqtl_list[[tissue]]$logFC[female_inds] / 
-    sds_expression[[tissue]]$est_sd_f[match(deg_eqtl_list[[tissue]]$human_ensembl_gene[female_inds], rownames(sds_expression[[tissue]]))]
-  
-  deg_eqtl_list[[tissue]]$genetic_expression_Z <- 0
-  deg_eqtl_list[[tissue]]$genetic_expression_Z[male_inds] <- deg_eqtl_list[[tissue]]$logFC[male_inds] / 
-    sds_expression[[tissue]]$est_sd_m[match(deg_eqtl_list[[tissue]]$human_ensembl_gene[male_inds], rownames(sds_expression[[tissue]]))] / 
-    sqrt(gcta_output[[tissue]]$h2[match(deg_eqtl_list[[tissue]]$human_ensembl_gene[male_inds], gcta_output[[tissue]]$ENSG)])
-  deg_eqtl_list[[tissue]]$genetic_expression_Z[female_inds] <- deg_eqtl_list[[tissue]]$logFC[female_inds] / 
-    sds_expression[[tissue]]$est_sd_f[match(deg_eqtl_list[[tissue]]$human_ensembl_gene[female_inds], rownames(sds_expression[[tissue]]))] / 
-    sqrt(gcta_output[[tissue]]$h2[match(deg_eqtl_list[[tissue]]$human_ensembl_gene[female_inds], gcta_output[[tissue]]$ENSG)])
-  
-  #remove unexpressed genes  
-  bad_inds <- which(deg_eqtl_list[[tissue]]$reference_average_intensity == 0 | deg_eqtl_list[[tissue]]$comparison_average_intensity == 0)
-  deg_eqtl_list[[tissue]]$genetic_expression_Z[bad_inds] <- NA
-  deg_eqtl_list[[tissue]]$phenotypic_expression_Z[bad_inds] <- NA
-  
-  # deg_eqtl_list[[tissue]]$genetic_expression_plus2SE_Z <- deg_eqtl_list[[tissue]]$logFC / 
-  #   (sds_expression[tissue, match(deg_eqtl_list[[tissue]]$human_ensembl_gene, colnames(sds_expression))] * 
-  #      sqrt(gcta_output[[tissue]]$h2[match(deg_eqtl_list[[tissue]]$human_ensembl_gene, gcta_output[[tissue]]$ENSG)] + 
-  #             2 * gcta_output[[tissue]]$SE[match(deg_eqtl_list[[tissue]]$human_ensembl_gene, gcta_output[[tissue]]$ENSG)]))
+if(!file.exists("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/relative_effect_sizes_deg_eqtl_list.RData")){
+  load(paste0(gcta_directory, "gcta_output_GTEx_allTissues_list_IHW.RData"))
+  for(tissue in tissues){
+    print(tissue)
+    male_inds <- which(deg_eqtl_list[[tissue]]$sex == "male")
+    female_inds <- which(deg_eqtl_list[[tissue]]$sex == "female")
+    
+    deg_eqtl_list[[tissue]]$phenotypic_expression_Z <- 0
+    deg_eqtl_list[[tissue]]$phenotypic_expression_Z[male_inds] <- deg_eqtl_list[[tissue]]$logFC[male_inds] / 
+      sds_expression[[tissue]]$est_sd_m[match(deg_eqtl_list[[tissue]]$human_ensembl_gene[male_inds], rownames(sds_expression[[tissue]]))]
+    deg_eqtl_list[[tissue]]$phenotypic_expression_Z[female_inds] <- deg_eqtl_list[[tissue]]$logFC[female_inds] / 
+      sds_expression[[tissue]]$est_sd_f[match(deg_eqtl_list[[tissue]]$human_ensembl_gene[female_inds], rownames(sds_expression[[tissue]]))]
+    
+    deg_eqtl_list[[tissue]]$genetic_expression_Z <- 0
+    deg_eqtl_list[[tissue]]$genetic_expression_Z[male_inds] <- deg_eqtl_list[[tissue]]$logFC[male_inds] / 
+      sds_expression[[tissue]]$est_sd_m[match(deg_eqtl_list[[tissue]]$human_ensembl_gene[male_inds], rownames(sds_expression[[tissue]]))] / 
+      sqrt(gcta_output[[tissue]]$h2[match(deg_eqtl_list[[tissue]]$human_ensembl_gene[male_inds], gcta_output[[tissue]]$ENSG)])
+    deg_eqtl_list[[tissue]]$genetic_expression_Z[female_inds] <- deg_eqtl_list[[tissue]]$logFC[female_inds] / 
+      sds_expression[[tissue]]$est_sd_f[match(deg_eqtl_list[[tissue]]$human_ensembl_gene[female_inds], rownames(sds_expression[[tissue]]))] / 
+      sqrt(gcta_output[[tissue]]$h2[match(deg_eqtl_list[[tissue]]$human_ensembl_gene[female_inds], gcta_output[[tissue]]$ENSG)])
+    
+    #remove unexpressed genes  
+    bad_inds <- which(deg_eqtl_list[[tissue]]$reference_average_intensity == 0 | deg_eqtl_list[[tissue]]$comparison_average_intensity == 0)
+    deg_eqtl_list[[tissue]]$genetic_expression_Z[bad_inds] <- NA
+    deg_eqtl_list[[tissue]]$phenotypic_expression_Z[bad_inds] <- NA
+    
+    # deg_eqtl_list[[tissue]]$genetic_expression_plus2SE_Z <- deg_eqtl_list[[tissue]]$logFC / 
+    #   (sds_expression[tissue, match(deg_eqtl_list[[tissue]]$human_ensembl_gene, colnames(sds_expression))] * 
+    #      sqrt(gcta_output[[tissue]]$h2[match(deg_eqtl_list[[tissue]]$human_ensembl_gene, gcta_output[[tissue]]$ENSG)] + 
+    #             2 * gcta_output[[tissue]]$SE[match(deg_eqtl_list[[tissue]]$human_ensembl_gene, gcta_output[[tissue]]$ENSG)]))
+  }
+  save(deg_eqtl_list, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/relative_effect_sizes_deg_eqtl_list.RData")
+} else {
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/relative_effect_sizes_deg_eqtl_list.RData")
 }
-save(deg_eqtl_list, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/relative_effect_sizes_deg_eqtl_list.RData")
-load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/relative_effect_sizes_deg_eqtl_list.RData")
 
 #remove unexpressed genes
 # where either "reference_average_intensity" or "comparison_timewise_intensity" in the timewise-dea tables is 0
@@ -404,71 +407,75 @@ EZ_PZ <- lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti
 
 load(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/node_metadata_list.RData")
 abs.min <- function(x) x[which.min(abs(x))]
-relative_expression_data <- 
-  lapply(setNames(c("male", "female"),c("male", "female")), function(sex_i) list(
-    
-    phenotypic_expression = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
-      sapply(tissues, function(tissue) quantile(
-        x = deg_eqtl_list[[tissue]]$phenotypic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == sex_i], 
-        probs = qs2use, na.rm = T))),
-    
-    genetic_expression = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
-      sapply(tissues, function(tissue) quantile(
-        x = deg_eqtl_list[[tissue]]$genetic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == sex_i], 
-        probs = qs2use, na.rm = T))),
-    
-    phenotypic_expression_sexhomo = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
-      sapply(setdiff(tissues, c("t64-ovaries", "t63-testes", "t59-kidney")), function(tissue){ 
-        tiss_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue]
-        quantile(x = deg_eqtl_list[[tissue]]$phenotypic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == sex_i & 
-                                                                       deg_eqtl_list[[tissue]]$feature_ID %in% 
-                                                                       node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr]], 
-                 probs = qs2use, na.rm = T)
-        
-      })),
-    
-    genetic_expression_sexhomo = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
-      sapply(setdiff(tissues, c("t64-ovaries", "t63-testes", "t59-kidney")), function(tissue){ 
-        tiss_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue]
-        quantile(x = deg_eqtl_list[[tissue]]$genetic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == sex_i & 
-                                                                    deg_eqtl_list[[tissue]]$feature_ID %in% 
-                                                                    node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr]], 
-                 probs = qs2use, na.rm = T)
-      })),
-    
-    phenotypic_expression_sexhomo_min_both_effects = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
-      sapply(setdiff(tissues, c("t64-ovaries", "t63-testes", "t59-kidney")), function(tissue){ 
-        tiss_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue]
-        xmi <- which(deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == "male" & 
-                       deg_eqtl_list[[tissue]]$feature_ID %in% node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr])
-        xm <- deg_eqtl_list[[tissue]][xmi, c("human_ensembl_gene", "phenotypic_expression_Z")]
-        
-        xfi <- which(deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == "female" & 
-                       deg_eqtl_list[[tissue]]$feature_ID %in% node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr])
-        xf <- deg_eqtl_list[[tissue]][xfi, c("human_ensembl_gene", "phenotypic_expression_Z")]
-        x <- merge(x = xm, y = xf, by = "human_ensembl_gene")
-        x <- apply(cbind(x$phenotypic_expression_Z.x, x$phenotypic_expression_Z.y), 1, abs.min)
-        quantile(x = x, probs = qs2use, na.rm = T)
-      })),
-    
-    genetic_expression_sexhomo_min_both_effects = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
-      sapply(setdiff(tissues, c("t64-ovaries", "t63-testes", "t59-kidney")), function(tissue){ 
-        tiss_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue]
-        xmi <- which(deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == "male" & 
-                       deg_eqtl_list[[tissue]]$feature_ID %in% node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr])
-        xm <- deg_eqtl_list[[tissue]][xmi, c("human_ensembl_gene", "genetic_expression_Z")]
-        
-        xfi <- which(deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == "female" & 
-                       deg_eqtl_list[[tissue]]$feature_ID %in% node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr])
-        xf <- deg_eqtl_list[[tissue]][xfi, c("human_ensembl_gene", "genetic_expression_Z")]
-        x <- merge(x = xm, y = xf, by = "human_ensembl_gene")
-        x <- x[!is.na(x$genetic_expression_Z.x),]
-        x <- apply(cbind(x$genetic_expression_Z.x, x$genetic_expression_Z.y), 1, abs.min)
-        quantile(x = x, probs = qs2use, na.rm = T)
-      }))
-    
-  ))
-save(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/relative_expression_motrpac_gtex", relative_expression_data)
+if(!file.exists("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/relative_expression_motrpac_gtex")){
+  relative_expression_data <- 
+    lapply(setNames(c("male", "female"),c("male", "female")), function(sex_i) list(
+      
+      phenotypic_expression = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
+        sapply(tissues, function(tissue) quantile(
+          x = deg_eqtl_list[[tissue]]$phenotypic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == sex_i], 
+          probs = qs2use, na.rm = T))),
+      
+      genetic_expression = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
+        sapply(tissues, function(tissue) quantile(
+          x = deg_eqtl_list[[tissue]]$genetic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == sex_i], 
+          probs = qs2use, na.rm = T))),
+      
+      phenotypic_expression_sexhomo = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
+        sapply(setdiff(tissues, c("t64-ovaries", "t63-testes", "t59-kidney")), function(tissue){ 
+          tiss_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue]
+          quantile(x = deg_eqtl_list[[tissue]]$phenotypic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == sex_i & 
+                                                                         deg_eqtl_list[[tissue]]$feature_ID %in% 
+                                                                         node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr]], 
+                   probs = qs2use, na.rm = T)
+          
+        })),
+      
+      genetic_expression_sexhomo = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
+        sapply(setdiff(tissues, c("t64-ovaries", "t63-testes", "t59-kidney")), function(tissue){ 
+          tiss_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue]
+          quantile(x = deg_eqtl_list[[tissue]]$genetic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == sex_i & 
+                                                                      deg_eqtl_list[[tissue]]$feature_ID %in% 
+                                                                      node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr]], 
+                   probs = qs2use, na.rm = T)
+        })),
+      
+      phenotypic_expression_sexhomo_min_both_effects = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
+        sapply(setdiff(tissues, c("t64-ovaries", "t63-testes", "t59-kidney")), function(tissue){ 
+          tiss_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue]
+          xmi <- which(deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == "male" & 
+                         deg_eqtl_list[[tissue]]$feature_ID %in% node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr])
+          xm <- deg_eqtl_list[[tissue]][xmi, c("human_ensembl_gene", "phenotypic_expression_Z")]
+          
+          xfi <- which(deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == "female" & 
+                         deg_eqtl_list[[tissue]]$feature_ID %in% node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr])
+          xf <- deg_eqtl_list[[tissue]][xfi, c("human_ensembl_gene", "phenotypic_expression_Z")]
+          x <- merge(x = xm, y = xf, by = "human_ensembl_gene")
+          x <- apply(cbind(x$phenotypic_expression_Z.x, x$phenotypic_expression_Z.y), 1, abs.min)
+          quantile(x = x, probs = qs2use, na.rm = T)
+        })),
+      
+      genetic_expression_sexhomo_min_both_effects = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
+        sapply(setdiff(tissues, c("t64-ovaries", "t63-testes", "t59-kidney")), function(tissue){ 
+          tiss_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue]
+          xmi <- which(deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == "male" & 
+                         deg_eqtl_list[[tissue]]$feature_ID %in% node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr])
+          xm <- deg_eqtl_list[[tissue]][xmi, c("human_ensembl_gene", "genetic_expression_Z")]
+          
+          xfi <- which(deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == "female" & 
+                         deg_eqtl_list[[tissue]]$feature_ID %in% node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr])
+          xf <- deg_eqtl_list[[tissue]][xfi, c("human_ensembl_gene", "genetic_expression_Z")]
+          x <- merge(x = xm, y = xf, by = "human_ensembl_gene")
+          x <- x[!is.na(x$genetic_expression_Z.x),]
+          x <- apply(cbind(x$genetic_expression_Z.x, x$genetic_expression_Z.y), 1, abs.min)
+          quantile(x = x, probs = qs2use, na.rm = T)
+        }))
+      
+    ))
+  save(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/relative_expression_motrpac_gtex", relative_expression_data)
+} else {
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/relative_expression_motrpac_gtex")
+}
 
 #get sumstats for paper
 expression_threshold <- 2
@@ -528,161 +535,14 @@ f_x <- 2
 ylims = c(min(sort(EZ_PZ[[ti]])[sort(EZ_PZ[[ti]]) != -Inf]),max(sort(EZ_PZ[[ti]],T)[sort(EZ_PZ[[ti]],T) != Inf]))
 ylims <- squish_middle_x(ylims, f_x)
 
-plot(100,100,xlim = c(0,1.25), ylim = ylims, xpd=NA, ylab = "Relative Effect Size",
-     main = latex2exp::TeX("Ratio of Exercise DE to \\sqrt{Variance in log_2(Gene Expression)}"), xlab = "Quantile", xaxt = "n", yaxt = "n", bty="n", cex.lab = 1.25, cex.axis = 1.25)
-
-EZ_PZ[[ti]] <- EZ_PZ[[ti]][,which(!apply(apply(EZ_PZ[[ti]], 2, is.na), 2, any))]
-xylocs_tissue_names <- cbind(rep(1.05, ncol(EZ_PZ[[ti]])), 
-                             redistribute(as.numeric(squish_middle_x(tail(EZ_PZ[[ti]], 1), f_x)), diff(ylims) / 30))
-rownames(xylocs_tissue_names) <- colnames(EZ_PZ[[ti]]); colnames(xylocs_tissue_names) <- c("x", "y")
-
-#horiz axis
-segments(x0 = 0, y0 = ylims[1] - diff(ylims) / 100, x1 = 1, y1 = ylims[1] - diff(ylims) / 100, lwd = 2)
-segments(x0 = 0:10/10, y0 = ylims[1] - diff(ylims) / 100, x1 = 0:10/10, y1 = ylims[1] - diff(ylims) / 50, lwd = 2, xpd = NA)
-horiz_axis_labels <- round(unsquish_middle_p(0:10/10, f_p), 3)
-horiz_axis_labels[1] <- 0; horiz_axis_labels[length(horiz_axis_labels)] <- 1;
-text(labels = horiz_axis_labels, x = 0:10/10, y = rep(ylims[1] - diff(ylims) / 50, 10), pos = 1, xpd = NA)
-segments(x0 = 0.5, y0 = ylims[1], x1 = 0.5, y1 = ylims[2], lwd = 2, lty = 2, col = "grey50")
-segments(x0 = 0:10/10, y0 = ylims[1], x1 = 0:10/10, y1 = ylims[2], lwd = 1, lty = 3, col = "grey75")
-
-#vert axis
-segments(x0 = -1/100, y0 = ylims[1] + diff(ylims)/100, x1 = -1/100, y1 = ylims[2], lwd = 2)
-segments(x0 = -1/100, y0 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), x1 = -1/50,
-         y1 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), lwd = 2)
-text(labels = round(unsquish_middle_x(seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), f_x), 2),
-     x = -1/50, y = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), pos = 2, xpd = NA)
-segments(x0 = 0, y0 = 0, x1 = 1, y1 = 0, lwd = 2, lty = 2, col = "grey50")
-segments(x0 = 0, y0 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), x1 = 1, 
-         y1 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), lwd = 1, lty = 3, col = "grey75")
-
-
-for(tissue in colnames(EZ_PZ[[ti]])){
-  lines(squish_middle_p(qs2use, f_p), squish_middle_x(EZ_PZ[[ti]][,tissue], f_x), col = cols$Tissue[tissue])
-  text(tissue, x = xylocs_tissue_names[tissue,"x"], y = xylocs_tissue_names[tissue,"y"], pos = 4, xpd = NA,
-       col = cols$Tissue[tissue])
-  segments(x0 = squish_middle_p(tail(qs2use, 1), f_p), x1 = xylocs_tissue_names[tissue,"x"]+0.01,
-           y0 = squish_middle_x(tail(EZ_PZ[[ti]][,tissue], 1), f_x), y1 = xylocs_tissue_names[tissue,"y"],
-           lty = 3, col = cols$Tissue[tissue])
-}
-shadowtext(x = xylocs_tissue_names[1,"x"], y = min(xylocs_tissue_names[,"y"]) - diff(ylims) / 7.5, labels = ti, 
-           cex = 5, col = cols$Time[ti], pos = 4, r = 0.2) 
-
-
-#### composite plot that tells the whole story ####
-
-grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/figure2_relative-expression_composite.pdf"), 
-                     width = 1400 / 72, height = 600 / 72, family="Arial Unicode MS", pointsize = 20)
-
-#layout matrix
-layout(rbind(
-  c(11,8,1,1,1,9,10,10,4,4,4,11,6,6,6),
-  c(11,8,1,1,1,9,10,10,4,4,4,11,6,6,6),
-  c(11,2,2,11,3,3,10,10,5,5,5,11,7,7,7),
-  c(11,2,2,11,3,3,10,10,5,5,5,11,7,7,7)
-))
-
-
-
-par(mar = c(4,2,2,2)+0.5)
-#logFCs
-xr <- c(-2,2)
-x_logfc <- seq(from = xr[1], to = xr[2], length.out = 256)
-logfc_dens <- sapply(deg_eqtl_list, function(del)
-  density((del$logFC), na.rm = T, from = xr[1], to = xr[2], n = 256)$y)
-plot(NA,NA, xlim = xr, ylim = c(0, quantile(logfc_dens, 1)), xlab = "", ylab = "",
-     xaxt = "n", xpd = NA)
-xvals <- seq(xr[1], xr[2], length.out = 5)
-segments(y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/50, x0 = xvals, x1 = xvals, xpd = NA)
-text(y = par("usr")[3] - diff(par("usr")[3:4])/50, pos = 1, x = xvals, labels = round((xvals), 2), xpd = NA)
-text(x = par("usr")[1] - diff(par("usr")[1:2])/4.5, y = mean(par("usr")[3:4]), labels = "", srt = 90, xpd = NA)
-text(x = par("usr")[1] - diff(par("usr")[1:2])/4.5, y = mean(par("usr")[3:4]), labels = "Density", srt = 90, xpd = NA)
-text(x = mean(par("usr")[1:2]), y = par("usr")[3] - diff(par("usr")[3:4])/4.5, labels = latex2exp::TeX("Exercise-induced $log_2FC$"), srt = 0, xpd = NA)
-
-for(tissue in colnames(logfc_dens)){
-  polygon(c(x_logfc, rev(x_logfc)), c(logfc_dens[,tissue], rep(0,length(x_logfc))), col = adjustcolor(cols$Tissue[tissue], 0.5))  
-}
-
-#surrounding text
-# text(x = -6, y = -6.5, labels = "(", cex = 16, xpd = NA, family = "Helvetica Narrow", srt = 0, col = 1)
-par(xpd = NA)
-arc(t1 = pi/2, t2 = 3*pi/2, r1 = 3, r2 = 3, center = c(-5.8, -7), adjx = 0.25, lwd = 3)
-arc(t1 = pi/2-1E-5, t2 = 3*pi/2, r1 = 3, r2 = 3, center = c(5.3, -7), adjx = 0.25, lwd = 3)
-text(x = 6, -3.75, labels = "1/2", cex = 2)
-segments(x0 = -5.5, x1 = 5, y0 = -2.75, y1 = -2.75, lwd = 5, xpd = NA)
-segments(x0 = 6, x1 = 7, y0 = -2.5, y1 = -2.5, lwd = 10, xpd = NA, col = 2)
-points(7.25, -2.5, pch = -9658, cex = 5, xpd = NA, col = 2)
-par(xpd = T)
-
-#snp heritability
-par(mar = c(5,0,2,0))
-if(!exists("gcta_output")){
-  load(file = "gcta_output_GTEx_allTissues_list_IHW.RData")
-  load(paste0(gcta_directory, "gcta_output_GTEx_allTissues.RData"))
-}
-n_h2s <- sum(sapply(gcta_output, function(i) nrow(i)))
-gcta_output_h2s <- lapply(setNames((names(gcta_output)), (names(gcta_output))), function(tissue) gcta_output[[tissue]]$h2)
-if(!exists("h2_freqs")){
-  h2_freqs <- lapply(setNames(rev(names(gcta_output)), rev(names(gcta_output))), function(tissue){
-    out <- hist(do.call(c, gcta_output_h2s[1:match(tissue, names(gcta_output_h2s))]), breaks = 0:5/5, plot = F)
-    out$counts <- out$counts / n_h2s
-    out
-    })
-}
-tissues <- rev(names(gcta_output))
-plot(h2_freqs[[tissues[1]]], col = adjustcolor(cols$Tissue[tissues[1]], 0.5), xlab = "", ylab = "Density",
-     main = "")
-for(tissue in tissues[-1]){
-  plot(h2_freqs[[tissue]], col = adjustcolor(cols$Tissue[tissue], 0.5), add = T)
-}
-text(x = par("usr")[1] - diff(par("usr")[1:2])/4, y = mean(par("usr")[3:4]), labels = "Density", srt = 90, xpd = NA)
-text(x = mean(par("usr")[1:2]), y = par("usr")[3] - diff(par("usr")[3:4])/4.5, labels = latex2exp::TeX("Estimated $h^2_{SNP}$"), srt = 0, xpd = NA)
-box("plot")
-
-#invgamma hyperpriors
-x_var <- 1:500/1000
-var_dens <- sapply(invgamma_estimates, function(invgamma_estimate)
-  dinvgamma(x_var, shape = invgamma_estimate[1], scale = invgamma_estimate[2]))
-colnames(var_dens) <- names(invgamma_estimates)
-plot(NA,NA, xlim = range(x_var), ylim = c(0, quantile(var_dens, 1)), xlab = "", ylab = "Density")
-for(tissue in colnames(var_dens)){
-  polygon(c(x_var, rev(x_var)), c(var_dens[,tissue], rep(0,length(x_var))), col = adjustcolor(cols$Tissue[tissue], 0.5))  
-}
-text(x = par("usr")[1] - diff(par("usr")[1:2])/4, y = mean(par("usr")[3:4]), labels = "Density", srt = 90, xpd = NA)
-text(x = par("usr")[1] - diff(par("usr")[1:2])/2.65, y = mean(par("usr")[3:4]), labels = "•", srt = 90, xpd = NA, cex = 4)
-text(x = mean(par("usr")[1:2]), y = par("usr")[3] - diff(par("usr")[3:4])/4.5, labels = latex2exp::TeX("Expression Variance"), srt = 0, xpd = NA)
-
-#quantile plots
-par(mar = c(4,1,2,1), xpd = NA)
-nnmap <- as.data.frame(bic_animal_tissue_code[,4:5])
-qs2use <- round(invlogit(seq(-9,9, length.out = 75)), 4)
-
-
-for(sex_i in c("male", "female")){
-for(type in 3:4){
-    
-  EZ_PZ <- relative_expression_data[[sex_i]][[type]]
-  EZ_PZ <- lapply(EZ_PZ, function(x) x[match(paste0(sprintf("%.2f", qs2use*100), "%"), paste0(sprintf("%.2f", as.numeric(gsub("%", "", rownames(x)))), "%")),])
-  
-  ti = "8w"
-  f_p <- 0.4
-  f_x <- 2
+plot_genetic_effect_graph <- F
+if(plot_genetic_effect_graph){
+  plot(100,100,xlim = c(0,1.25), ylim = ylims, xpd=NA, ylab = "Relative Effect Size",
+       main = latex2exp::TeX("Ratio of Exercise DE to \\sqrt{Variance in log_2(Gene Expression)}"), xlab = "Quantile", xaxt = "n", yaxt = "n", bty="n", cex.lab = 1.25, cex.axis = 1.25)
   
   EZ_PZ[[ti]] <- EZ_PZ[[ti]][,which(!apply(apply(EZ_PZ[[ti]], 2, is.na), 2, any))]
-  
-  ylims = c(min(sort(EZ_PZ[[ti]])[sort(EZ_PZ[[ti]]) != -Inf]),max(sort(EZ_PZ[[ti]],T)[sort(EZ_PZ[[ti]],T) != Inf]))
-  ylims <- squish_middle_x(ylims, f_x)
-  
-  plot(100,100,xlim = c(0,1.25), ylim = ylims, xpd=NA, ylab = "", xlab = "", xaxt = "n", yaxt = "n", bty="n", cex.lab = 1.25, cex.axis = 1.25)
-  text(x = par("usr")[1] - diff(par("usr")[1:2])/4.5, y = mean(par("usr")[3:4]), labels = "Standardized Effect Size (SD)", srt = 90, xpd = NA)
-  
-  text("Quantile", x = 0.5, y = ylims[1] - diff(ylims)/5, pos = 1, cex = 1)
-  if(ti == "2w"){
-    text(latex2exp::TeX(paste0("Ratio of Exercise DE to \\sqrt{", ifelse(type == 1, "Phenotypic", "Genetic"), " Variance in $log_2$(Gene Expression)}")), x = 1.35, y = ylims[2] + diff(ylims) / 15, pos = 3, cex = 3)}
-  if(ti == "1w"){
-    fig_label(ifelse(type == 1, "a)", "b)"), region = "figure", pos = "topleft", cex = 3.5)
-  }
-  
-  xylocs_tissue_names <- cbind(rep(1.05, ncol(EZ_PZ[[ti]])), redistribute(as.numeric(squish_middle_x(tail(EZ_PZ[[ti]], 1), f_x)), diff(ylims) / 20))
+  xylocs_tissue_names <- cbind(rep(1.05, ncol(EZ_PZ[[ti]])), 
+                               redistribute(as.numeric(squish_middle_x(tail(EZ_PZ[[ti]], 1), f_x)), diff(ylims) / 30))
   rownames(xylocs_tissue_names) <- colnames(EZ_PZ[[ti]]); colnames(xylocs_tissue_names) <- c("x", "y")
   
   #horiz axis
@@ -690,7 +550,7 @@ for(type in 3:4){
   segments(x0 = 0:10/10, y0 = ylims[1] - diff(ylims) / 100, x1 = 0:10/10, y1 = ylims[1] - diff(ylims) / 50, lwd = 2, xpd = NA)
   horiz_axis_labels <- round(unsquish_middle_p(0:10/10, f_p), 3)
   horiz_axis_labels[1] <- 0; horiz_axis_labels[length(horiz_axis_labels)] <- 1;
-  text(labels = horiz_axis_labels, x = 0:10/10 + 0.035, y = rep(ylims[1] - diff(ylims) / 25, 10), pos = 2, xpd = NA, srt = 90, cex = 0.75)
+  text(labels = horiz_axis_labels, x = 0:10/10, y = rep(ylims[1] - diff(ylims) / 50, 10), pos = 1, xpd = NA)
   segments(x0 = 0.5, y0 = ylims[1], x1 = 0.5, y1 = ylims[2], lwd = 2, lty = 2, col = "grey50")
   segments(x0 = 0:10/10, y0 = ylims[1], x1 = 0:10/10, y1 = ylims[2], lwd = 1, lty = 3, col = "grey75")
   
@@ -699,7 +559,7 @@ for(type in 3:4){
   segments(x0 = -1/100, y0 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), x1 = -1/50,
            y1 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), lwd = 2)
   text(labels = round(unsquish_middle_x(seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), f_x), 2),
-       x = -1/50, y = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), pos = 2, xpd = NA, cex = 0.75)
+       x = -1/50, y = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), pos = 2, xpd = NA)
   segments(x0 = 0, y0 = 0, x1 = 1, y1 = 0, lwd = 2, lty = 2, col = "grey50")
   segments(x0 = 0, y0 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), x1 = 1, 
            y1 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), lwd = 1, lty = 3, col = "grey75")
@@ -707,32 +567,187 @@ for(type in 3:4){
   
   for(tissue in colnames(EZ_PZ[[ti]])){
     lines(squish_middle_p(qs2use, f_p), squish_middle_x(EZ_PZ[[ti]][,tissue], f_x), col = cols$Tissue[tissue])
-    text(nnmap$abbreviation[match(tissue, nnmap$tissue_name_release)], x = xylocs_tissue_names[tissue,"x"], y = xylocs_tissue_names[tissue,"y"], pos = 4, xpd = NA,
-         col = cols$Tissue[tissue], cex = 0.75)
+    text(tissue, x = xylocs_tissue_names[tissue,"x"], y = xylocs_tissue_names[tissue,"y"], pos = 4, xpd = NA,
+         col = cols$Tissue[tissue])
     segments(x0 = squish_middle_p(tail(qs2use, 1), f_p), x1 = xylocs_tissue_names[tissue,"x"]+0.01,
              y0 = squish_middle_x(tail(EZ_PZ[[ti]][,tissue], 1), f_x), y1 = xylocs_tissue_names[tissue,"y"],
              lty = 3, col = cols$Tissue[tissue])
   }
-  text(x = -0.01, y = ylims[2] - diff(ylims) / 8, labels = ti, 
-             cex = 3, col = cols$Time[ti], pos = 4)
-  text(x = 0.275, y = ylims[2] - diff(ylims) / 8, labels = ",", 
-       cex = 3, col = cols$Time[ti], pos = 4)
-  text(labels = c(female = "\u2640", male = "\u2642")[sex_i], x = 0.35, y = ylims[2] - diff(ylims) / 8, pos = 4, cex = 3, 
-       col = MotrpacRatTraining6moData::SEX_COLORS[sex_i], family = "Arial Unicode MS")
+  shadowtext(x = xylocs_tissue_names[1,"x"], y = min(xylocs_tissue_names[,"y"]) - diff(ylims) / 7.5, labels = ti, 
+             cex = 5, col = cols$Time[ti], pos = 4, r = 0.2) 
+}
+
+
+
+#### composite plot that tells the whole story ####
+plot_expression_standalone <- F
+
+if(plot_expression_standalone){
+  grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/figure2_relative-expression_composite.pdf"), 
+                       width = 1400 / 72, height = 600 / 72, family="Arial Unicode MS", pointsize = 20)
   
-  if(sex_i == "male"){
-    text(latex2exp::TeX(paste0("Ratio of Exercise DE to \\sqrt{", 
-                               ifelse(type == 3, "Phenotypic", "Genetic"), " Variance in $log_2$(Gene Expression)}")), 
-         x = 1.5, y = ylims[2] + diff(ylims) / 50, pos = 3, cex = 1)
+  #layout matrix
+  layout(rbind(
+    c(11,8,1,1,1,9,10,10,4,4,4,11,6,6,6),
+    c(11,8,1,1,1,9,10,10,4,4,4,11,6,6,6),
+    c(11,2,2,11,3,3,10,10,5,5,5,11,7,7,7),
+    c(11,2,2,11,3,3,10,10,5,5,5,11,7,7,7)
+  ))
+  
+  
+  
+  par(mar = c(4,2,2,2)+0.5)
+  #logFCs
+  xr <- c(-2,2)
+  x_logfc <- seq(from = xr[1], to = xr[2], length.out = 256)
+  logfc_dens <- sapply(deg_eqtl_list, function(del)
+    density((del$logFC), na.rm = T, from = xr[1], to = xr[2], n = 256)$y)
+  plot(NA,NA, xlim = xr, ylim = c(0, quantile(logfc_dens, 1)), xlab = "", ylab = "",
+       xaxt = "n", xpd = NA)
+  xvals <- seq(xr[1], xr[2], length.out = 5)
+  segments(y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/50, x0 = xvals, x1 = xvals, xpd = NA)
+  text(y = par("usr")[3] - diff(par("usr")[3:4])/50, pos = 1, x = xvals, labels = round((xvals), 2), xpd = NA)
+  text(x = par("usr")[1] - diff(par("usr")[1:2])/4.5, y = mean(par("usr")[3:4]), labels = "", srt = 90, xpd = NA)
+  text(x = par("usr")[1] - diff(par("usr")[1:2])/4.5, y = mean(par("usr")[3:4]), labels = "Density", srt = 90, xpd = NA)
+  text(x = mean(par("usr")[1:2]), y = par("usr")[3] - diff(par("usr")[3:4])/4.5, labels = latex2exp::TeX("Exercise-induced $log_2FC$"), srt = 0, xpd = NA)
+  
+  for(tissue in colnames(logfc_dens)){
+    polygon(c(x_logfc, rev(x_logfc)), c(logfc_dens[,tissue], rep(0,length(x_logfc))), col = adjustcolor(cols$Tissue[tissue], 0.5))  
   }
-}
+  
+  #surrounding text
+  # text(x = -6, y = -6.5, labels = "(", cex = 16, xpd = NA, family = "Helvetica Narrow", srt = 0, col = 1)
+  par(xpd = NA)
+  arc(t1 = pi/2, t2 = 3*pi/2, r1 = 3, r2 = 3, center = c(-5.8, -7), adjx = 0.25, lwd = 3)
+  arc(t1 = pi/2-1E-5, t2 = 3*pi/2, r1 = 3, r2 = 3, center = c(5.3, -7), adjx = 0.25, lwd = 3)
+  text(x = 6, -3.75, labels = "1/2", cex = 2)
+  segments(x0 = -5.5, x1 = 5, y0 = -2.75, y1 = -2.75, lwd = 5, xpd = NA)
+  segments(x0 = 6, x1 = 7, y0 = -2.5, y1 = -2.5, lwd = 10, xpd = NA, col = 2)
+  points(7.25, -2.5, pch = -9658, cex = 5, xpd = NA, col = 2)
+  par(xpd = T)
+  
+  #snp heritability
+  par(mar = c(5,0,2,0))
+  if(!exists("gcta_output")){
+    load(file = "gcta_output_GTEx_allTissues_list_IHW.RData")
+    load(paste0(gcta_directory, "gcta_output_GTEx_allTissues.RData"))
+  }
+  n_h2s <- sum(sapply(gcta_output, function(i) nrow(i)))
+  gcta_output_h2s <- lapply(setNames((names(gcta_output)), (names(gcta_output))), function(tissue) gcta_output[[tissue]]$h2)
+  if(!exists("h2_freqs")){
+    h2_freqs <- lapply(setNames(rev(names(gcta_output)), rev(names(gcta_output))), function(tissue){
+      out <- hist(do.call(c, gcta_output_h2s[1:match(tissue, names(gcta_output_h2s))]), breaks = 0:5/5, plot = F)
+      out$counts <- out$counts / n_h2s
+      out
+    })
+  }
+  tissues <- rev(names(gcta_output))
+  plot(h2_freqs[[tissues[1]]], col = adjustcolor(cols$Tissue[tissues[1]], 0.5), xlab = "", ylab = "Density",
+       main = "")
+  for(tissue in tissues[-1]){
+    plot(h2_freqs[[tissue]], col = adjustcolor(cols$Tissue[tissue], 0.5), add = T)
+  }
+  text(x = par("usr")[1] - diff(par("usr")[1:2])/4, y = mean(par("usr")[3:4]), labels = "Density", srt = 90, xpd = NA)
+  text(x = mean(par("usr")[1:2]), y = par("usr")[3] - diff(par("usr")[3:4])/4.5, labels = latex2exp::TeX("Estimated $h^2_{SNP}$"), srt = 0, xpd = NA)
+  box("plot")
+  
+  #invgamma hyperpriors
+  x_var <- 1:500/1000
+  var_dens <- sapply(invgamma_estimates, function(invgamma_estimate)
+    dinvgamma(x_var, shape = invgamma_estimate[1], scale = invgamma_estimate[2]))
+  colnames(var_dens) <- names(invgamma_estimates)
+  plot(NA,NA, xlim = range(x_var), ylim = c(0, quantile(var_dens, 1)), xlab = "", ylab = "Density")
+  for(tissue in colnames(var_dens)){
+    polygon(c(x_var, rev(x_var)), c(var_dens[,tissue], rep(0,length(x_var))), col = adjustcolor(cols$Tissue[tissue], 0.5))  
+  }
+  text(x = par("usr")[1] - diff(par("usr")[1:2])/4, y = mean(par("usr")[3:4]), labels = "Density", srt = 90, xpd = NA)
+  text(x = par("usr")[1] - diff(par("usr")[1:2])/2.65, y = mean(par("usr")[3:4]), labels = "•", srt = 90, xpd = NA, cex = 4)
+  text(x = mean(par("usr")[1:2]), y = par("usr")[3] - diff(par("usr")[3:4])/4.5, labels = latex2exp::TeX("Expression Variance"), srt = 0, xpd = NA)
+  
+  #quantile plots
+  par(mar = c(4,1,2,1), xpd = NA)
+  nnmap <- as.data.frame(bic_animal_tissue_code[,4:5])
+  qs2use <- round(invlogit(seq(-9,9, length.out = 75)), 4)
   
   
+  for(sex_i in c("male", "female")){
+    for(type in 3:4){
+      
+      EZ_PZ <- relative_expression_data[[sex_i]][[type]]
+      EZ_PZ <- lapply(EZ_PZ, function(x) x[match(paste0(sprintf("%.2f", qs2use*100), "%"), paste0(sprintf("%.2f", as.numeric(gsub("%", "", rownames(x)))), "%")),])
+      
+      ti = "8w"
+      f_p <- 0.4
+      f_x <- 2
+      
+      EZ_PZ[[ti]] <- EZ_PZ[[ti]][,which(!apply(apply(EZ_PZ[[ti]], 2, is.na), 2, any))]
+      
+      ylims = c(min(sort(EZ_PZ[[ti]])[sort(EZ_PZ[[ti]]) != -Inf]),max(sort(EZ_PZ[[ti]],T)[sort(EZ_PZ[[ti]],T) != Inf]))
+      ylims <- squish_middle_x(ylims, f_x)
+      
+      plot(100,100,xlim = c(0,1.25), ylim = ylims, xpd=NA, ylab = "", xlab = "", xaxt = "n", yaxt = "n", bty="n", cex.lab = 1.25, cex.axis = 1.25)
+      text(x = par("usr")[1] - diff(par("usr")[1:2])/4.5, y = mean(par("usr")[3:4]), labels = "Standardized Effect Size (SD)", srt = 90, xpd = NA)
+      
+      text("Quantile", x = 0.5, y = ylims[1] - diff(ylims)/5, pos = 1, cex = 1)
+      if(ti == "2w"){
+        text(latex2exp::TeX(paste0("Ratio of Exercise DE to \\sqrt{", ifelse(type == 1, "Phenotypic", "Genetic"), " Variance in $log_2$(Gene Expression)}")), x = 1.35, y = ylims[2] + diff(ylims) / 15, pos = 3, cex = 3)}
+      if(ti == "1w"){
+        fig_label(ifelse(type == 1, "a)", "b)"), region = "figure", pos = "topleft", cex = 3.5)
+      }
+      
+      xylocs_tissue_names <- cbind(rep(1.05, ncol(EZ_PZ[[ti]])), redistribute(as.numeric(squish_middle_x(tail(EZ_PZ[[ti]], 1), f_x)), diff(ylims) / 20))
+      rownames(xylocs_tissue_names) <- colnames(EZ_PZ[[ti]]); colnames(xylocs_tissue_names) <- c("x", "y")
+      
+      #horiz axis
+      segments(x0 = 0, y0 = ylims[1] - diff(ylims) / 100, x1 = 1, y1 = ylims[1] - diff(ylims) / 100, lwd = 2)
+      segments(x0 = 0:10/10, y0 = ylims[1] - diff(ylims) / 100, x1 = 0:10/10, y1 = ylims[1] - diff(ylims) / 50, lwd = 2, xpd = NA)
+      horiz_axis_labels <- round(unsquish_middle_p(0:10/10, f_p), 3)
+      horiz_axis_labels[1] <- 0; horiz_axis_labels[length(horiz_axis_labels)] <- 1;
+      text(labels = horiz_axis_labels, x = 0:10/10 + 0.035, y = rep(ylims[1] - diff(ylims) / 25, 10), pos = 2, xpd = NA, srt = 90, cex = 0.75)
+      segments(x0 = 0.5, y0 = ylims[1], x1 = 0.5, y1 = ylims[2], lwd = 2, lty = 2, col = "grey50")
+      segments(x0 = 0:10/10, y0 = ylims[1], x1 = 0:10/10, y1 = ylims[2], lwd = 1, lty = 3, col = "grey75")
+      
+      #vert axis
+      segments(x0 = -1/100, y0 = ylims[1] + diff(ylims)/100, x1 = -1/100, y1 = ylims[2], lwd = 2)
+      segments(x0 = -1/100, y0 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), x1 = -1/50,
+               y1 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), lwd = 2)
+      text(labels = round(unsquish_middle_x(seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), f_x), 2),
+           x = -1/50, y = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), pos = 2, xpd = NA, cex = 0.75)
+      segments(x0 = 0, y0 = 0, x1 = 1, y1 = 0, lwd = 2, lty = 2, col = "grey50")
+      segments(x0 = 0, y0 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), x1 = 1, 
+               y1 = seq(ylims[1] + diff(ylims)/100, ylims[2], length.out = 10), lwd = 1, lty = 3, col = "grey75")
+      
+      
+      for(tissue in colnames(EZ_PZ[[ti]])){
+        lines(squish_middle_p(qs2use, f_p), squish_middle_x(EZ_PZ[[ti]][,tissue], f_x), col = cols$Tissue[tissue])
+        text(nnmap$abbreviation[match(tissue, nnmap$tissue_name_release)], x = xylocs_tissue_names[tissue,"x"], y = xylocs_tissue_names[tissue,"y"], pos = 4, xpd = NA,
+             col = cols$Tissue[tissue], cex = 0.75)
+        segments(x0 = squish_middle_p(tail(qs2use, 1), f_p), x1 = xylocs_tissue_names[tissue,"x"]+0.01,
+                 y0 = squish_middle_x(tail(EZ_PZ[[ti]][,tissue], 1), f_x), y1 = xylocs_tissue_names[tissue,"y"],
+                 lty = 3, col = cols$Tissue[tissue])
+      }
+      text(x = -0.01, y = ylims[2] - diff(ylims) / 8, labels = ti, 
+           cex = 3, col = cols$Time[ti], pos = 4)
+      text(x = 0.275, y = ylims[2] - diff(ylims) / 8, labels = ",", 
+           cex = 3, col = cols$Time[ti], pos = 4)
+      text(labels = c(female = "\u2640", male = "\u2642")[sex_i], x = 0.35, y = ylims[2] - diff(ylims) / 8, pos = 4, cex = 3, 
+           col = MotrpacRatTraining6moData::SEX_COLORS[sex_i], family = "Arial Unicode MS")
+      
+      if(sex_i == "male"){
+        text(latex2exp::TeX(paste0("Ratio of Exercise DE to \\sqrt{", 
+                                   ifelse(type == 3, "Phenotypic", "Genetic"), " Variance in $log_2$(Gene Expression)}")), 
+             x = 1.5, y = ylims[2] + diff(ylims) / 50, pos = 3, cex = 1)
+      }
+    }
+    
+    
+  }
+  
+  
+  
+  dev.off()
+  
 }
-
-
-
-dev.off()
 
 
 #### histograms ####
@@ -831,152 +846,159 @@ dev.off()
 
 
 #### make supplementary table for relative expression data ####
-
-if(!exists("deg_eqtl_list") | any(!sapply(deg_eqtl_list, function(x) "phenotypic_expression_Z" %in% names(x)))){
-  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/relative_effect_sizes_deg_eqtl_list.RData")
-  names(deg_eqtl_list) <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[names(deg_eqtl_list)]
+make_supplementary_table <- F
+if(make_supplementary_table){
+  if(!exists("deg_eqtl_list") | any(!sapply(deg_eqtl_list, function(x) "phenotypic_expression_Z" %in% names(x)))){
+    load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/relative_effect_sizes_deg_eqtl_list.RData")
+    names(deg_eqtl_list) <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[names(deg_eqtl_list)]
+  }
+  
+  load(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/node_metadata_list.RData")
+  node_metadata_list <- split(node_metadata_list$`8w`, node_metadata_list$`8w`$tissue)
+  
+  twas_alpha <- 0.05
+  if(!exists("twas_list")){
+    load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ihw_results_all.twas.RData")
+    load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/PrediXcan_output_all.twas.RData")
+    ihw_pvals <- IHW::adj_pvalues(ihw_results)
+    some.twas$adj_pvalue <- ihw_pvals
+    some.twas$tissue <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[some.twas$tissue]
+    some.twas$gene <- gsub("\\..*", "", some.twas$gene)
+    some.twas$hit <- some.twas$adj_pvalue < twas_alpha
+    twas_list <- some.twas[some.twas$hit,]
+    twas_list <- split(twas_list[,c("gene", "trait")], twas_list$tissue)
+    twas_list <- lapply(twas_list, function(tiss) split(tiss, tiss$gene))
+    
+    rm(ihw_results)
+    rm(some.twas)
+  }
+  
+  #subset to DEGs and relevant info & integrate the PrediXcan results too
+  
+  integrated_results <- do.call(rbind, lapply(intersect(names(twas_list), 
+                                                        MotrpacBicQC::tissue_abbr[names(deg_eqtl_list)]), function(tiss){
+                                                          
+                                                          #snag degs
+                                                          print(tiss)
+                                                          node_metadata <- node_metadata_list[[tiss]]
+                                                          if(is.null(node_metadata)){return(NULL)}
+                                                          names(node_metadata)[names(node_metadata) == "ensembl_gene"] <- "rat_ensembl_gene"
+                                                          node_metadata <- node_metadata[,-c("cluster")]
+                                                          
+                                                          #combine degs with effect sizes
+                                                          x <- deg_eqtl_list[[MotrpacRatTraining6moData::TISSUE_ABBREV_TO_CODE[tiss]]]
+                                                          degs <- x[x$comparison_group == "8w", 
+                                                                    c("feature_ID", "chr", "gene_start", "gene_end", "logFC", 
+                                                                      "phenotypic_expression_Z", "genetic_expression_Z", "sex")]
+                                                          degs <- split(degs[,-c("sex")], degs$sex)
+                                                          names(degs$female)[names(degs$female) %in% c("logFC", "phenotypic_expression_Z", "genetic_expression_Z")] <- 
+                                                            paste0("female.", names(degs$female)[names(degs$female) %in% c("logFC", "phenotypic_expression_Z", "genetic_expression_Z")])
+                                                          names(degs$male)[names(degs$male) %in% c("logFC", "phenotypic_expression_Z", "genetic_expression_Z")] <- 
+                                                            paste0("male.", names(degs$male)[names(degs$male) %in% c("logFC", "phenotypic_expression_Z", "genetic_expression_Z")])
+                                                          
+                                                          #merge and integrate with twas list
+                                                          merged_output <- merge(x = node_metadata, y = degs$male, by.x = "rat_ensembl_gene", by.y = "feature_ID")
+                                                          merged_output <- merge(x = merged_output, y = degs$female[,c("female.logFC", "female.phenotypic_expression_Z", "female.genetic_expression_Z", "feature_ID")], 
+                                                                                 by.x = "rat_ensembl_gene", by.y = "feature_ID")
+                                                          merged_output$num_twas_hits <- sapply(twas_list[[tiss]][merged_output$human_ensembl_gene], function(x) length(x$trait))
+                                                          merged_output$twas_hits <- sapply(twas_list[[tiss]][merged_output$human_ensembl_gene], function(x) paste0(x$trait, collapse = ", "))
+                                                          
+                                                          merged_output
+                                                          
+                                                        }))
+  
+  fwrite(integrated_results, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/supplemental_files/relative_effects_twas_integrated_results.csv", sep = ",", col.names = T)
+  plot(integrated_results$male.phenotypic_expression_Z, integrated_results$num_twas_hits)
+  plot(integrated_results$female.phenotypic_expression_Z, integrated_results$num_twas_hits)
+  plot(integrated_results$male.phenotypic_expression_Z, integrated_results$female.phenotypic_expression_Z,
+       xlim = range(c(integrated_results$male.phenotypic_expression_Z, integrated_results$female.phenotypic_expression_Z), na.rm = T),
+       ylim = range(c(integrated_results$male.phenotypic_expression_Z, integrated_results$female.phenotypic_expression_Z), na.rm = T))
+  abline(0,1,lwd=2,lty=2,col=2)
+  cor(integrated_results$male.phenotypic_expression_Z, integrated_results$female.phenotypic_expression_Z, use = "complete")
+  
 }
-
-load(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/node_metadata_list.RData")
-node_metadata_list <- split(node_metadata_list$`8w`, node_metadata_list$`8w`$tissue)
-
-twas_alpha <- 0.05
-if(!exists("twas_list")){
-  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/ihw_results_all.twas.RData")
-  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/PrediXcan_output_all.twas.RData")
-  ihw_pvals <- IHW::adj_pvalues(ihw_results)
-  some.twas$adj_pvalue <- ihw_pvals
-  some.twas$tissue <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[some.twas$tissue]
-  some.twas$gene <- gsub("\\..*", "", some.twas$gene)
-  some.twas$hit <- some.twas$adj_pvalue < twas_alpha
-  twas_list <- some.twas[some.twas$hit,]
-  twas_list <- split(twas_list[,c("gene", "trait")], twas_list$tissue)
-  twas_list <- lapply(twas_list, function(tiss) split(tiss, tiss$gene))
-  
-  rm(ihw_results)
-  rm(some.twas)
-}
-
-#subset to DEGs and relevant info & integrate the PrediXcan results too
-
-integrated_results <- do.call(rbind, lapply(intersect(names(twas_list), 
-                                                      MotrpacBicQC::tissue_abbr[names(deg_eqtl_list)]), function(tiss){
-  
-  #snag degs
-  print(tiss)
-  node_metadata <- node_metadata_list[[tiss]]
-  if(is.null(node_metadata)){return(NULL)}
-  names(node_metadata)[names(node_metadata) == "ensembl_gene"] <- "rat_ensembl_gene"
-  node_metadata <- node_metadata[,-c("cluster")]
-  
-  #combine degs with effect sizes
-  x <- deg_eqtl_list[[MotrpacRatTraining6moData::TISSUE_ABBREV_TO_CODE[tiss]]]
-  degs <- x[x$comparison_group == "8w", 
-            c("feature_ID", "chr", "gene_start", "gene_end", "logFC", 
-              "phenotypic_expression_Z", "genetic_expression_Z", "sex")]
-  degs <- split(degs[,-c("sex")], degs$sex)
-  names(degs$female)[names(degs$female) %in% c("logFC", "phenotypic_expression_Z", "genetic_expression_Z")] <- 
-    paste0("female.", names(degs$female)[names(degs$female) %in% c("logFC", "phenotypic_expression_Z", "genetic_expression_Z")])
-  names(degs$male)[names(degs$male) %in% c("logFC", "phenotypic_expression_Z", "genetic_expression_Z")] <- 
-    paste0("male.", names(degs$male)[names(degs$male) %in% c("logFC", "phenotypic_expression_Z", "genetic_expression_Z")])
-  
-  #merge and integrate with twas list
-  merged_output <- merge(x = node_metadata, y = degs$male, by.x = "rat_ensembl_gene", by.y = "feature_ID")
-  merged_output <- merge(x = merged_output, y = degs$female[,c("female.logFC", "female.phenotypic_expression_Z", "female.genetic_expression_Z", "feature_ID")], 
-                         by.x = "rat_ensembl_gene", by.y = "feature_ID")
-  merged_output$num_twas_hits <- sapply(twas_list[[tiss]][merged_output$human_ensembl_gene], function(x) length(x$trait))
-  merged_output$twas_hits <- sapply(twas_list[[tiss]][merged_output$human_ensembl_gene], function(x) paste0(x$trait, collapse = ", "))
-  
-  merged_output
-
-}))
-
-fwrite(integrated_results, file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/supplemental_files/relative_effects_twas_integrated_results.csv", sep = ",", col.names = T)
-plot(integrated_results$male.phenotypic_expression_Z, integrated_results$num_twas_hits)
-plot(integrated_results$female.phenotypic_expression_Z, integrated_results$num_twas_hits)
-plot(integrated_results$male.phenotypic_expression_Z, integrated_results$female.phenotypic_expression_Z,
-    xlim = range(c(integrated_results$male.phenotypic_expression_Z, integrated_results$female.phenotypic_expression_Z), na.rm = T),
-    ylim = range(c(integrated_results$male.phenotypic_expression_Z, integrated_results$female.phenotypic_expression_Z), na.rm = T))
-abline(0,1,lwd=2,lty=2,col=2)
-cor(integrated_results$male.phenotypic_expression_Z, integrated_results$female.phenotypic_expression_Z, use = "complete")
 
 #### compute quantile objects ####
-load(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/node_metadata_list.RData")
-qs2use <- 1:9999/10000
-EZ_PZ <- lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
-  sapply(tissues, function(tissue) quantile(
-    x = deg_eqtl_list[[tissue]]$phenotypic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti], 
-    probs = qs2use, na.rm = T)))
-EZ_PZ <- lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
-  sapply(tissues, function(tissue) quantile(
-    x = deg_eqtl_list[[tissue]]$genetic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti], 
-    probs = qs2use, na.rm = T)))
-
-
-abs.min <- function(x) x[which.min(abs(x))]
-relative_expression_data <- 
-  lapply(setNames(c("male", "female"),c("male", "female")), function(sex_i) list(
-    
-    phenotypic_expression = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
-      sapply(tissues, function(tissue) quantile(
-        x = deg_eqtl_list[[tissue]]$phenotypic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == sex_i], 
-        probs = qs2use, na.rm = T))),
-    
-    genetic_expression = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
-      sapply(tissues, function(tissue) quantile(
-        x = deg_eqtl_list[[tissue]]$genetic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == sex_i], 
-        probs = qs2use, na.rm = T))),
-    
-    phenotypic_expression_sexhomo = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
-      sapply(setdiff(tissues, c("t64-ovaries", "t63-testes", "t59-kidney")), function(tissue){ 
-        tiss_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue]
-        quantile(x = deg_eqtl_list[[tissue]]$phenotypic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == sex_i & 
-                                                              deg_eqtl_list[[tissue]]$feature_ID %in% node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr]], 
-        probs = qs2use, na.rm = T)
-        
+if(!file.exists("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/relative_expression_motrpac_gtex")){
+  load(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/node_metadata_list.RData")
+  qs2use <- 1:9999/10000
+  EZ_PZ <- lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
+    sapply(tissues, function(tissue) quantile(
+      x = deg_eqtl_list[[tissue]]$phenotypic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti], 
+      probs = qs2use, na.rm = T)))
+  EZ_PZ <- lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
+    sapply(tissues, function(tissue) quantile(
+      x = deg_eqtl_list[[tissue]]$genetic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti], 
+      probs = qs2use, na.rm = T)))
+  
+  
+  abs.min <- function(x) x[which.min(abs(x))]
+  relative_expression_data <- 
+    lapply(setNames(c("male", "female"),c("male", "female")), function(sex_i) list(
+      
+      phenotypic_expression = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
+        sapply(tissues, function(tissue) quantile(
+          x = deg_eqtl_list[[tissue]]$phenotypic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == sex_i], 
+          probs = qs2use, na.rm = T))),
+      
+      genetic_expression = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
+        sapply(tissues, function(tissue) quantile(
+          x = deg_eqtl_list[[tissue]]$genetic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == sex_i], 
+          probs = qs2use, na.rm = T))),
+      
+      phenotypic_expression_sexhomo = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
+        sapply(setdiff(tissues, c("t64-ovaries", "t63-testes", "t59-kidney")), function(tissue){ 
+          tiss_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue]
+          quantile(x = deg_eqtl_list[[tissue]]$phenotypic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == sex_i & 
+                                                                         deg_eqtl_list[[tissue]]$feature_ID %in% node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr]], 
+                   probs = qs2use, na.rm = T)
+          
         })),
-    
-    genetic_expression_sexhomo = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
-      sapply(setdiff(tissues, c("t64-ovaries", "t63-testes", "t59-kidney")), function(tissue){ 
-        tiss_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue]
-        quantile(x = deg_eqtl_list[[tissue]]$genetic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == sex_i & 
-                                                           deg_eqtl_list[[tissue]]$feature_ID %in% 
-                                                           node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr]], 
-        probs = qs2use, na.rm = T)
+      
+      genetic_expression_sexhomo = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
+        sapply(setdiff(tissues, c("t64-ovaries", "t63-testes", "t59-kidney")), function(tissue){ 
+          tiss_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue]
+          quantile(x = deg_eqtl_list[[tissue]]$genetic_expression_Z[deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == sex_i & 
+                                                                      deg_eqtl_list[[tissue]]$feature_ID %in% 
+                                                                      node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr]], 
+                   probs = qs2use, na.rm = T)
         })),
-    
-    phenotypic_expression_sexhomo_min_both_effects = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
-      sapply(setdiff(tissues, c("t64-ovaries", "t63-testes", "t59-kidney")), function(tissue){ 
-        tiss_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue]
-        xmi <- which(deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == "male" & 
-                       deg_eqtl_list[[tissue]]$feature_ID %in% node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr])
-        xm <- deg_eqtl_list[[tissue]][xmi, c("human_ensembl_gene", "phenotypic_expression_Z")]
-        
-        xfi <- which(deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == "female" & 
-                       deg_eqtl_list[[tissue]]$feature_ID %in% node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr])
-        xf <- deg_eqtl_list[[tissue]][xfi, c("human_ensembl_gene", "phenotypic_expression_Z")]
-        x <- merge(x = xm, y = xf, by = "human_ensembl_gene")
-        x <- apply(cbind(x$phenotypic_expression_Z.x, x$phenotypic_expression_Z.y), 1, abs.min)
-        quantile(x = x, probs = qs2use, na.rm = T)
-      })),
-    
-    genetic_expression_sexhomo_min_both_effects = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
-      sapply(setdiff(tissues, c("t64-ovaries", "t63-testes", "t59-kidney")), function(tissue){ 
-        tiss_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue]
-        xmi <- which(deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == "male" & 
-                       deg_eqtl_list[[tissue]]$feature_ID %in% node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr])
-        xm <- deg_eqtl_list[[tissue]][xmi, c("human_ensembl_gene", "genetic_expression_Z")]
-        
-        xfi <- which(deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == "female" & 
-                       deg_eqtl_list[[tissue]]$feature_ID %in% node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr])
-        xf <- deg_eqtl_list[[tissue]][xfi, c("human_ensembl_gene", "genetic_expression_Z")]
-        x <- merge(x = xm, y = xf, by = "human_ensembl_gene")
-        x <- x[!is.na(x$genetic_expression_Z.x),]
-        x <- apply(cbind(x$genetic_expression_Z.x, x$genetic_expression_Z.y), 1, abs.min)
-        quantile(x = x, probs = qs2use, na.rm = T)
-      }))
-    
-  ))
-save(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/relative_expression_motrpac_gtex", relative_expression_data)
+      
+      phenotypic_expression_sexhomo_min_both_effects = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
+        sapply(setdiff(tissues, c("t64-ovaries", "t63-testes", "t59-kidney")), function(tissue){ 
+          tiss_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue]
+          xmi <- which(deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == "male" & 
+                         deg_eqtl_list[[tissue]]$feature_ID %in% node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr])
+          xm <- deg_eqtl_list[[tissue]][xmi, c("human_ensembl_gene", "phenotypic_expression_Z")]
+          
+          xfi <- which(deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == "female" & 
+                         deg_eqtl_list[[tissue]]$feature_ID %in% node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr])
+          xf <- deg_eqtl_list[[tissue]][xfi, c("human_ensembl_gene", "phenotypic_expression_Z")]
+          x <- merge(x = xm, y = xf, by = "human_ensembl_gene")
+          x <- apply(cbind(x$phenotypic_expression_Z.x, x$phenotypic_expression_Z.y), 1, abs.min)
+          quantile(x = x, probs = qs2use, na.rm = T)
+        })),
+      
+      genetic_expression_sexhomo_min_both_effects = lapply(setNames(paste0(2^(0:3), "w"),paste0(2^(0:3), "w")), function(ti) 
+        sapply(setdiff(tissues, c("t64-ovaries", "t63-testes", "t59-kidney")), function(tissue){ 
+          tiss_abbr <- MotrpacRatTraining6moData::TISSUE_CODE_TO_ABBREV[tissue]
+          xmi <- which(deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == "male" & 
+                         deg_eqtl_list[[tissue]]$feature_ID %in% node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr])
+          xm <- deg_eqtl_list[[tissue]][xmi, c("human_ensembl_gene", "genetic_expression_Z")]
+          
+          xfi <- which(deg_eqtl_list[[tissue]]$comparison_group == ti & deg_eqtl_list[[tissue]]$sex == "female" & 
+                         deg_eqtl_list[[tissue]]$feature_ID %in% node_metadata_list[[ti]]$ensembl_gene[node_metadata_list[[ti]]$tissue == tiss_abbr])
+          xf <- deg_eqtl_list[[tissue]][xfi, c("human_ensembl_gene", "genetic_expression_Z")]
+          x <- merge(x = xm, y = xf, by = "human_ensembl_gene")
+          x <- x[!is.na(x$genetic_expression_Z.x),]
+          x <- apply(cbind(x$genetic_expression_Z.x, x$genetic_expression_Z.y), 1, abs.min)
+          quantile(x = x, probs = qs2use, na.rm = T)
+        }))
+      
+    ))
+  save(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/relative_expression_motrpac_gtex", relative_expression_data)
+} else {
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/relative_expression_motrpac_gtex")
+}
 
 called_grex_script <- T

@@ -2,9 +2,8 @@
 source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_1_preprocessing.R")
 
 #### figure plotting ####
-
 vertically_oriented <- F
-grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/figure2s_high-level-overview",
+grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/figure_s1_high-level-overview",
                                        ifelse(vertically_oriented, "_vertical", "_horizontal"),".pdf"), 
                      width = ifelse(vertically_oriented, 775 / 72, 1300 / 72), height = ifelse(vertically_oriented, 1300/72, 600 / 72), family="Arial Unicode MS")
 if(vertically_oriented){

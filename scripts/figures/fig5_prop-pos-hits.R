@@ -3,7 +3,6 @@ source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figu
 source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_4_preprocessing.R")
 
 #### figure plotting ####
-
 load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/deg_sigtwas_proportion.txt")
 subset_to_traits <- T
 cairo_pdf(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig5_prop_pos_hits_bayesian_scatterplot", 
