@@ -2104,7 +2104,7 @@ twas_by_tissue <- lapply(setNames(unique(some.twas$tissue), MotrpacRatTraining6m
   some.twas[some.twas$tissue == tiss & compatible_twas_genes,]
 })
 
-#calculate which traits are good and which are bad
+#specify which traits are good and which are bad
 trait_goodness <- list("Standing_Height_UKB" = 0,
                        "BMI_UKB" = -1,
                        "Height" = 0,

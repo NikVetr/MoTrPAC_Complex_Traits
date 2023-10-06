@@ -1773,6 +1773,174 @@ raster_points <- function(raster_res = 51, ...){
   
 }
 
+plot.scatter <- function(x, y, xlabel = "", ylabel = "", main.title = "",
+                         axis.lab.dev = 0.1, lab.cex = 1.25, pt.labels = NULL,
+                         pts.to.label = NULL, pch = 19, pt.col = adjustcolor(1,0.5),
+                         pt.pos = NULL, pt.cex = 1, prop_label_push = NULL, 
+                         prop_rect_expand = 0.05, ...){
+  
+  #clean data
+  valid_inds <- which(apply(is.na(cbind(x,y)), 1, sum) == 0)
+  invalid_inds <- setdiff(1:length(x), valid_inds)
+  x <- x[valid_inds]
+  y <- y[valid_inds]
+  
+  #find useful values
+  xr <- range(x)
+  yr <- range(y)
+  
+  # initialize blank plot
+  plot(NULL, xaxt="n",yaxt="n",bty="n",ylab="",xlab="", main="", sub="",
+       xlim = xr + c(-1,1) * diff(xr) * 0.2, 
+       ylim = yr + c(-1,1) * diff(yr) * 0.2)
+  
+  #draw line @ 0.05?
+  # abline(h = -log10(0.05), col = adjustcolor(1, 0.25), lwd = 2, lty = 3, xpd = F)
+  
+  #preprocess pt labels
+  if(!is.null(pt.labels)){
+    pt.labels <- pt.labels[valid_inds]
+    if(is.null(pt.pos)){
+      pt.pos <- 3
+    }
+    if(is.null(pts.to.label)){
+      pts.to.label <- 1:length(pt.labels)
+    } else {
+      pts.to.label <- unlist(lapply(pts.to.label, function(z){
+        if(z %in% invalid_inds){
+          return(numeric(0))
+        } else {
+          z - sum(z > invalid_inds)  
+        }
+      }))
+    }
+    labx <- x[pts.to.label]
+    laby <- y[pts.to.label]
+    pt.lab <- pt.labels[pts.to.label]
+    
+    #find and expand bounding rectangles for text
+    word_rects <- text.rects(x = labx, y = laby, pos = pt.pos, labels = pt.lab)
+    word_rects <- lapply(word_rects, expand.rect, prop = prop_rect_expand)
+    
+    #get boxes a bit away from their corresponding pts
+    if(is.null(prop_label_push)){
+      prop_label_push <- rep(0.04, length(word_rects))
+    }
+    word_rects <- lapply(seq_along(word_rects), function(i){
+      push_rects(word_rects[[i]], c(labx[i], laby[i]), prop_push = prop_label_push[i])
+    })
+    
+    #get those bounding boxes inside the plot
+    word_rects <- lapply(word_rects, respect_boundaries, extra = 0.03)
+    
+    #find closest side to connect to point
+    closest_side_pts <- lapply(seq_along(word_rects), function(i){
+      closest_side(word_rects[[i]], c(labx[i], laby[i]))
+    })
+    
+  }
+  
+  #create frame
+  box("plot", lwd = 2)
+  
+  #axes
+  tickl <- diff(par("usr")[1:2])/100
+  yaxlocs <- nice_ticks(yr, 5)
+  yaxlocs <- c(yaxlocs, seq(tail(yaxlocs,1), par("usr")[4], by = diff(yaxlocs[1:2]))[-1])
+  segments(x0 = par("usr")[1], 
+           x1 = par("usr")[1] - tickl, 
+           y0 = yaxlocs, 
+           y1 = yaxlocs, 
+           lwd = 2, 
+           xpd = NA)
+  text(labels = yaxlocs, 
+       x = par("usr")[1] - tickl, 
+       srt = 0, pos = 2, y = yaxlocs, xpd = NA, cex = lab.cex)
+  
+  xaxlocs <- nice_ticks(xr, 5)
+  xaxlocs <- c(seq(head(xaxlocs,1), par("usr")[1], by = -diff(xaxlocs[1:2]))[-1],
+               xaxlocs, 
+               seq(tail(xaxlocs,1), par("usr")[2], by = diff(xaxlocs[1:2]))[-1])
+  segments(y0 = par("usr")[3], 
+           y1 = par("usr")[3] - tickl / xyrat(), 
+           x0 = xaxlocs, 
+           x1 = xaxlocs, 
+           lwd = 2, 
+           xpd = NA)
+  text(labels = xaxlocs, 
+       y = par("usr")[3] - tickl / xyrat(), 
+       srt = 0, pos = 1, x = xaxlocs, xpd = NA, cex = lab.cex)
+  
+  #axis labels
+  axis.lab.dist <- diff(par("usr")[1:2]) * axis.lab.dev
+  maxsh <- max(strheight(xaxlocs, cex = lab.cex))
+  maxsw <- max(strwidth(yaxlocs, cex = lab.cex)) / xyrat()
+  text(labels = ylabel, 
+       x = par("usr")[1] - axis.lab.dist * 1.05, 
+       y = mean(par("usr")[3:4]),
+       srt = 90, pos = 3, xpd = NA, cex = lab.cex)
+  text(labels = xlabel, 
+       y = par("usr")[3] - axis.lab.dist / xyrat() + (maxsw - maxsh), 
+       x = mean(par("usr")[1:2]),
+       srt = 0, pos = 1, xpd = NA, cex = lab.cex)
+  
+  #title
+  text(labels = main.title, pos = 3, cex = lab.cex * 1.25,
+       x = mean(par("usr")[1:2]), y = par("usr")[4], xpd = NA)
+  
+  if(!is.null(pt.labels)){
+    
+    #draw line segments and rectangles for labels
+    for(i in 1:length(word_rects)){
+      segments(x0 = closest_side_pts[[i]][1], 
+               y0 = closest_side_pts[[i]][2], 
+               x1 = labx[i], 
+               y1 = laby[i],
+               lwd = 2) 
+    }
+    
+    for(i in 1:length(word_rects)){
+      rect(xleft = word_rects[[i]][1], 
+           xright = word_rects[[i]][2], 
+           ybottom = word_rects[[i]][3], 
+           ytop = word_rects[[i]][4], 
+           col = adjustcolor("white", 1), border = "black",
+           lwd = 2)
+      
+    }
+    
+    #compute rect midpoints and write labels
+    labx <- sapply(word_rects, function(z) mean(z[1:2]))
+    laby <- sapply(word_rects, function(z) mean(z[3:4]))
+    
+    text(labx, laby, labels = pt.lab)
+  }
+  
+  #plot points
+  pt_rand_order <- sample(1:length(x))
+  points(x, y, pch = pch, col = "black", cex = pt.cex*1.2) #create a nice outer border
+  points(x, y, pch = pch, col = "white", cex = pt.cex) #handle the line overlaps
+  points(x[pt_rand_order], y[pt_rand_order], 
+         pch = pch, col = pt.col[valid_inds][pt_rand_order], 
+         cex = pt.cex)
+  
+  #upper margin Spearman corr
+  rho <- cor.test(x = x, y = y, method = 'spearman')
+  rho_pval <- strsplit(formatC(rho$p.value, format = "e", digits = 1), "e")[[1]]
+  print(summary(rho))
+  rholab <- c(paste0("Spearman's $\\rho$ = ", 
+                     round(rho$estimate, 2), ","), 
+              paste0("p-value = ", 
+                     rho_pval[1], " × 10$^{", as.integer(rho_pval[2]), "}$"))
+  text3(x = par("usr")[1] + diff(par("usr")[1:2])/100, 
+        y = par("usr")[4] - diff(par("usr")[3:4])/100, pos = c(1,4),
+        labels = rholab[1], cex = 1.25)
+  text3(x = par("usr")[1] + diff(par("usr")[1:2])/100, 
+        y = par("usr")[4] - diff(par("usr")[3:4])/100 -
+          strheight(latex2exp::TeX(rholab[2]), cex = 1.25), pos = c(1,4),
+        labels = rholab[2], cex = 1.25)
+  
+}
 
 NULL
 

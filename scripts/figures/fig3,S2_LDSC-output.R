@@ -352,7 +352,7 @@ if(plot_LDSC_comparison){
   #                                        ifelse(use_cts_alt_model, "_cell-type-specific-Model", ""), ".pdf"), 
   #                      width = 1500 / 72, height = 2000 / 72 * 18 / 17 / 114 * length(coloc_phenotypes_sub) * 2, family="Arial Unicode MS")
   
-  grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures//LDSC_output.pdf"), 
+  grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/LDSC_output.pdf"), 
                        width = 1500 / 72, height = 2000 / 72 * 18 / 17 / 114 * length(coloc_phenotypes_sub) * 2, family="Arial Unicode MS")
   
   par(mfrow = c(2, 1), mar = c(3,3,2,3), xpd = NA)
@@ -682,7 +682,6 @@ abline(0,1, col = "red", lty = 2)
 
 #### LDSC figure for paper, fig 3 ####
 
-
 change_names <- F
 change_names_in_plot = T
 nicole_mods = T
@@ -973,7 +972,7 @@ for(type_of_plot in 1:1){
 dev.off()
 
 
-
+#### supplemental figure ####
 
 grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig_S3_LDSC_output.pdf"), 
                      width = 1500 / 72, height = 2000 / 72 * 18 / 17 / 114 * length(coloc_phenotypes_sub) * 2, family="Arial Unicode MS", pointsize = 16)

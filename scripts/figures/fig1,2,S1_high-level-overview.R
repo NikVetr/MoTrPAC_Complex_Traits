@@ -50,7 +50,7 @@ cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(motrpac_gtex_m
             Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
 cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
 
-#### figure 1 ####
+#### figure proprocessing ####
 gwas_dir <- "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/imputed_gwas_hg38_1.1/"
 gwas_summary_files <- list.files(gwas_dir)
 gwas_summary_files <- gwas_summary_files[-grep(gwas_summary_files, pattern = "README")]
@@ -2375,8 +2375,7 @@ for(sex_i in c("male", "female")){
 
 dev.off()
 
-#### figure 2 (split 1/2) REDUX ####
-source(file = "~/scripts/montgomery_lab/deg-trait_functions.R")
+#### figure 1 (split 1/2) REDUX ####
 
 # if(any(!(unlist(.Devices) %in% c("", "null device")))){
 #   for(i in 1:(sum(!(unlist(.Devices) %in% c("", "null device"))))){
@@ -2496,7 +2495,7 @@ if(!exists("relative_expression_data")){
 }
 
 # actual plotting
-grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig2_high-level-overview_redux_take-2.pdf"), 
+grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig1_high-level-overview_redux_take-2.pdf"), 
                      width = 1350 / 72, height = 1125 / 72 * 1.5 * 4 / 6, family="Arial Unicode MS", pointsize = 18.5)
 
 layout_mat <- kronecker(rbind(
@@ -2787,7 +2786,7 @@ fig_label(text = "c)", region = "plot", cex = 3, shrinkX = 3, shrinkY = 2.5)
 
 dev.off()
 
-#### figure 6 (split 2/2) REDUX ####
+#### figure 2 (split 2/2) REDUX ####
 
 # actual plotting
 grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig2_relative-expression.pdf"), 
