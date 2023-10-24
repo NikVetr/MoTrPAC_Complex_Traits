@@ -265,7 +265,8 @@ redistribute <- function(x, incr){
 }
 
 
-fig_label <- function(text, region="figure", pos="topleft", cex=NULL, shrinkX = 0.95, shrinkY = 0.95, ...) {
+fig_label <- function(text, region="figure", pos="topleft", cex=NULL, 
+                      shrinkX = 1, shrinkY = 1, addX = 0, addY = 0, ...) {
   
   region <- match.arg(region, c("figure", "plot", "device"))
   pos <- match.arg(pos, c("topleft", "top", "topright", 
@@ -325,8 +326,57 @@ fig_label <- function(text, region="figure", pos="topleft", cex=NULL, shrinkX = 
   old.par <- par(xpd=NA)
   on.exit(par(old.par))
   
-  text(x1*shrinkX, y1*shrinkY, text, cex=cex, ...)
+  text(x1*shrinkX+addX, y1*shrinkY+addY, text, cex=cex, ...)
   return(invisible(c(x,y)))
+}
+
+fig_lab <- function(xp = 0, yp = 0, cex = 2, label = "", xpd = NA, draw_grid = F, 
+                    stepsize = 0.02, grid_sparsity = 3, ...){
+  ds <- dev.size("in")
+  # xy coordinates of device corners in user coordinates
+  xb <- grconvertX(c(0, ds[1]), from="in", to="user")
+  yb <- grconvertY(c(0, ds[2]), from="in", to="user")
+  text(x = xb[1] + diff(xb) * xp / 100, 
+       y = yb[1] + diff(yb) * yp / 100, 
+       label = label, cex=cex, xpd = xpd)
+  
+  if(draw_grid){
+    props <- seq(stepsize, 1 - stepsize, by = stepsize)
+    ngrid <- length(props)
+    x_pos_grid <- xb[1] + diff(xb) * props
+    y_pos_grid <- yb[1] + diff(yb) * props
+    
+    # Draw grid lines
+    abline(h = y_pos_grid, col = adjustcolor(1, 0.4), lty = 1, xpd = NA)
+    abline(v = x_pos_grid, col = adjustcolor(1, 0.4), lty = 1, xpd = NA)
+    
+    #label pts in grid
+    
+    grid_lab_inds <- seq(1, ngrid, by = grid_sparsity)
+    ngrid_pts <- length(grid_lab_inds)
+    
+    #hline labs
+    points(x = rep(x_pos_grid[grid_lab_inds] + diff(x_pos_grid[1:2])/2, ngrid), 
+           y = rep(y_pos_grid, each = ngrid_pts), 
+           pch = 15, 
+           xpd = NA, col = adjustcolor("white", 0.8), cex = 2)
+    text(x = rep(x_pos_grid[grid_lab_inds] + diff(x_pos_grid[1:2])/2, ngrid), 
+         y = rep(y_pos_grid, each = ngrid_pts), 
+         labels = rep(props * 100, each = ngrid_pts), 
+         xpd = NA, col = adjustcolor("darkred", 0.4), cex = 0.75)
+    
+    #yline labs
+    points(y = rep(y_pos_grid[grid_lab_inds] + diff(y_pos_grid[1:2])/2, ngrid), 
+           x = rep(x_pos_grid, each = ngrid_pts), 
+           pch = 15, 
+           xpd = NA, col = adjustcolor("white", 0.8), cex = 2)
+    text(y = rep(y_pos_grid[grid_lab_inds] + diff(y_pos_grid[1:2])/2, ngrid), 
+         x = rep(x_pos_grid, each = ngrid_pts), 
+         labels = rep(props * 100, each = ngrid_pts), 
+         xpd = NA, col = adjustcolor("darkblue", 0.4), cex = 0.75)
+    
+  }
+  
 }
 
 line <- function(t,r1,r2,lwd = 1,col=1, center = c(0,0)){

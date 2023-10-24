@@ -292,3 +292,23 @@ for(type_of_plot in 1:1){
 
 dev.off()
 
+#quick summary stat for reviewer
+traitsplit <- split(ldsc_results_sub, f = ldsc_results_sub$gwas)
+traitmaxes <- sapply(traitsplit, function(x){
+  y <- x[x$adj_p < 0.05,]
+  y$cluster[which.max(y$Enrichment)]
+})
+table(traitmaxes)
+table(traitmaxes) / sum(table(traitmaxes))
+category_traitmaxes
+sapply(split(traitmaxes, traitwise_partitions$Category[match(names(traitmaxes), traitwise_partitions$Tag)]),
+       function(x) {
+         table(x)
+       }
+)
+
+#look at just spleen
+mean(unlist(sapply(traitsplit, function(x){
+  y <- x[x$adj_p < 0.05,]
+  y$Enrichment[y$Category == "SPLEEN-sex_homogeneous_changing"]
+})))

@@ -32,15 +32,35 @@ disp_amount <- 0.5
 cols = list(Tissue=MotrpacRatTraining6moData::TISSUE_COLORS[names(motrpac_gtex_map)], 
             Time=MotrpacRatTraining6moData::GROUP_COLORS[paste0(c(1,2,4,8), "w")],
             Sex=MotrpacRatTraining6moData::SEX_COLORS[c('male','female')])
-mars <- list(c(6,
+mars <- list(c(3,
                0 + ifelse(subset_to_traits, 2, 0),
                6 + ifelse(group_by_tissue_type, disp_amount * 4.5, 0),
                6.5 + ifelse(subset_to_traits, 1, 0)),
-             c(3.5,7,3,7)+0.5, 
-             c(3.5,1,3,14)+0.5,
+             c(5,6,7,7.5)+0, 
+             c(5,1.5,7,13)+0,
              c(4.25,2.5,2.5,2.5), 
-             c(4.25,2.5,2.5,2.5), 
-             c(10,6.5,1.5,2.5))
+             c(3,2.5,1.25,2.5), 
+             c(10,6.5,1.5,2.5),
+             c(3,2,3,2))
+
+layout_mat <- rbind(
+  c(1,1,1,1,4),
+  c(2,2,3,3,5),
+  c(6,6,6,6,6)
+)
+layout_heights = c(1,1,0.6)
+
+layout_mat <- rbind(
+  c(1,1,1,1,1,1,1,1,7,7),
+  c(1,1,1,1,1,1,1,1,4,4),
+  c(2,2,2,2,3,3,3,3,4,4),
+  c(2,2,2,2,3,3,3,3,5,5),
+  c(2,2,2,2,3,3,3,3,5,5),
+  c(6,6,6,6,6,6,6,6,6,6),
+  c(6,6,6,6,6,6,6,6,6,6)
+)
+layout_heights = c(1,1.5,1,1,1,1,0.75)
+
 
 #preliminary processing for additional graphical params
 if(subset_to_traits){
@@ -179,19 +199,17 @@ if(base != "deviation_from_expected_logodds_split_the_difference_informative-MVN
 #start the plotting!
 cairo_pdf(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig4_intersect-enrichment_redux.pdf"), 
           width = 2000 / 72 * ncol(table_to_use) / 80, 
-          height = 1200 / 72 + ifelse(group_by_tissue_type, disp_amount * 0.75, 0), 
+          height = 1300 / 72 + ifelse(group_by_tissue_type, disp_amount * 0.75, 0), 
           family="Arial Unicode MS", pointsize = 18.5)
-par(xpd = T, 
+par(xpd = NA, 
     mar = mars[[1]])
-layout(rbind(
-  c(1,1,1,1,4),
-  c(2,2,3,3,5),
-  c(6,6,6,6,6)
-), heights = c(1,1,0.6))
+layout(layout_mat, heights = layout_heights)
+
 
 #initialize blank plot
 plot(1, xaxt="n",yaxt="n",bty="n",pch="",ylab="",xlab="", main="", sub="", 
      xlim= c(-5,ncol(table_to_use)), ylim = c(-5,nrow(table_to_use)))
+
 
 if(group_by_tissue_type){
   tissue_cats_bars_xlocs <- sapply(tissue_cats, function(tc) max(strwidth(tc, units = "user"))) + 0.2
@@ -468,8 +486,6 @@ if(use_counts){
        x = 0, y = nrow(table_to_use) + 4.25 + ifelse(group_by_tissue_type, tissue_disps[length(tissue_disps)], 0), pos = 4, cex = 2.35, font = 2)
 }
 
-fig_label("a)", shrinkX = 0.85, cex = 2, shrinkY = 0.96, xpd = NA)
-
 
 # ~~~~~~~~~~~~ #
 # scatterplots #
@@ -505,7 +521,7 @@ category_shapes <- setNames(c(24,19,15,43,23,25)[1:length(focal_traitcats)], foc
 
 
 
-par(mar = mars[[2]])
+par(mar = mars[[2]], pty="s")
 # layout(t(c(rep(1,10), rep(2,10), 3)))
 # layout(t(c(1,2,3)), widths = c(1,1,0.1))
 #first plot
@@ -730,15 +746,13 @@ grad_arrow_curve(arrow_locs_deplete, direc = "v", cols = c("white", "blue"),
 text(x = mean(arrow_locs_deplete[1:2]), y = sum(arrow_locs_deplete[3:4] * c(0.35,0.65)), 
      labels = "depleted", col = "white", srt = 270, cex = 0.5)
 
-fig_label("b)", shrinkX = 0.865, cex = 2, shrinkY = 0.95, xpd = NA)
-fig_label("c)", shrinkX = 0.99, shrinkY = 0.95, cex = 2)
 
 
 # ~~~~~~~~~~~~ #
 # violin plots #
 # ~~~~~~~~~~~~ #
 
-par(mar = mars[[4]])
+par(mar = mars[[4]], pty="m")
 focal_samps <- subset_samps("row_bias", c("raw", "sd"), samps = samps) + samps$overall_bias
 n_to_trim <- round(nrow(focal_samps) * 0.002)
 focal_samps <- apply(focal_samps, 2, trim_n, n_to_trim)
@@ -761,10 +775,11 @@ tmp <- vioplot::vioplot(x = focal_samps[,tord], T,
 
 #axes
 xtickvals <- seq3(range(qi_100), 5, 0)
-segments(x0 = xtickvals, x1 = xtickvals, y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/100, xpd = NA)
-text(x = xtickvals, y = par("usr")[3] - diff(par("usr")[3:4])/30, labels = xtickvals)
-text(x = mean(par("usr")[1:2]), y = par("usr")[3]-diff(par("usr")[3:4])/10, 
-     labels = "multilevel tissue\nenrichment (logodds-scale)", cex = 1.25, xpd = NA)
+segments(x0 = xtickvals, x1 = xtickvals, y0 = par("usr")[3], 
+         y1 = par("usr")[3] - diff(par("usr")[3:4])/50, xpd = NA)
+text(x = xtickvals, y = par("usr")[3] - diff(par("usr")[3:4])/25, labels = xtickvals)
+text(x = mean(par("usr")[1:2]), y = par("usr")[3]-diff(par("usr")[3:4])/9, 
+     labels = latex2exp::TeX("multilevel \\textbf{tissue} enrichment"), cex = 1.25, xpd = NA)
 tick <- seq_along(colnames(focal_samps))
 axis(2, at = tick, labels = F)
 for(i in 1:length(colnames(focal_samps))){
@@ -782,14 +797,9 @@ text(y = tick, x = rep(par("usr")[1] - 0.01, length(tick)), colnames(focal_samps
 
 abline(v=0,lwd=3,lty=2, col = adjustcolor(1,0.5), xpd = F)
 
-#figure label
-if(T){
-  fig_label("d)", cex = 2, shrinkX = 0.9, shrinkY = 0.97)
-}
-
 #legend for violin plots
-xval <- -1.25
-yval <- 0.5 #2
+xval <- -1.5
+yval <- 5.75 #2
 yh <- 4
 yt <- yval + yh/2
 yb <- yval - yh/2
@@ -817,13 +827,13 @@ segments(x0 = min(xvals) - diff(range(xvals))/100, x1 = max(xvals) + diff(range(
 points(xval, min(yvals) - diff(range(yvals)) / 8, pch = 19, xpd = NA, cex = 1.2)
 segments(x0 = min(xvals), x1 = max(xvals), y0 = min(yvals) - diff(range(yvals)) / 8, y1 = min(yvals) - diff(range(yvals)) / 8, xpd = NA, lwd = 2, col = "white")
 points(xval, min(yvals) - diff(range(yvals)) / 8, pch = 19, xpd = NA, cex = 1, col = "white")
-text(latex2exp::TeX("$CI_{95}$ includes 0$"), x = max(xvals) + diff(range(xvals))/100, 
+text(latex2exp::TeX("$CI_{90}$ includes 0$"), x = max(xvals) + diff(range(xvals))/100, 
      y = min(yvals) - diff(range(yvals)) / 7, pos = 4, xpd = NA, cex = 0.875)
 
 segments(x0 = min(xvals) - diff(range(xvals))/100, x1 = max(xvals) + diff(range(xvals))/100, 
          y0 = min(yvals) - diff(range(yvals)) / 8 * 2, y1 = min(yvals) - diff(range(yvals)) / 8 * 2, xpd = NA, lwd = 3.25)
 points(xval, min(yvals) - diff(range(yvals)) / 8 * 2, pch = 19, xpd = NA, cex = 1.2)
-text(latex2exp::TeX("$CI_{95}$ excludes 0$"), x = max(xvals) + diff(range(xvals))/100, 
+text(latex2exp::TeX("$CI_{90}$ excludes 0$"), x = max(xvals) + diff(range(xvals))/100, 
      y = min(yvals) - diff(range(yvals)) / 7 - diff(range(yvals)) / 8, 
      pos = 4, xpd = NA, cex = 0.875)
 
@@ -875,10 +885,11 @@ tmp <- vioplot::vioplot(x = focal_samps[,tord], T,
 
 #axes
 xtickvals <- seq3(range(qi_100), 5, 0)
-segments(x0 = xtickvals, x1 = xtickvals, y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/100, xpd = NA)
-text(x = xtickvals, y = par("usr")[3] - diff(par("usr")[3:4])/30, labels = xtickvals)
-text(x = mean(par("usr")[1:2]), y = par("usr")[3]-diff(par("usr")[3:4])/10, 
-     labels = "multilevel category\nenrichment (logodds-scale)", cex = 1.25, xpd = NA)
+segments(x0 = xtickvals, x1 = xtickvals, y0 = par("usr")[3], 
+         y1 = par("usr")[3] - diff(par("usr")[3:4])/40, xpd = NA)
+text(x = xtickvals, y = par("usr")[3] - diff(par("usr")[3:4])/20, labels = xtickvals, xpd = NA)
+text(x = mean(par("usr")[1:2]), y = par("usr")[3]-diff(par("usr")[3:4])/7.5, 
+     labels = latex2exp::TeX("multilevel \\textbf{category} enrichment"), cex = 1.25, xpd = NA)
 tick <- seq_along(colnames(focal_samps))
 axis(2, at = tick, labels = F)
 for(i in 1:length(colnames(focal_samps))){
@@ -903,11 +914,6 @@ gsub("_", "\n", colnames(focal_samps))
 gsub("Gi", "GI", stringr::str_to_title(gsub("_", "\n", colnames(focal_samps))))
 
 abline(v=0,lwd=3,lty=2, col = adjustcolor(1,0.5), xpd = F)
-
-#figure label
-if(T){
-  fig_label("e)", cex = 2, shrinkX = 0.905, shrinkY = 0.985)
-}
 
 ##
 # traits
@@ -938,9 +944,9 @@ tmp <- vioplot::vioplot(x = focal_samps[,tord], T,
 
 ytickvals <- seq3(range(qi_100), 5, 0)
 segments(y0 = ytickvals, y1 = ytickvals, x0 = par("usr")[1], x1 = par("usr")[1] - diff(par("usr")[1:2])/200, xpd = NA)
-text(y = ytickvals, x = par("usr")[1] - diff(par("usr")[1:2])/75, labels = ytickvals)
-text(y = mean(par("usr")[3:4]), x = par("usr")[1]-diff(par("usr")[1:2])/25,
-     labels = "multilevel trait enrichment\n(logodds-scale)", cex = 1.25, xpd = NA, srt = 90)
+text(y = ytickvals, x = par("usr")[1] - diff(par("usr")[1:2])/75, labels = ytickvals, xpd = NA)
+text(y = mean(par("usr")[3:4]), x = par("usr")[1]-diff(par("usr")[1:2])/30,
+     labels = latex2exp::TeX("multilevel \\textbf{trait} enrichment"), cex = 1.25, xpd = NA, srt = 90)
 tick <- seq_along(colnames(focal_samps))
 
 
@@ -961,8 +967,39 @@ text(tick + 0.55, par("usr")[3] - diff(par("usr")[3:4])/12, cex = 0.8,
      labels = trait_labs, 
      srt = 45, xpd = T, pos = 2,
      col = cols$category[trait_categories$Category[match(colnames(focal_samps)[trait_subset_bool][tord], trait_categories$Tag)]], xpd = NA)
-fig_label("f)", cex = 2, shrinkX = 0.4)
 abline(h=0,lwd=3,lty=2, col = adjustcolor(1,0.5), xpd = F)
 
+#histogram for trait x gene effects
+par(mar = mars[[7]])
+par(xpd = NA)
+hist(celltotalbias, breaks = 0:20/20, main = "", ylab = "",
+     xlab = "", freq = T, yaxt = "n")
+axis(2, at = 0:3/20*length(celltotalbias), labels = 0:3/20, xpd = NA)
+text(x = par("usr")[1]-diff(par("usr")[1:2])/5, y = mean(par("usr")[3:4]), 
+     "Density", cex = 1.25, srt = 90)
+text(y = par("usr")[3]-diff(par("usr")[3:4])/2.25, x = mean(par("usr")[1:2]), 
+     "Proportion Posterior Mass > 0" , cex = 1.25)
+hist(celltotalbias[celltotalbias > 0.95], breaks = 0:20/20, main = "",
+     xlab = "", freq = T, add = T, col = "red")
+hist(celltotalbias[celltotalbias < 0.05], breaks = 0:20/20, main = "",
+     xlab = "", freq = T, add = T, col = "lightblue")
+text(latex2exp::TeX("\\textbf{Tissue} × \\textbf{Trait} Enrichment"), x = 0.5, y = par("usr")[4],
+     pos = 3, xpd = NA, cex = 1.25)
+
+#figure labels
+fig_lab(label = "a)", xp = 2, yp = 99, draw_grid = F)
+fig_lab(label = "b)", xp = 79, yp = 99)
+fig_lab(label = "c)", xp = 4, yp = 59.5)
+fig_lab(label = "d)", xp = 39.5, yp = 59.5)
+fig_lab(label = "e)", xp = 81, yp = 84)
+fig_lab(label = "f)", xp = 81, yp = 51)
+fig_lab(label = "g)", xp = 5, yp = 24)
+# fig_label("d)", addX = 0, addY = 0, region = "device", cex = 2, xpd = NA)
+# fig_label("e)", addX = 0, addY = 0, region = "device", cex = 2, xpd = NA)
+# fig_label("f)", addX = 0, addY = 0, region = "device", cex = 2, xpd = NA)
+# fig_label("g)", addX = 0, addY = 0, region = "device", cex = 2, xpd = NA)
+
+
 dev.off()
+
 

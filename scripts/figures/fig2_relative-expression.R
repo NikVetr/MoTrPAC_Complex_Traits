@@ -34,13 +34,15 @@ x_logfc <- seq(from = xr[1], to = xr[2], length.out = 256)
 logfc_dens <- sapply(deg_eqtl_list, function(del)
   density((del$logFC), na.rm = T, from = xr[1], to = xr[2], n = 256)$y)
 plot(NA,NA, xlim = xr, ylim = c(0, quantile(logfc_dens, 1)), xlab = "", ylab = "",
-     xaxt = "n", xpd = NA)
-xvals <- seq(xr[1], xr[2], length.out = 5)
-segments(y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/50, x0 = xvals, x1 = xvals, xpd = NA)
-text(y = par("usr")[3] - diff(par("usr")[3:4])/50, pos = 1, x = xvals, labels = round((xvals), 2), xpd = NA)
+     xpd = NA, xaxt = "n", yaxt = "n")
+axis(1, padj = -0.75)
+axis(2, padj = 0.5)
+# xvals <- seq(xr[1], xr[2], length.out = 5)
+# segments(y0 = par("usr")[3], y1 = par("usr")[3] - diff(par("usr")[3:4])/50, x0 = xvals, x1 = xvals, xpd = NA)
+# text(y = par("usr")[3] - diff(par("usr")[3:4])/50, pos = 1, x = xvals, labels = round((xvals), 2), xpd = NA)
 text(x = par("usr")[1] - diff(par("usr")[1:2])/4.5, y = mean(par("usr")[3:4]), labels = "", srt = 90, xpd = NA)
-text(x = par("usr")[1] - diff(par("usr")[1:2])/4.5, y = mean(par("usr")[3:4]), labels = "Density", srt = 90, xpd = NA)
-text(x = mean(par("usr")[1:2]), y = par("usr")[3] - diff(par("usr")[3:4])/4.5, labels = latex2exp::TeX("Exercise-induced $log_2FC$"), srt = 0, xpd = NA)
+text(x = par("usr")[1] - diff(par("usr")[1:2])/5, y = mean(par("usr")[3:4]), labels = "Density", srt = 90, xpd = NA)
+text(x = mean(par("usr")[1:2]), y = par("usr")[3] - diff(par("usr")[3:4])/5, labels = latex2exp::TeX("Exercise-induced $log_2FC$"), srt = 0, xpd = NA)
 
 for(tissue in colnames(logfc_dens)){
   polygon(c(x_logfc, rev(x_logfc)), c(logfc_dens[,tissue], rep(0,length(x_logfc))), col = adjustcolor(cols$Tissue[tissue], 0.5))  
@@ -81,7 +83,9 @@ if(!exists("h2_freqs")){
 }
 tissues <- rev(names(gcta_output))
 plot(h2_freqs[[tissues[1]]], col = adjustcolor(cols$Tissue[tissues[1]], 0.5), xlab = "", ylab = "",
-     main = "")
+     main = "", xaxt = "n", yaxt = "n")
+axis(1, padj = -0.75)
+axis(2, padj = 0.5)
 for(tissue in tissues[-1]){
   plot(h2_freqs[[tissue]], col = adjustcolor(cols$Tissue[tissue], 0.5), add = T)
 }
@@ -97,7 +101,9 @@ load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/GREx_invgamma_e
 var_dens <- sapply(invgamma_estimates, function(invgamma_estimate)
   dinvgamma(x_var, shape = invgamma_estimate[1], scale = invgamma_estimate[2]))
 colnames(var_dens) <- names(invgamma_estimates)
-plot(NA,NA, xlim = range(x_var), ylim = c(0, quantile(var_dens, 1)), xlab = "", ylab = "")
+plot(NA,NA, xlim = range(x_var), ylim = c(0, quantile(var_dens, 1)), xlab = "", ylab = "", xaxt = "n", yaxt = "n")
+axis(1, padj = -0.75)
+axis(2, padj = 0.5)
 for(tissue in colnames(var_dens)){
   polygon(c(x_var, rev(x_var)), c(var_dens[,tissue], rep(0,length(x_var))), col = adjustcolor(cols$Tissue[tissue], 0.5))  
 }
@@ -129,7 +135,8 @@ for(sex_i in c("male", "female")){
     ylims <- squish_middle_x(ylims, f_x)
     
     plot(100,100,xlim = c(0,1.3), ylim = ylims, xpd=NA, ylab = "", xlab = "", xaxt = "n", yaxt = "n", bty="n", cex.lab = 1.25, cex.axis = 1.25)
-    text(x = par("usr")[1] - diff(par("usr")[1:2])/6, y = mean(par("usr")[3:4]), labels = "Standardized Effect Size (SD)", srt = 90, xpd = NA)
+    text(x = par("usr")[1] - diff(par("usr")[1:2])/6, y = mean(par("usr")[3:4]), 
+         labels = latex2exp::TeX(paste0("Standardized Effect Size (\\textit{SD$_{", ifelse(type == 3, "pheno", "geno"), "}}$)")), srt = 90, xpd = NA)
     
     text("Quantile", x = 0.5, y = ylims[1] - diff(ylims)/5, pos = 1, cex = 1)
     if(ti == "2w"){
@@ -182,7 +189,7 @@ for(sex_i in c("male", "female")){
     if(sex_i == "male"){
       text(latex2exp::TeX(paste0("Ratio of Exercise DE to \\sqrt{", 
                                  ifelse(type == 3, "Phenotypic", "Genetic"), " Variance in $log_2$(Gene Expression)}")), 
-           x = 1.5, y = ylims[2] + diff(ylims) / 50, pos = 3, cex = 1)
+           x = 1.5, y = ylims[2] + diff(ylims) / 20, pos = 3, cex = 1)
     }
   }
   
