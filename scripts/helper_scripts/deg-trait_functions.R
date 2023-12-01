@@ -1981,7 +1981,7 @@ plot.scatter <- function(x, y, xlabel = "", ylabel = "", main.title = "",
   rholab <- c(paste0("Spearman's $\\rho$ = ", 
                      round(rho$estimate, 2), ","), 
               paste0("p-value = ", 
-                     rho_pval[1], " × 10$^{", as.integer(rho_pval[2]), "}$"))
+                     rho_pval[1], " × 10$^{", as.integer(rho_pval[2]), "}$", ", n = ", length(x)))
   text3(x = par("usr")[1] + diff(par("usr")[1:2])/100, 
         y = par("usr")[4] - diff(par("usr")[3:4])/100, pos = c(1,4),
         labels = rholab[1], cex = 1.25)

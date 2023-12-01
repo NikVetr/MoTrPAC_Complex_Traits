@@ -1,6 +1,15 @@
 #### run preprocessing script ####
-source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_1_preprocessing.R")
-source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/analyses/analysis_GREx_RelativeEffectSize.R")
+run_preprocessing_scripts <- F #or load the data directly
+if(run_preprocessing_scripts){
+  figure_id <- 2
+  source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_1_preprocessing.R")
+} else {
+  library(Cairo)
+  library(pracma)
+  library(invgamma)
+  source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/deg-trait_functions.R")
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/figures/fig2_relative-expression.RData")
+}
 
 #### figure plotting ####
 
@@ -29,10 +38,7 @@ layout(layout_mat, heights = c(1,1,1,1))
 
 par(mar = c(3,3,1,3) + 1)
 #logFCs
-xr <- c(-2,2)
 x_logfc <- seq(from = xr[1], to = xr[2], length.out = 256)
-logfc_dens <- sapply(deg_eqtl_list, function(del)
-  density((del$logFC), na.rm = T, from = xr[1], to = xr[2], n = 256)$y)
 plot(NA,NA, xlim = xr, ylim = c(0, quantile(logfc_dens, 1)), xlab = "", ylab = "",
      xpd = NA, xaxt = "n", yaxt = "n")
 axis(1, padj = -0.75)
@@ -68,20 +74,6 @@ fig_label(text = "b)", region = "plot", cex = 3, shrinkX = -3.75, shrinkY = 1.06
 
 #snp heritability
 par(mar = c(3,3.5,1,3.5)+1.5)
-if(!exists("gcta_output")){
-  load(file = paste0(gcta_directory, "gcta_output_GTEx_allTissues_list_IHW.RData"))
-  load(paste0(gcta_directory, "gcta_output_GTEx_allTissues.RData"))
-}
-n_h2s <- sum(sapply(gcta_output, function(i) nrow(i)))
-gcta_output_h2s <- lapply(setNames((names(gcta_output)), (names(gcta_output))), function(tissue) gcta_output[[tissue]]$h2)
-if(!exists("h2_freqs")){
-  h2_freqs <- lapply(setNames(rev(names(gcta_output)), rev(names(gcta_output))), function(tissue){
-    out <- hist(do.call(c, gcta_output_h2s[1:match(tissue, names(gcta_output_h2s))]), breaks = 0:5/5, plot = F)
-    out$counts <- out$counts / n_h2s
-    out
-  })
-}
-tissues <- rev(names(gcta_output))
 plot(h2_freqs[[tissues[1]]], col = adjustcolor(cols$Tissue[tissues[1]], 0.5), xlab = "", ylab = "",
      main = "", xaxt = "n", yaxt = "n")
 axis(1, padj = -0.75)
@@ -96,8 +88,6 @@ box("plot")
 
 #invgamma hyperpriors
 x_var <- 1:500/1000
-load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/GREx_sds_expression")
-load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/GREx_invgamma_estimate")
 var_dens <- sapply(invgamma_estimates, function(invgamma_estimate)
   dinvgamma(x_var, shape = invgamma_estimate[1], scale = invgamma_estimate[2]))
 colnames(var_dens) <- names(invgamma_estimates)
@@ -118,7 +108,7 @@ qs2use <- round(invlogit(seq(-9,9, length.out = 75)), 4)
 
 
 for(sex_i in c("male", "female")){
-  for(type in 3:4){ #the two sexhomo categories, which subsets to the 8w_M1/-1_F1/-1 nodes
+  for(type in c("phenotypic_expression_sexhomo", "genetic_expression_sexhomo")){ #the two sexhomo categories, which subsets to the 8w_M1/-1_F1/-1 nodes
     
     EZ_PZ <- relative_expression_data[[sex_i]][[type]]
     EZ_PZ <- lapply(EZ_PZ, function(x) {
@@ -136,15 +126,15 @@ for(sex_i in c("male", "female")){
     
     plot(100,100,xlim = c(0,1.3), ylim = ylims, xpd=NA, ylab = "", xlab = "", xaxt = "n", yaxt = "n", bty="n", cex.lab = 1.25, cex.axis = 1.25)
     text(x = par("usr")[1] - diff(par("usr")[1:2])/6, y = mean(par("usr")[3:4]), 
-         labels = latex2exp::TeX(paste0("Standardized Effect Size (\\textit{SD$_{", ifelse(type == 3, "pheno", "geno"), "}}$)")), srt = 90, xpd = NA)
+         labels = latex2exp::TeX(paste0("Standardized Effect Size (\\textit{SD$_{", ifelse(type == "phenotypic_expression_sexhomo", "pheno", "geno"), "}}$)")), srt = 90, xpd = NA)
     
     text("Quantile", x = 0.5, y = ylims[1] - diff(ylims)/5, pos = 1, cex = 1)
     if(ti == "2w"){
-      text(latex2exp::TeX(paste0("Ratio of Exercise DE to \\sqrt{\\textbf{", ifelse(type == 1, "Phenotypic", "Genetic"), "} Variance in $log_2$(Gene Expression)}")), 
+      text(latex2exp::TeX(paste0("Ratio of Exercise DE to \\sqrt{\\textbf{", ifelse(type == "phenotypic_expression_sexhomo", "Phenotypic", "Genetic"), "} Variance in $log_2$(Gene Expression)}")), 
            x = 1.35, y = ylims[2] + diff(ylims) / 15, pos = 3, cex = 3)
     }
     if(ti == "1w"){
-      fig_label(ifelse(type == 1, "a)", "b)"), region = "figure", pos = "topleft", cex = 3.5)
+      fig_label(ifelse(type == "phenotypic_expression_sexhomo", "a)", "b)"), region = "figure", pos = "topleft", cex = 3.5)
     }
     
     xylocs_tissue_names <- cbind(rep(1.05, ncol(EZ_PZ[[ti]])), redistribute(as.numeric(squish_middle_x(tail(EZ_PZ[[ti]], 1), f_x)), diff(ylims) / 20))
@@ -188,7 +178,7 @@ for(sex_i in c("male", "female")){
     
     if(sex_i == "male"){
       text(latex2exp::TeX(paste0("Ratio of Exercise DE to \\sqrt{", 
-                                 ifelse(type == 3, "Phenotypic", "Genetic"), " Variance in $log_2$(Gene Expression)}")), 
+                                 ifelse(type == "phenotypic_expression_sexhomo", "Phenotypic", "Genetic"), " Variance in $log_2$(Gene Expression)}")), 
            x = 1.5, y = ylims[2] + diff(ylims) / 20, pos = 3, cex = 1)
     }
   }

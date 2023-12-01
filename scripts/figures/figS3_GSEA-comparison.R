@@ -1,6 +1,16 @@
 #### run preprocessing script ####
-source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_3_preprocessing.R")
-source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/analyses/analysis_freq-GSEA.R")
+run_preprocessing_scripts <- F #or load the data directly
+if(run_preprocessing_scripts){
+  figure_id <- "S3"
+  source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_3_preprocessing.R")
+  source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/analyses/analysis_freq-GSEA.R")
+} else {
+  library(Cairo)
+  # library(data.table)
+  library(MotrpacRatTraining6moData)
+  source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/deg-trait_functions.R")
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/figures/figS3_GSEA-comparison.RData")
+}
 
 #### figure plotting ####
 #snag category colors

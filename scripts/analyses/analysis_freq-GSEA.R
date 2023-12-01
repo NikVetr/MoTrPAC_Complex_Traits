@@ -11,6 +11,7 @@ if(!dir.exists(gsea_dir)){dir.create(gsea_dir)}
 
 if(file.exists(paste0(gsea_dir, "gsea_trait_x_tissue.txt"))){
   gsea_output <- fread(paste0(gsea_dir, "gsea_trait_x_tissue.txt"))
+  gsea_output <- gsea_output[,-"leadingEdge"]
 } else {
   
   gsea_output <- do.call(rbind, lapply(tissues, function(tiss){
@@ -53,6 +54,7 @@ if(file.exists(paste0(gsea_dir, "gsea_trait_x_tissue.txt"))){
   hist(gsea_output$pval, breaks = 0:100/100)
   # gsea_output$adj.pval <- p.adjust(gsea_output$pval, method = "bh")
   gsea_output$adj.pval <- p.adjust(gsea_output$pval, method = "bonf")
+  gsea_output <- gsea_output[,-"leadingEdge"]
   
   fwrite(gsea_output, paste0(gsea_dir, "gsea_trait_x_tissue.txt"))
   

@@ -1,25 +1,3 @@
-#### specify settings #### 
-random_seed <- 1
-set.seed(random_seed)
-
-# settings <- list(c(T, F, T, F, T), #experiment to check non-kronecker corrmat effects
-#                  c(T, F, F, F, T),
-#                  c(F, F, F, F, T))[[3]]
-# settings <- list(c(T, F, F, F, T), #experiment to check trait / tissue corrmats using only intersecting genes
-#                  c(F, F, F, F, T))[[2]]
-settings <- c(F, F, F, F, T)
-use_random_DE_genes <- settings[1]
-use_random_Pred_genes <- settings[2]
-use_kronecker_interactions <- settings[3]
-estimate_interaction_corrmat <- settings[4]
-use_all_genes_for_trait_tiss_corrmats <- settings[5]
-
-estimate_trait_corr_mats <- F
-use_tissue_specific_corr_mats <- F
-estimate_composite_corrmat <- F
-estimate_tissue_corrmat <- F
-fit_model <- F
-
 #### load libraries ####
 library(ensembldb)
 library(EnsDb.Hsapiens.v86)
@@ -47,9 +25,30 @@ library(pracma)
 library(MotrpacRatTraining6mo) # v1.6.0
 # also attaches MotrpacRatTraining6moData v1.8.0
 
-
 #### define functions ####
 source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/deg-trait_functions.R")
+
+#### specify settings #### 
+random_seed <- 1
+set.seed(random_seed)
+
+# settings <- list(c(T, F, T, F, T), #experiment to check non-kronecker corrmat effects
+#                  c(T, F, F, F, T),
+#                  c(F, F, F, F, T))[[3]]
+# settings <- list(c(T, F, F, F, T), #experiment to check trait / tissue corrmats using only intersecting genes
+#                  c(F, F, F, F, T))[[2]]
+settings <- c(F, F, F, F, T)
+use_random_DE_genes <- settings[1]
+use_random_Pred_genes <- settings[2]
+use_kronecker_interactions <- settings[3]
+estimate_interaction_corrmat <- settings[4]
+use_all_genes_for_trait_tiss_corrmats <- settings[5]
+
+estimate_trait_corr_mats <- F
+use_tissue_specific_corr_mats <- F
+estimate_composite_corrmat <- F
+estimate_tissue_corrmat <- F
+fit_model <- F
 
 #### get ortholog map ####
 gene_map <- MotrpacRatTraining6moData::RAT_TO_HUMAN_GENE
@@ -913,3 +912,110 @@ if(nrow(signif_matrix) != nrow(n_deg_sigtwas_intersect)){
 if(!all(colnames(signif_matrix) == colnames(n_deg_sigtwas_intersect)) & all(rownames(signif_matrix) == rownames(n_deg_sigtwas_intersect))){
   stop("something's wrong with the significance matrix")
 }
+
+#### fig 4 extra ####
+if(figure_id == 4){
+  #load appropriate model fit
+  if(base != "deviation_from_expected_logodds_split_the_difference_informative-MVN-matrix-normal_priors"){
+    
+    base = "deviation_from_expected_logodds_split_the_difference_informative-MVN-matrix-normal_priors"
+    load(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/mcmc_output/", 
+                base, 
+                ifelse(use_all_cats, "_allCats"), 
+                ifelse(use_random_DE_genes, "_randomgenes", ""),
+                ifelse(!use_kronecker_interactions, "_pairwise-interactions", ""),
+                ".cmdStanR.fit"))
+    
+    samps <- data.frame(as_draws_df(out$draws()))
+    prop_greater_than_0 <- function(x) mean(x>0)
+    cellbias <- apply(subset_samps("cell_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+    celltotalbias <- apply(subset_samps("cell_total_prob_bias", c("raw", "sd", "logodds"), samps = samps), 2, prop_greater_than_0)
+    rowbias <- apply(subset_samps("row_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+    colbias <- apply(subset_samps("col_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+    trait_key <- setNames(trait_categories$new_Phenotype, trait_categories$Tag)
+    colcatbias <- apply(subset_samps("colcat_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
+    
+    #generate a "significance" matrix
+    signif_threshold <- 0.05
+    signif_df <- data_subset[1:(nrow(data_subset)), c("tissue", "trait")]
+    signif_df$prob_diff_is_positive <- apply(subset_samps("cell_total_prob_bias", c("raw", "sd", "logodds"), samps = samps), 2, prop_greater_than_0)
+    signif_df$signif <- 0
+    signif_df$signif[signif_df$prob_diff_is_positive > (1-signif_threshold)] <- 1
+    signif_df$signif[signif_df$prob_diff_is_positive < signif_threshold] <- -1
+    
+    signif_df[signif_df$signif != 0,]
+    
+    signif_matrix <- reshape(signif_df[,-match("prob_diff_is_positive", colnames(signif_df))], idvar = "tissue", timevar = "trait", direction = "wide")
+    rownames(signif_matrix) <- signif_matrix$tissue
+    signif_matrix <- signif_matrix[,-match("tissue", colnames(signif_matrix))]
+    colnames(signif_matrix) <- gsub(colnames(signif_matrix), pattern = "signif.", replacement = "")
+    
+    #add back in the HYPOTHALAMUS if we removed it
+    if(nrow(signif_matrix) != nrow(n_deg_sigtwas_intersect)){
+      signif_matrix <- signif_matrix[rownames(n_deg_sigtwas_intersect),]
+      rownames(signif_matrix) <- rownames(n_deg_sigtwas_intersect)
+      signif_matrix[is.na(signif_matrix)] <- 0
+    }
+    
+    if(!all(colnames(signif_matrix) == colnames(n_deg_sigtwas_intersect)) & all(rownames(signif_matrix) == rownames(n_deg_sigtwas_intersect))){
+      stop("something's wrong with the significance matrix")
+    }
+  }
+  
+  #load in data for scatterplots
+  data1 <- data.frame(count = as.integer(unlist(c(n_deg_sigtwas_intersect))))
+  data1$tissue <- rep(rownames(n_deg_sigtwas_intersect), ncol(n_deg_sigtwas_intersect))
+  data1$trait <- unlist(lapply(colnames(n_deg_sigtwas_intersect), function(tri) rep(tri, nrow(n_deg_sigtwas_intersect))))
+  data1$total <- n_genes_in_nodes[data1$tissue]
+  data1$TWAS_Hit <- "YES"
+  
+  traits <- unique(data1$trait)
+  tissues <- unique(data1$tissue)
+  d <- list(cell_count = data1$count,
+            total = sapply(1:nrow(data1), function(i) total_number_of_possible_hits_matrix[data1$tissue[i], data1$trait[i]]),
+            row_count = sapply(1:nrow(data1), function(i) n_genes_in_nodes_matrix[data1$tissue[i], data1$trait[i]]),
+            col_count = sapply(1:nrow(data1), function(i) sig_twas_by_trait_genes_matrix[data1$tissue[i], data1$trait[i]]),
+            row_index = match(data1$tissue, tissues),
+            col_index = match(data1$trait, traits),
+            row_n = length(unique(data1$tissue)),
+            col_n = length(unique(data1$trait)))
+  
+  #load in data for proportion pos effects
+  data <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/prop_positive_effects_in_DEG-TWAS_intersection.txt")
+  
+  #subset the samps object so it's a bit more manageable
+  samps <- subset_samps(samps = samps, include = c("row_bias", "col_bias", "colcat_bias", "overall_bias"), exclude = c("raw", "sd"))
+  rm(sig_twas_by_trait)
+  rm(twas)
+  rm(out)
+  
+}
+
+#### fig 5 extra ####
+
+if(figure_id == 5){
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/deg_sigtwas_proportion.txt")
+  deg_sigtwas_proportion <- deg_sigtwas_proportion[,,"8w","n",]
+  rm(out)
+}
+
+#### fig 6 extra ####
+
+if(figure_id == 6){
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/deg_sigtwas_proportion.txt")
+  deg_sigtwas_proportion <- deg_sigtwas_proportion[,
+                                                   c("UKB_20002_1473_self_reported_high_cholesterol", 
+                                                     "UKB_20002_1111_self_reported_asthma"),
+                                                   ,,]
+  rm(out)
+  rm(all_tissues)
+}
+
+
+#### fig S3 extra ####
+
+if(figure_id == "S3"){
+  rm(out)
+  rm(d)
+}
+

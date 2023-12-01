@@ -1,8 +1,16 @@
 #### run preprocessing script ####
-source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_2_preprocessing.R")
+run_preprocessing_scripts <- F #or load the data directly
+if(run_preprocessing_scripts){
+  figure_id <- 3
+  source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_2_preprocessing.R")
+} else {
+  library(Cairo)
+  library(data.table)
+  source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/deg-trait_functions.R")
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/figures/fig3_LDSC-output.RData")
+}
 
 #### figure plotting ####
-
 change_names <- F
 change_names_in_plot = T
 nicole_mods = T
@@ -110,7 +118,8 @@ for(type_of_plot in 1:1){
   }
   
   #vert axis label
-  text(labels = "Phenotypes", x = nameloc, y = 10.45, pos = 2, cex = 2.5, xpd = NA, family="Courier", col = "grey25")
+  # text(labels = "Phenotypes", x = nameloc, y = 10.45, pos = 2, cex = 2.5, xpd = NA, family="Courier", col = "grey25")
+  text(labels = "Phenotypes", x = nameloc, y = 10.4, pos = 2, cex = 2.5, xpd = NA, col = "grey25")
   #horiz axis label
   text(labels = paste0("Heritability ", ifelse(use_enrichment, "Enrichment", "Proportion"), " Across Tissues"), x = 1.2, y = -0.5, cex = 2.25, pos = 1, xpd = NA)
   
@@ -202,9 +211,6 @@ for(type_of_plot in 1:1){
   lower_legend_by <- 1.6
   rect(xleft = 1.97, ybottom = 8.15 - lower_legend_by - 0.05*n_points_for_legend, 
        ytop = 10.1 - lower_legend_by, xright = 2.2, border = NA, col = "white")
-  # text(labels = sapply(names(deg_eqtl_list), function(ts) stringr::str_to_title(paste0(strsplit(ts, "-")[[1]][-1], collapse = " "))),
-  #      y = seq(9.95,8.75,length.out = length(names(deg_eqtl_list))), x = 2, pos = 4)
-  # points(x = rep(1.9925, length(names(deg_eqtl_list))), y = seq(9.955,8.755,length.out = length(names(deg_eqtl_list))), col = cols$Tissue, pch = 15, cex = 1.75)
   # text(labels = stringr::str_replace_all(cluster_names, "_", " "),
   #      y = seq(9.95,8.75,length.out = length(cluster_names)), x = 2, pos = 4)
   text(labels = sapply(cluster_names, function(cli) strsplit(cli, "-")[[1]][1]),
@@ -300,7 +306,6 @@ traitmaxes <- sapply(traitsplit, function(x){
 })
 table(traitmaxes)
 table(traitmaxes) / sum(table(traitmaxes))
-category_traitmaxes
 sapply(split(traitmaxes, traitwise_partitions$Category[match(names(traitmaxes), traitwise_partitions$Tag)]),
        function(x) {
          table(x)

@@ -1,9 +1,20 @@
 #### run preprocessing script ####
-source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_3_preprocessing.R")
+
+run_preprocessing_scripts <- F #or load the data directly
+if(run_preprocessing_scripts){
+  figure_id <- 4
+  source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_3_preprocessing.R")
+} else {
+  library(Cairo)
+  library(pracma)
+  source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/deg-trait_functions.R")
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/figures/fig4_intersect-enrichment.RData")
+}
 
 #### figure plotting ####
 #graphical parameters
 incl_significance <- T
+use_focal_vs_compl <- T
 incl_cell_totals <- F
 trait_category_legend_below = T
 use_tissue_cols_for_cols <- F
@@ -147,53 +158,6 @@ if(use_tissue_cols_for_cols){
 } else {
   heatmap_cols <- viridisLite::viridis(n = max(table_to_use, na.rm = T)*100+1)
   heatmap_cols <- heatmap_cols[round(log(1:max(table_to_use, na.rm = T)) / log(max(table_to_use, na.rm = T)) * max(table_to_use, na.rm = T) * 100 + 1)]
-}
-
-#load appropriate model fit
-if(base != "deviation_from_expected_logodds_split_the_difference_informative-MVN-matrix-normal_priors"){
-  
-  base = "deviation_from_expected_logodds_split_the_difference_informative-MVN-matrix-normal_priors"
-  load(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/mcmc_output/", 
-              base, 
-              ifelse(use_all_cats, "_allCats"), 
-              ifelse(use_random_DE_genes, "_randomgenes", ""),
-              ifelse(!use_kronecker_interactions, "_pairwise-interactions", ""),
-              ".cmdStanR.fit"))
-  
-  samps <- data.frame(as_draws_df(out$draws()))
-  prop_greater_than_0 <- function(x) mean(x>0)
-  cellbias <- apply(subset_samps("cell_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
-  celltotalbias <- apply(subset_samps("cell_total_prob_bias", c("raw", "sd", "logodds"), samps = samps), 2, prop_greater_than_0)
-  rowbias <- apply(subset_samps("row_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
-  colbias <- apply(subset_samps("col_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
-  trait_key <- setNames(trait_categories$new_Phenotype, trait_categories$Tag)
-  colcatbias <- apply(subset_samps("colcat_bias", c("raw", "sd"), samps = samps), 2, prop_greater_than_0)
-  
-  #generate a "significance" matrix
-  signif_threshold <- 0.05
-  signif_df <- data_subset[1:(nrow(data_subset)), c("tissue", "trait")]
-  signif_df$prob_diff_is_positive <- apply(subset_samps("cell_total_prob_bias", c("raw", "sd", "logodds"), samps = samps), 2, prop_greater_than_0)
-  signif_df$signif <- 0
-  signif_df$signif[signif_df$prob_diff_is_positive > (1-signif_threshold)] <- 1
-  signif_df$signif[signif_df$prob_diff_is_positive < signif_threshold] <- -1
-  
-  signif_df[signif_df$signif != 0,]
-  
-  signif_matrix <- reshape(signif_df[,-match("prob_diff_is_positive", colnames(signif_df))], idvar = "tissue", timevar = "trait", direction = "wide")
-  rownames(signif_matrix) <- signif_matrix$tissue
-  signif_matrix <- signif_matrix[,-match("tissue", colnames(signif_matrix))]
-  colnames(signif_matrix) <- gsub(colnames(signif_matrix), pattern = "signif.", replacement = "")
-  
-  #add back in the HYPOTHALAMUS if we removed it
-  if(nrow(signif_matrix) != nrow(n_deg_sigtwas_intersect)){
-    signif_matrix <- signif_matrix[rownames(n_deg_sigtwas_intersect),]
-    rownames(signif_matrix) <- rownames(n_deg_sigtwas_intersect)
-    signif_matrix[is.na(signif_matrix)] <- 0
-  }
-  
-  if(!all(colnames(signif_matrix) == colnames(n_deg_sigtwas_intersect)) & all(rownames(signif_matrix) == rownames(n_deg_sigtwas_intersect))){
-    stop("something's wrong with the significance matrix")
-  }
 }
 
 #start the plotting!
@@ -491,28 +455,6 @@ if(use_counts){
 # scatterplots #
 # ~~~~~~~~~~~~ #
 
-use_focal_vs_compl <- T
-
-data1 <- data.frame(count = as.integer(unlist(c(n_deg_sigtwas_intersect))))
-data1$tissue <- rep(rownames(n_deg_sigtwas_intersect), ncol(n_deg_sigtwas_intersect))
-data1$trait <- unlist(lapply(colnames(n_deg_sigtwas_intersect), function(tri) rep(tri, nrow(n_deg_sigtwas_intersect))))
-data1$total <- n_genes_in_nodes[data1$tissue]
-data1$TWAS_Hit <- "YES"
-
-traits <- unique(data1$trait)
-tissues <- unique(data1$tissue)
-d <- list(cell_count = data1$count,
-          total = sapply(1:nrow(data1), function(i) total_number_of_possible_hits_matrix[data1$tissue[i], data1$trait[i]]),
-          row_count = sapply(1:nrow(data1), function(i) n_genes_in_nodes_matrix[data1$tissue[i], data1$trait[i]]),
-          col_count = sapply(1:nrow(data1), function(i) sig_twas_by_trait_genes_matrix[data1$tissue[i], data1$trait[i]]),
-          row_index = match(data1$tissue, tissues),
-          col_index = match(data1$trait, traits),
-          row_n = length(unique(data1$tissue)),
-          col_n = length(unique(data1$trait)))
-
-
-
-
 # category_shapes <- setNames(15:19, salient.categories)
 category_shapes <- setNames(15:19, c("Cardiometabolic", "Aging", "Anthropometric", 
                                      "Immune", "Psychiatric-neurologic")
@@ -670,10 +612,8 @@ text(x = par("usr")[1] + diff(par("usr")[1:2]) / 1.45,
 
 #make second plot with proportion disease-like effects data
 par(mar = mars[[3]])
-data <- fread("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/prop_positive_effects_in_DEG-TWAS_intersection.txt")
 xvals <- data$count_all / data$total_all
 yvals <- data$count_inters / data$total_inters
-
 
 cex_pow <- 1/2
 plot(xvals, yvals, xlim = c(0.48, 0.52), 

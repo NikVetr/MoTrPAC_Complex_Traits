@@ -1,9 +1,17 @@
 #### run preprocessing script ####
-source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_3_preprocessing.R")
-source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_4_preprocessing.R")
+run_preprocessing_scripts <- F #or load the data directly
+if(run_preprocessing_scripts){
+  figure_id <- 5
+  source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_3_preprocessing.R")
+  source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_4_preprocessing.R")
+} else {
+  library(Cairo)
+  library(pracma)
+  source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/deg-trait_functions.R")
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/figures/fig5_prop-pos-hits.RData")
+}
 
 #### figure plotting ####
-load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/deg_sigtwas_proportion.txt")
 subset_to_traits <- T
 cairo_pdf(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig5_prop_pos_hits_bayesian_scatterplot", 
                  ifelse(subset_to_traits, "_sub.pdf", "")), 
@@ -62,7 +70,7 @@ for(subset_i in 1:2){
   
   for(sex in c("male", "female")[1]){
     
-    # mean_freq <- apply(sapply(traits_to_plot, function(trait) as.numeric(deg_sigtwas_proportion[, trait,"8w","p",sex])), 2, weighted.mean, na.rm = T)
+    # mean_freq <- apply(sapply(traits_to_plot, function(trait) as.numeric(deg_sigtwas_proportion[, trait,sex])), 2, weighted.mean, na.rm = T)
     
     mean_freq <- trait_means[traits_to_plot]
     
@@ -109,7 +117,7 @@ for(subset_i in 1:2){
       tissue_abbr_rev <- MotrpacRatTraining6moData::TISSUE_ABBREV_TO_CODE
       names(d) <- tissue_abbr_rev[rownames(deg_sigtwas_proportion_posterior_mean)]
       
-      dn <- as.numeric(deg_sigtwas_proportion[, traits_to_plot[trait_i],"8w","n",sex])
+      dn <- as.numeric(deg_sigtwas_proportion[, traits_to_plot[trait_i],sex])
       names(dn) <- rownames(deg_sigtwas_proportion)
       dn <- dn[names(d)]
       
@@ -138,7 +146,7 @@ for(subset_i in 1:2){
     
     #legend for tissue size
     n_pts <- 5
-    pt_size_logs <- seq(1, log(max(as.numeric(deg_sigtwas_proportion[,,"8w","n",sex]), 
+    pt_size_logs <- seq(1, log(max(as.numeric(deg_sigtwas_proportion[,,sex]), 
                                    na.rm = T)) / log(2), length.out = n_pts)
     pt_size_legend <- round(2^pt_size_logs)
     pty <-  par("usr")[3] + cumsum(pt_size_legend^0.25/800) * ry * 15 + 

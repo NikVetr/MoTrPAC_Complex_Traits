@@ -19,9 +19,7 @@ library(foreach)
 library(doParallel)
 library(pracma)
 library(invgamma)
-# library(MotrpacBicQC)
-library(MotrpacRatTraining6mo) # v1.6.0
-# also attaches MotrpacRatTraining6moData v1.8.0
+library(MotrpacRatTraining6mo)
 
 #### define functions ####
 source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/deg-trait_functions.R")
@@ -213,5 +211,103 @@ if(length(salient.categories) < 9){
 }
 cols$category <- category_colors
 
+#### fig 1 extra ####
+
+if(figure_id == 1){
+  
+  #check if grex script has been called
+  if(!exists("called_grex_script")){called_grex_script <- F}
+  if(!called_grex_script){
+    called_grex_script <- T
+    source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/analyses/analysis_GREx_RelativeEffectSize.R")
+  }
+  if(!exists("relative_expression_data")){
+    load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/relative_expression_motrpac_gtex")
+  }
+  
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/node_metadata_list.RData")
+  ensembl_genes <- orig_ensembl_genes <- lapply(split(node_metadata_list$`8w`$human_ensembl_gene[!is.na(node_metadata_list$`8w`$human_ensembl_gene)], 
+                                                      node_metadata_list$`8w`$tissue[!is.na(node_metadata_list$`8w`$human_ensembl_gene)]), unique)
+  symbol_map <- unique(node_metadata_list$`8w`[,c("human_gene_symbol", "human_ensembl_gene")])
+  all_genes <- unlist(orig_ensembl_genes)
+  n_tissues_per_gene <- table(all_genes)
+  ensembl_genes$THREE <- names(n_tissues_per_gene)[n_tissues_per_gene > 2]
+  
+  jacmat <- sapply(orig_ensembl_genes, function(x) sapply(orig_ensembl_genes, function(y) jaccard(x,y)))
+  jacmat_inds <- order(cmdscale(1-jacmat, k = 1))
+  jacmat <- jacmat[jacmat_inds, jacmat_inds]
+  n_tissues_per_gene <- table(unlist(orig_ensembl_genes))
+  nt2pg <- table(n_tissues_per_gene)
+  ensembl_genes_df <- data.frame(gene = unlist(orig_ensembl_genes),
+                                 tissue = rep(names(orig_ensembl_genes), sapply(orig_ensembl_genes, length), each = T))
+  ensembl_genes_df$n_tissue <- n_tissues_per_gene[match(ensembl_genes_df$gene, names(n_tissues_per_gene))]
+  n_per_cat <- lapply(setNames(sort(unique(n_tissues_per_gene)), sort(unique(n_tissues_per_gene))), 
+                      function(nt){x <- table(ensembl_genes_df$tissue[ensembl_genes_df$n_tissue == nt]); x})
+  prop_per_cat <- lapply(n_per_cat, function(nt) nt / sum(nt))
+  
+  #now do the Open Targets curves
+  if(!exists("n_traits_above_at_least_1")){
+    use_indirect <- F
+    load(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/open-targets_tissue-x-disease_", 
+                ifelse(use_indirect, "indirect", "direct"), 
+                "-associations"))
+    breakpoints <- 0:100/100
+    n_above <- sapply(names(tissue_x_disease), function(tissue) 
+      log10((data.frame(cats = cut(tissue_x_disease[[tissue]][tissue_x_disease[[tissue]] > 1E-6], breaks=c(breakpoints, Inf)), ordered_result=TRUE) %>% 
+               dplyr::count(cats, .drop=FALSE) %>% arrange(desc(cats)) %>% mutate(cumfreq = cumsum(n)) %>% arrange(cats))$cumfreq))
+    prop_above <- log10(10^n_above %*% (diag(1 / sapply(ensembl_genes, length))))
+    colnames(prop_above) <- colnames(n_above)
+    
+    n_above_at_least_1 <- sapply(names(tissue_x_disease), function(tissue) 
+      log10((data.frame(cats = cut(apply(tissue_x_disease[[tissue]], 1, max)[apply(tissue_x_disease[[tissue]], 1, max) > 1E-6], breaks=c(breakpoints, Inf)), ordered_result=TRUE) %>% 
+               dplyr::count(cats, .drop=FALSE) %>% arrange(desc(cats)) %>% mutate(cumfreq = cumsum(n)) %>% arrange(cats))$cumfreq))
+    
+    
+    n_traits_above_at_least_1 <- sapply(names(tissue_x_disease), function(tissue) 
+      log10((data.frame(cats = cut(apply(tissue_x_disease[[tissue]], 2, max)[apply(tissue_x_disease[[tissue]], 2, max) > 1E-6], breaks=c(breakpoints, Inf)), ordered_result=TRUE) %>% 
+               dplyr::count(cats, .drop=FALSE) %>% arrange(desc(cats)) %>% mutate(cumfreq = cumsum(n)) %>% arrange(cats))$cumfreq))
+  }
+  
+  tiss_names <- names(tissue_x_disease)
+  ntiss <- length(tissue_x_disease)
+  rm(map)
+  
+}
+
+#### fig 2 extra ####
+
+if(figure_id == 2){
+  
+  source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/analyses/analysis_GREx_RelativeEffectSize.R")
+  if(!exists("gcta_output")){
+    load(file = paste0(gcta_directory, "gcta_output_GTEx_allTissues_list_IHW.RData"))
+    load(paste0(gcta_directory, "gcta_output_GTEx_allTissues.RData"))
+  }
+  n_h2s <- sum(sapply(gcta_output, function(i) nrow(i)))
+  gcta_output_h2s <- lapply(setNames((names(gcta_output)), (names(gcta_output))), function(tissue) gcta_output[[tissue]]$h2)
+  if(!exists("h2_freqs")){
+    h2_freqs <- lapply(setNames(rev(names(gcta_output)), rev(names(gcta_output))), function(tissue){
+      out <- hist(do.call(c, gcta_output_h2s[1:match(tissue, names(gcta_output_h2s))]), breaks = 0:5/5, plot = F)
+      out$counts <- out$counts / n_h2s
+      out
+    })
+  }
+  tissues <- rev(names(gcta_output))
+  
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/GREx_sds_expression")
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/GREx_invgamma_estimate")
+  
+  xr <- c(-2,2)
+  logfc_dens <- sapply(deg_eqtl_list, function(del)
+    density((del$logFC), na.rm = T, from = xr[1], to = xr[2], n = 256)$y)
+  rm(map)
+  rm(h2)
+  
+  
+}
+
+if(figure_id == "S1"){
+  zcor = as.matrix(read.table("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/zcor_transcriptome_pass1b.tsv"))
+}
 # cols$category <- cols$Tissue[1:length(unique_trait_categories)+1]
 # names(cols$category) <- unique_trait_categories

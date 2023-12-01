@@ -1,8 +1,23 @@
 #### run preprocessing script ####
-source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_2_preprocessing.R")
+run_preprocessing_scripts <- F #or load the data directly
+if(run_preprocessing_scripts){
+  figure_id <- "S2"
+  source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_2_preprocessing.R")
+} else {
+  library(Cairo)
+  library(data.table)
+  library(MotrpacBicQC)
+  source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/deg-trait_functions.R")
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/figures/figS2_LDSC-comparison.RData")
+}
 
 #### figure plotting ####
-grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig_S3_LDSC_output.pdf"), 
+change_names = F
+change_names_in_plot = T
+nicole_mods = T
+arnold_mods = F
+
+grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig_S2_LDSC_output.pdf"), 
                      width = 1500 / 72, height = 2000 / 72 * 18 / 17 / 114 * length(coloc_phenotypes_sub) * 2, family="Arial Unicode MS", pointsize = 16)
 
 par(mar = c(3,3,4,3), xpd = NA)
@@ -105,7 +120,8 @@ for(type_of_plot in 2:2){
   }
   
   #vert axis label
-  text(labels = "Phenotypes", x = nameloc, y = 10.45, pos = 2, cex = 2.5, xpd = NA, family="Courier", col = "grey25")
+  # text(labels = "Phenotypes", x = nameloc, y = 10.45, pos = 2, cex = 2.5, xpd = NA, family="Courier", col = "grey25")
+  text(labels = "Phenotypes", x = nameloc, y = 10.45, pos = 2, cex = 2.5, xpd = NA, col = "grey25")
   #horiz axis label
   text(labels = paste0("Heritability ", ifelse(use_enrichment, "Enrichment", "Proportion"), " Across Tissues"), 
        x = 1.2, y = -0.675, cex = 2.25, pos = 1, xpd = NA)
@@ -198,9 +214,6 @@ for(type_of_plot in 2:2){
   lower_legend_by <- 1.6
   rect(xleft = 1.97, ybottom = 8.15 - lower_legend_by - 0.05*n_points_for_legend, 
        ytop = 10.1 - lower_legend_by, xright = 2.2, border = NA, col = "white")
-  # text(labels = sapply(names(deg_eqtl_list), function(ts) stringr::str_to_title(paste0(strsplit(ts, "-")[[1]][-1], collapse = " "))),
-  #      y = seq(9.95,8.75,length.out = length(names(deg_eqtl_list))), x = 2, pos = 4)
-  # points(x = rep(1.9925, length(names(deg_eqtl_list))), y = seq(9.955,8.755,length.out = length(names(deg_eqtl_list))), col = cols$Tissue, pch = 15, cex = 1.75)
   # text(labels = stringr::str_replace_all(cluster_names, "_", " "),
   #      y = seq(9.95,8.75,length.out = length(cluster_names)), x = 2, pos = 4)
   text(labels = sapply(cluster_names, function(cli) strsplit(cli, "-")[[1]][1]),
@@ -345,8 +358,8 @@ legend("topleft", pch = 19, col = adjustcolor(MotrpacRatTraining6moData::TISSUE_
 legend("bottomright", lty = 2, col = "red", legend = "1-to-1 line", bty="n", lwd = 3, cex = 1.5)
 abline(0,1, col = "red", lty = 2, lwd = 4)
 
-fig_label("c)", xpd = NA, cex = 3, shrinkX = 0.75)
-fig_label("b)", xpd = NA, cex = 3, shrinkX = 7.5)
+fig_label("c)", xpd = NA, cex = 3, shrinkX = 0.75, shrinkY = 0.95)
+fig_label("b)", xpd = NA, cex = 3, shrinkX = 7.5, shrinkY = 0.95)
 fig_label("a)", xpd = NA, cex = 3, shrinkX = 7.75, shrinkY = 2.65)
 
 dev.off()

@@ -1,5 +1,4 @@
-# setwd('/oak/stanford/groups/smontgom/nicolerg/MOTRPAC/PASS_ANALYSIS/PASS1B/RNA/eqtl-coloc')
-
+#### load libraries ####
 library(ks)
 library(data.table)
 library(edgeR)
@@ -9,7 +8,6 @@ library(org.Hs.eg.db)
 library(clusterProfiler)
 library(org.Rn.eg.db)
 library(biomaRt)
-# library(MotrpacBicQC)
 library(plotrix)
 library(ggplot2)
 library(testit)
@@ -18,9 +16,7 @@ library(jpeg)
 library(foreach)
 library(doParallel)
 library(pracma)
-library(MotrpacRatTraining6mo) # v1.6.0
-# also attaches MotrpacRatTraining6moData v1.8.0
-
+library(MotrpacRatTraining6mo)
 
 #### define functions ####
 source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/deg-trait_functions.R")
@@ -318,5 +314,8 @@ minimum_enrichment_logPval <- log10(min(ldsc_results_sub$adj_p))
 #identify traits with negative heritabilities
 bad_boys <- sort(unique(ldsc_results_sub$gwas[ldsc_results_sub$Enrichment < 0 | ldsc_results_sub$Prop._h2 < 0]))
 bad_boys_cols <- rep(1, length(gwas_names))
+
+rm(map)
+rm(ldsc_results)
 # bad_boys_cols[match(bad_boys, coloc_phenotypes_sub)] <- 2
 

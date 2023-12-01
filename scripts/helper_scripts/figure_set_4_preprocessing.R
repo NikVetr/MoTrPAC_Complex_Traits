@@ -1495,3 +1495,18 @@ cell_sigs <- deg_sigtwas_proportion_posterior_prob_bias < alpha_post | deg_sigtw
 # trait_means 
 trait_sigs <- trait_bias_probs < alpha_post | trait_bias_probs > (1-alpha_post)
 
+
+#### fig 5 extra ####
+
+if(figure_id == 5){
+  rm(twas)
+  rm(out)
+}
+
+#### fig 6 extra ####
+
+
+if(figure_id == 6){
+  rm(twas)
+  rm(out)
+}

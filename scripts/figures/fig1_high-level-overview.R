@@ -1,5 +1,13 @@
 #### run preprocessing script ####
-source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_1_preprocessing.R")
+run_preprocessing_scripts <- F #or load the data directly
+if(run_preprocessing_scripts){
+  figure_id <- 1
+  source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_1_preprocessing.R")
+} else {
+  library(Cairo)
+  source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/deg-trait_functions.R")
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/figures/fig1_high-level-overview.RData")
+}
 
 #### figure plotting ####
 
@@ -20,7 +28,7 @@ node_cols <- c(rgb(255,255,255,m=255),
           rgb(54,1,63,m=255)
 )
 node_cols <- c(node_cols, rep(node_cols[8], 2), 1)
-ws <- c(1, 0.65, rep(0.75, 8), 2.25) * 1.5
+ws <- c(0.95, 0.525, rep(0.75, 8), 2.25) * 1.5
 hs <- c(0.75,
         0.75,
         rep(0.75, 8), 1.25)
@@ -76,8 +84,8 @@ CairoFonts(
 pes <- c(NA,
          NA,
          rep(0.25, 8), 0.125) / 2
-imgsrc <- c("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/treadmill_rat.png",
-            "/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/motrpac_human.png")
+imgsrc <- c("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/rat_on_treadmill_motrpac_alt.png",
+            "/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/human_exercising_motrpac_alt.png")
 
 # flowchart edge parameters
 edges <- do.call(rbind, list(c(1,2),
@@ -100,27 +108,19 @@ edges <- do.call(rbind, list(c(1,2),
 )
 
 edge_dir <- c("v", rep("h", 14), rep("v", 2))
-edge_labels <- c("         RGD Orthologs", rep("", length(edge_dir)-1))
+edge_labels <- c("         RGD\nOrthologs", rep("", length(edge_dir)-1))
 edge_outline_cols <- c(rep("white", 4), rep("black", nrow(edges) - 4))
 edge_disp_x <- cbind(0.04 + as.numeric(edges[,1] == 2) * -0.35 + as.numeric(edges[,1] == 1) * -0.4,
                      rep(-0.04, nrow(edges)))
 edge_disp_y <- cbind(as.numeric(edge_dir == "v") * -0.025,
                      as.numeric(edge_dir == "v") * 0.025)
+edge_disp_y[1,] <- c(-0.05,-0.05)
 prop_shaft_length <- 0.25 + as.numeric(edges[,1] == 1) * 0.1
-shaft_width <- 0.25 + as.numeric(edges[,1]==1) * as.numeric(edges[,2]==2) * 0.15
+shaft_width <- 0.25 + as.numeric(edges[,1]==1) * as.numeric(edges[,2]==2) * 0.2
 prop_head_width <- 2.1 + as.numeric(edges[,1]==1) * 0.1 + as.numeric(edges[,1] %in% c(9,10)) * as.numeric(edges[,2] %in% c(11)) * 0.7
 
-#check if grex script has been called
-if(!exists("called_grex_script")){called_grex_script <- F}
-if(!called_grex_script){
-  called_grex_script <- T
-  source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/analyses/analysis_GREx_RelativeEffectSize.R")
-}
-if(!exists("relative_expression_data")){
-  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/relative_expression_motrpac_gtex")
-}
 
-#### actual plotting ####
+#### actual plotting ###
 grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig1_high-level-overview_redux_take-2.pdf"), 
                      width = 1350 / 72, height = 1125 / 72 * 1.5 * 4 / 6, family="Arial Unicode MS", pointsize = 18.5)
 
@@ -166,7 +166,7 @@ for(i in 1:nrow(edges)){
   } else if(edge_dir[i] == "v"){
     
     if(edges[i,1]==1){
-      edge_cols <- c("white", "black")
+      edge_cols <- c("white", "white")
     } else {
       edge_cols <- node_cols[edges[i,]]  
     }
@@ -191,7 +191,9 @@ for(i in 1:nrow(edges)){
 #then the nodes
 for(i in 1:nrow(locs)){
   if(i %in% c(1,2)){
-    addImg(png::readPNG(imgsrc[i]), x = locs[i,1], y = locs[i,2], width = ws[i])
+    if(file.exists(imgsrc[i])){
+      addImg(png::readPNG(imgsrc[i]), x = locs[i,1], y = locs[i,2], width = ws[i])  
+    }
   } else {
     rrect(loc = locs[i,], w = ws[[i]], h = hs[[i]], border = node_cols[i], col = adjustcolor(node_cols[i], 0.1),
           lwd = 2, pe = pes[i], hat_prop = hat_prop, bold_border = ifelse(i == nrow(locs), 0.05, 0))
@@ -221,27 +223,6 @@ tissue_colors <- c(MotrpacRatTraining6moData::TISSUE_COLORS, THREE = "black")
 
 cols$Tissue[which(is.na(cols$Tissue))] <- '#C0C0C0'
 par(mar = c(4,5,4,1), xpd = NA)
-load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/node_metadata_list.RData")
-ensembl_genes <- orig_ensembl_genes <- lapply(split(node_metadata_list$`8w`$human_ensembl_gene[!is.na(node_metadata_list$`8w`$human_ensembl_gene)], 
-                                                    node_metadata_list$`8w`$tissue[!is.na(node_metadata_list$`8w`$human_ensembl_gene)]), unique)
-symbol_map <- unique(node_metadata_list$`8w`[,c("human_gene_symbol", "human_ensembl_gene")])
-all_genes <- unlist(orig_ensembl_genes)
-n_tissues_per_gene <- table(all_genes)
-ensembl_genes$THREE <- names(n_tissues_per_gene)[n_tissues_per_gene > 2]
-
-
-jaccard <- function(x, y) length(intersect(x,y)) / length(union(x,y))
-jacmat <- sapply(orig_ensembl_genes, function(x) sapply(orig_ensembl_genes, function(y) jaccard(x,y)))
-jacmat_inds <- order(cmdscale(1-jacmat, k = 1))
-jacmat <- jacmat[jacmat_inds, jacmat_inds]
-n_tissues_per_gene <- table(unlist(orig_ensembl_genes))
-nt2pg <- table(n_tissues_per_gene)
-ensembl_genes_df <- data.frame(gene = unlist(orig_ensembl_genes),
-                               tissue = rep(names(orig_ensembl_genes), sapply(orig_ensembl_genes, length), each = T))
-ensembl_genes_df$n_tissue <- n_tissues_per_gene[match(ensembl_genes_df$gene, names(n_tissues_per_gene))]
-n_per_cat <- lapply(setNames(sort(unique(n_tissues_per_gene)), sort(unique(n_tissues_per_gene))), 
-                    function(nt){x <- table(ensembl_genes_df$tissue[ensembl_genes_df$n_tissue == nt]); x})
-prop_per_cat <- lapply(n_per_cat, function(nt) nt / sum(nt))
 
 
 plot(NA, xlim = c(0.5, length(prop_per_cat)+0.5), ylim = c(0,2), frame = F, xaxt = "n", yaxt = "n", xlab = "", ylab = "")
@@ -273,7 +254,6 @@ segments(x0 = 0.425, x1 = 0.35, y = log10_count_ylocs, y1 = log10_count_ylocs, l
 text(x = 0.375, y = log10_count_ylocs, labels = latex2exp::TeX(paste0("$10^{", log10_count_ticks, "}$")), pos = 2, cex = 1.25, xpd = NA)
 text(labels = "Number of Genes in Bin", x = -0.15, y = 1.525, pos = 3, cex = 1.5, xpd = NA, srt = 90)
 
-
 #jaccard matrix
 xl = 2; xr = 6; yb = 1.5; yt = 2
 ncols <- 101
@@ -281,7 +261,7 @@ rate = 0.04
 exp_dist_cols <- round(cumsum(c(1, dexp(1:(ncols-1), rate = rate) / min(dexp(1:(ncols-1), rate = rate)))))
 colgrad <- viridis::viridis(max(exp_dist_cols))[exp_dist_cols]
 
-xyrat <- diff(par("usr")[1:2]) / diff(par("usr")[3:4])
+xyratio <- diff(par("usr")[1:2]) / diff(par("usr")[3:4])
 
 for(j in 2:ncol(jacmat)){
   rect(xleft = xl + (j-1) / nrow(jacmat) * (xr - xl), xright = xl + j / nrow(jacmat) * (xr - xl), 
@@ -295,54 +275,29 @@ for(j in 2:ncol(jacmat)){
          ybottom = yb + (nrow(jacmat)-i) / ncol(jacmat) * (yt - yb), ytop =  yb + (nrow(jacmat)-i+1) / ncol(jacmat) * (yt - yb),
          col = colgrad[floor(jacmat[i,j] * 100) + 1])
     if(j == ncol(jacmat)){
-      rect(xleft = xr + 1 / xyrat / nrow(jacmat) * (xr - xl), xright = xr + (1 + 1 / xyrat) / nrow(jacmat) * (xr - xl), 
+      rect(xleft = xr + 1 / xyratio / nrow(jacmat) * (xr - xl), xright = xr + (1 + 1 / xyratio) / nrow(jacmat) * (xr - xl), 
            ybottom = yb + (nrow(jacmat)-i) / ncol(jacmat) * (yt - yb), ytop =  yb + (nrow(jacmat)-i+1) / ncol(jacmat) * (yt - yb),
            col = MotrpacRatTraining6moData::TISSUE_COLORS[rownames(jacmat)[i]])
-      text(x = xr + (0.9 + 1 / xyrat) / nrow(jacmat) * (xr - xl), y = yb + (nrow(jacmat)-i+0.5) / ncol(jacmat) * (yt - yb),
+      text(x = xr + (0.9 + 1 / xyratio) / nrow(jacmat) * (xr - xl), y = yb + (nrow(jacmat)-i+0.5) / ncol(jacmat) * (yt - yb),
            labels = rownames(jacmat)[i], pos = 4, cex = 0.75)
     }
   }
 }
 
 #legend for heatmap
-rect(xleft = xr + (0.5 + 1 / xyrat) / nrow(jacmat) * (xr - xl), xright = xr + (1 + 1 / xyrat) / nrow(jacmat) * (xr - xl),
+rect(xleft = xr + (0.5 + 1 / xyratio) / nrow(jacmat) * (xr - xl), xright = xr + (1 + 1 / xyratio) / nrow(jacmat) * (xr - xl),
      ybottom = seq(yb - (yt-yb)/1.5, yb, length.out = ncols+1)[-ncols], ytop =  seq(yb - (yt-yb)/1.5, yb, length.out = ncols+1)[-1],
      col = colgrad, border = colgrad)
-rect(xleft = xr + (0.5 + 1 / xyrat) / nrow(jacmat) * (xr - xl), xright = xr + (1 + 1 / xyrat) / nrow(jacmat) * (xr - xl),
+rect(xleft = xr + (0.5 + 1 / xyratio) / nrow(jacmat) * (xr - xl), xright = xr + (1 + 1 / xyratio) / nrow(jacmat) * (xr - xl),
      ybottom = yb, ytop =  yb - (yt-yb)/1.5, border = 1)
 nnum <- 6
-text(x = xr + (0.875 + 1 / xyrat) / nrow(jacmat) * (xr - xl), y = seq(yb - (yt-yb)/1.5, yb, length.out = nnum), labels = seq(0,1,length.out=nnum), pos = 4, cex = 0.75)
-text(x = xr + (0.375 + 1 / xyrat) / nrow(jacmat) * (xr - xl), y = yb - (yt-yb)/3, labels = "Jaccard Index", pos = 3, cex = 0.75, srt = 90)
-
-
-#now do the Open Targets curves
-if(!exists("n_traits_above_at_least_1")){
-  use_indirect <- F
-  load(paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/external/open-targets_tissue-x-disease_", 
-              ifelse(use_indirect, "indirect", "direct"), 
-              "-associations"))
-  breakpoints <- 0:100/100
-  n_above <- sapply(names(tissue_x_disease), function(tissue) 
-    log10((data.frame(cats = cut(tissue_x_disease[[tissue]][tissue_x_disease[[tissue]] > 1E-6], breaks=c(breakpoints, Inf)), ordered_result=TRUE) %>% 
-             dplyr::count(cats, .drop=FALSE) %>% arrange(desc(cats)) %>% mutate(cumfreq = cumsum(n)) %>% arrange(cats))$cumfreq))
-  prop_above <- log10(10^n_above %*% (diag(1 / sapply(ensembl_genes, length))))
-  colnames(prop_above) <- colnames(n_above)
-  
-  n_above_at_least_1 <- sapply(names(tissue_x_disease), function(tissue) 
-    log10((data.frame(cats = cut(apply(tissue_x_disease[[tissue]], 1, max)[apply(tissue_x_disease[[tissue]], 1, max) > 1E-6], breaks=c(breakpoints, Inf)), ordered_result=TRUE) %>% 
-             dplyr::count(cats, .drop=FALSE) %>% arrange(desc(cats)) %>% mutate(cumfreq = cumsum(n)) %>% arrange(cats))$cumfreq))
-  
-  
-  n_traits_above_at_least_1 <- sapply(names(tissue_x_disease), function(tissue) 
-    log10((data.frame(cats = cut(apply(tissue_x_disease[[tissue]], 2, max)[apply(tissue_x_disease[[tissue]], 2, max) > 1E-6], breaks=c(breakpoints, Inf)), ordered_result=TRUE) %>% 
-             dplyr::count(cats, .drop=FALSE) %>% arrange(desc(cats)) %>% mutate(cumfreq = cumsum(n)) %>% arrange(cats))$cumfreq))
-}
+text(x = xr + (0.875 + 1 / xyratio) / nrow(jacmat) * (xr - xl), y = seq(yb - (yt-yb)/1.5, yb, length.out = nnum), labels = seq(0,1,length.out=nnum), pos = 4, cex = 0.75)
+text(x = xr + (0.375 + 1 / xyratio) / nrow(jacmat) * (xr - xl), y = yb - (yt-yb)/3, labels = "Jaccard Index", pos = 3, cex = 0.75, srt = 90)
 
 #now plot Open Targets curves
 main_title <- paste0("Open Targets ", ifelse(use_indirect, "Overall / Indirect", "Direct"), " Associations")
 
 par(xpd = F)
-
 
 curves_list <- list(n_above, prop_above, n_above_at_least_1, n_traits_above_at_least_1)
 vlabs <- c("# trait x gene pairs\n≥ given evidence score",
@@ -391,15 +346,15 @@ for(i in 1:4){
        labels = 0:5/5)
   
   #the actual curves
-  for(tissue in names(tissue_x_disease)){
+  for(tissue in tiss_names){
     lines(breakpoints, curves_to_use[,tissue], lwd = 2, col = tissue_colors[tissue])
   }
   
   #tissue labels
   tiss_order <- colnames(curves_to_use)[order(curves_to_use[1,], decreasing = T)]
   text(labels = tiss_order, col = tissue_colors[tiss_order], cex = 0.75, font = 2, xpd = NA,
-       pos = 4, x = -0.05, y = ylims[2] - cumsum(c(0,rep(strheight(tiss_order[1], units = "user"), length(tissue_x_disease) - 1))))
-  segments(x0 = -0.08, x1 = 0, y0 = ylims[2] - cumsum(c(0,rep(strheight(tiss_order[1], units = "user"), length(tissue_x_disease) - 1))),
+       pos = 4, x = -0.05, y = ylims[2] - cumsum(c(0,rep(strheight(tiss_order[1], units = "user"), ntiss - 1))))
+  segments(x0 = -0.08, x1 = 0, y0 = ylims[2] - cumsum(c(0,rep(strheight(tiss_order[1], units = "user"), ntiss - 1))),
            y1 = curves_to_use[1,tiss_order], col = tissue_colors[tiss_order], xpd = T)
   
 }

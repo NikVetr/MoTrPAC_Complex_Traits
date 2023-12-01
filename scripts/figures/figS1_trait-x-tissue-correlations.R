@@ -1,5 +1,14 @@
 #### run preprocessing script ####
-source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_1_preprocessing.R")
+run_preprocessing_scripts <- F #or load the data directly
+if(run_preprocessing_scripts){
+  figure_id <- "S1"
+  source("/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/figure_set_1_preprocessing.R")
+} else {
+  library(Cairo)
+  library(pracma)
+  source(file = "/Volumes/2TB_External/MoTrPAC_Complex_Traits/scripts/helper_scripts/deg-trait_functions.R")
+  load("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/figures/figS1_trait-x-tissue-correlations.RData")
+}
 
 #### figure plotting ####
 vertically_oriented <- F
@@ -195,7 +204,6 @@ text(labels = latex2exp::TeX(paste0("$10^{", round(seq(minrangeh2medoh2[1], minr
 text(x = mean(c(xl, xr)) + 2.5, y = yb + ydisp + 0.25, labels = latex2exp::TeX("$h^{2}_{mediated}$ / $h^{2}_{SNP}$"), pos = 1, cex = 0.751, font = 2)
 
 #now do the tissue transcriptome correlation matrix
-zcor = as.matrix(read.table("/Volumes/2TB_External/MoTrPAC_Complex_Traits/data/internal/zcor_transcriptome_pass1b.tsv"))
 col_df = data.frame(row.names=rownames(zcor))
 col_df$Tissue = gsub('_.*','',rownames(col_df))
 col_df$Time = sapply(rownames(col_df), function(x) unname(unlist(strsplit(x, '_')))[3])

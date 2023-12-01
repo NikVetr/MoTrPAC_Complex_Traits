@@ -123,7 +123,7 @@ if(!exists("deg_eqtl_list")){
     
     if(!motrpac_tissue %in% names(motrpac_gtex_map)){next}
     
-    cat(paste0(motrpac_tissue, "\n"))
+    # cat(paste0(motrpac_tissue, "\n"))
     
     # read in eQTLs
     gtex_tissue = motrpac_gtex_map[[motrpac_tissue]]
@@ -136,9 +136,9 @@ if(!exists("deg_eqtl_list")){
     gtex_motrpac = merge(x = gtex_egene, y = rna_dea$timewise_dea[tissue == motrpac_tissue], by='feature_ID')
     gtex_motrpac$abs_slope <- abs(gtex_motrpac$slope)
     
-    cat(paste0("prop of feature_IDs matched: ", round(length(unique(gtex_motrpac$feature_ID)) / 
-                                                        length(unique(rna_dea$timewise_dea[tissue == motrpac_tissue]$feature_ID)), 3),
-               "\nprop gene symbols in map: ", round(mean(gtex_egene$human_gene_symbol %in% map$human_gene_symbol), 2), "\n"))
+    # cat(paste0("prop of feature_IDs matched: ", round(length(unique(gtex_motrpac$feature_ID)) / 
+    #                                                     length(unique(rna_dea$timewise_dea[tissue == motrpac_tissue]$feature_ID)), 3),
+    #            "\nprop gene symbols in map: ", round(mean(gtex_egene$human_gene_symbol %in% map$human_gene_symbol), 2), "\n"))
     
     deg_eqtl_list[[motrpac_tissue]] = gtex_motrpac
     # gtex_motrpac$gene_symbol
