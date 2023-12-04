@@ -12,7 +12,7 @@ if(run_preprocessing_scripts){
 
 #### figure plotting ####
 vertically_oriented <- F
-grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/figure_s1_high-level-overview",
+grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/figS1_high-level-overview",
                                        ifelse(vertically_oriented, "_vertical", "_horizontal"),".pdf"), 
                      width = ifelse(vertically_oriented, 775 / 72, 1300 / 72), height = ifelse(vertically_oriented, 1300/72, 600 / 72), family="Arial Unicode MS")
 if(vertically_oriented){
@@ -83,7 +83,7 @@ for(rowi in 1:length(traits)){
   if(incl_h2s){
     trait_tag <- trait_categories$Tag[match(traits[sorted_row_inds[rowi]], trait_categories$new_Phenotype)]
     h2lab_cex <- 0.65
-    h2lab_height <- strheight("$h^{2}_{SNP}-LDSC$", cex = h2lab_cex)
+    h2lab_height <- strheight("$\\textit{h}^{2}_{SNP}-LDSC$", cex = h2lab_cex)
     h2lab_dispint <- 1.25
     h2lab_xloc <- length(traits) + 2.25 - (h2lab_height + h2lab_dispint) * 1.5 + (0:3) * (h2lab_height + h2lab_dispint)
     
@@ -95,7 +95,7 @@ for(rowi in 1:length(traits)){
     }
     if(rowi == 1){
       text(y = length(traits) + 2, x = h2lab_xloc[1], pos = 4, srt = 90,
-           labels = latex2exp::TeX(paste0("$h^{2}_{SNP}-LDSC$")), cex = h2lab_cex)
+           labels = latex2exp::TeX(paste0("$\\textit{h}^{2}_{SNP}-LDSC$")), cex = h2lab_cex)
       segments(y1 = length(traits) + 1.75, x1 = h2lab_xloc[1] + 3/4,
                y0 = length(traits) + 0.75, x0 = length(traits) + 2,
                lwd = 1, lty = 3, col = "grey50")
@@ -110,7 +110,7 @@ for(rowi in 1:length(traits)){
     }
     if(rowi == 1){
       text(y = length(traits) + 2, x = h2lab_xloc[2], pos = 4, srt = 90,
-           labels = latex2exp::TeX(paste0("$h^{2}_{SNP}-MESC$")), cex = h2lab_cex)
+           labels = latex2exp::TeX(paste0("$\\textit{h}^{2}_{SNP}-MESC$")), cex = h2lab_cex)
       segments(y1 = length(traits) + 1.75, x1 = h2lab_xloc[2] + 3/4,
                y0 = length(traits) + 0.75, x0 = length(traits) + 3,
                lwd = 1, lty = 3, col = "grey50")
@@ -124,7 +124,7 @@ for(rowi in 1:length(traits)){
     }
     if(rowi == 1){
       text(y = length(traits) + 2, x = h2lab_xloc[3], pos = 4, srt = 90,
-           labels = latex2exp::TeX(paste0("$h^{2}_{mediated}$")), cex = h2lab_cex)
+           labels = latex2exp::TeX(paste0("$\\textit{h}^{2}_{mediated}$")), cex = h2lab_cex)
       segments(y1 = length(traits) + 1.75, x1 = h2lab_xloc[3] + 3/4,
                y0 = length(traits) + 0.75, x0 = length(traits) + 4,
                lwd = 1, lty = 3, col = "grey50")
@@ -138,7 +138,7 @@ for(rowi in 1:length(traits)){
     }
     if(rowi == 1){
       text(y = length(traits) + 2, x = h2lab_xloc[4], pos = 4, srt = 90,
-           labels = latex2exp::TeX(paste0("$h^{2}_{mediated}$ / $h^{2}_{SNP}$")), cex = h2lab_cex)
+           labels = latex2exp::TeX(paste0("$\\textit{h}^{2}_{mediated}$ $\\textit{h}^{-2}_{SNP}$")), cex = h2lab_cex)
       segments(y1 = length(traits) + 1.75, x1 = h2lab_xloc[4] + 3/4,
                y0 = length(traits) + 0.75, x0 = length(traits) + 5,
                lwd = 1, lty = 3, col = "grey50")
@@ -154,7 +154,7 @@ rect(xleft = xl, xright = xr, col = heatcols, border = NA,
      yb = seq(yb, yt, length.out = length(heatcols)+1)[-(length(heatcols)+1)] + ydisp, yt= seq(yb, yt, length.out = length(heatcols)+1)[-1] + ydisp)
 rect(xleft = xl, xright = xr, ybottom = yb + ydisp, ytop = yt + ydisp)
 text(labels = -5:5/5, x = xl, pos = 2, y = seq(yb, yt, length.out = 11) + ydisp, cex = 1)
-text(x = mean(c(xl, xr)), y = yt + ydisp - 0.25, labels = latex2exp::TeX("$r_g$"), pos = 3, cex = 2, font = 2)
+text(x = mean(c(xl, xr)), y = yt + ydisp - 0.25, labels = latex2exp::TeX("$\\textit{r}_g$"), pos = 3, cex = 2, font = 2)
 
 #title
 text("Genetic Correlation Matrix", x = length(traits) / 2 + 0.5, y = length(traits) + 0.5, pos = 3, cex = 2.5, font = 2)
@@ -181,7 +181,7 @@ rect(xleft = xl, xright = xr, col = h2_cols, border = NA,
 rect(xleft = xl, xright = xr, ybottom = yb + ydisp, ytop = yt + ydisp)
 text(labels = latex2exp::TeX(paste0("$10^{", round(seq(minrangeh2[1], minrangeh2[1] + minrangeh2[2], length.out = 5), 2), "}$")), 
      x = xl, pos = 4, y = seq(yb, yt, length.out = 5) + ydisp, cex = 0.5)
-text(x = mean(c(xl, xr)), y = yb + ydisp + 0.25, labels = latex2exp::TeX("$h^{2}_{SNP}$"), pos = 1, cex = 0.751, font = 2)
+text(x = mean(c(xl, xr)), y = yb + ydisp + 0.25, labels = latex2exp::TeX("$\\textit{h}^{2}_{SNP}$"), pos = 1, cex = 0.751, font = 2)
 
 #legend for h2med estimates
 xl = length(traitnames) + 3; xr = length(traitnames) + 4; yb = -12.75; yt = -0.55
@@ -191,7 +191,7 @@ rect(xleft = xl, xright = xr, col = h2med_cols, border = NA,
 rect(xleft = xl, xright = xr, ybottom = yb + ydisp, ytop = yt + ydisp)
 text(labels = latex2exp::TeX(paste0("$10^{", round(seq(minrangeh2med[1], minrangeh2med[1] + minrangeh2med[2], length.out = 5), 2), "}$")), 
      x = xl, pos = 4, y = seq(yb, yt, length.out = 5) + ydisp, cex = 0.5)
-text(x = mean(c(xl, xr)), y = yb + ydisp + 0.25, labels = latex2exp::TeX("$h^{2}_{mediated}$"), pos = 1, cex = 0.751, font = 2)
+text(x = mean(c(xl, xr)), y = yb + ydisp + 0.25, labels = latex2exp::TeX("$\\textit{h}^{2}_{mediated}$"), pos = 1, cex = 0.751, font = 2)
 
 #legend for h2med estimates
 xl = length(traitnames) + 10; xr = length(traitnames) + 11; yb = -12.75; yt = -0.55
@@ -201,7 +201,7 @@ rect(xleft = xl, xright = xr, col = h2medoh2_cols, border = NA,
 rect(xleft = xl, xright = xr, ybottom = yb + ydisp, ytop = yt + ydisp)
 text(labels = latex2exp::TeX(paste0("$10^{", round(seq(minrangeh2medoh2[1], minrangeh2medoh2[1] + minrangeh2medoh2[2], length.out = 5), 2), "}$")), 
      x = xl, pos = 4, y = seq(yb, yt, length.out = 5) + ydisp, cex = 0.5)
-text(x = mean(c(xl, xr)) + 2.5, y = yb + ydisp + 0.25, labels = latex2exp::TeX("$h^{2}_{mediated}$ / $h^{2}_{SNP}$"), pos = 1, cex = 0.751, font = 2)
+text(x = mean(c(xl, xr)) + 2.5, y = yb + ydisp + 0.25, labels = latex2exp::TeX("$\\textit{h}^{2}_{mediated}$ $\\textit{h}^{-2}_{SNP}$"), pos = 1, cex = 0.751, font = 2)
 
 #now do the tissue transcriptome correlation matrix
 col_df = data.frame(row.names=rownames(zcor))
@@ -556,8 +556,8 @@ hoffset <- 0 + c(5:0/5, 1:5/5)^line_weight_power * line_weight_multiplier / 300
 voffset_rhos <- -0.1
 text(labels = round(seq(-1, 1, length.out = 11), 2), y = seq(yb, yt, length.out = 11) + voffset_rhos, 
      x = xl - 0.0075 + hoffset, pos = 4, las=2, cex=0.9)
-text(labels = latex2exp::TeX(paste0("|$\\rho$|")), y = yt - 0.03 + voffset_rhos, x = (xl) - (xr-xl)*0.25, pos = 3, cex = 2)
-text(labels = paste0("≥ ", corr_thresh), y = yt + 0.0325 + voffset_rhos, x = xl + 0.225, pos = 3, cex = 1.1, font = 3)
+text(labels = latex2exp::TeX(paste0("|$\\textit{\\rho}$|")), y = yt - 0.03 + voffset_rhos, x = (xl) - (xr-xl)*0.25, pos = 3, cex = 2)
+text(labels = paste0("≥ ", corr_thresh), y = yt + 0.0325 + voffset_rhos, x = xl + 0.225, pos = 3, cex = 1.1)
 polygon(x = c(xl - lws/2, xl + rev(lws)/2),
         y = c((yb + yt) / 2 + corresponding_heights, yt - corresponding_heights) + voffset_rhos, col = "#e28a4a")
 polygon(x = c(xl - lws/2, xl + rev(lws)/2),

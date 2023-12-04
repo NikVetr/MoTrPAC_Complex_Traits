@@ -17,7 +17,7 @@ change_names_in_plot = T
 nicole_mods = T
 arnold_mods = F
 
-grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/fig_S2_LDSC_output.pdf"), 
+grDevices::cairo_pdf(filename = paste0("/Volumes/2TB_External/MoTrPAC_Complex_Traits/figures/figS2_LDSC_output.pdf"), 
                      width = 1500 / 72, height = 2000 / 72 * 18 / 17 / 114 * length(coloc_phenotypes_sub) * 2, family="Arial Unicode MS", pointsize = 16)
 
 par(mar = c(3,3,4,3), xpd = NA)
@@ -308,7 +308,7 @@ tissues <- tissue_order[tissue_order %in% unique(gsub(x = sub_1$cluster, "-sex_h
 par(mar = c(4.25,4.25,4,2) * 1.5, xpd = F)
 xlims <- range(sub_1$Enrichment)
 ylims <- range(sub_2$Enrichment)
-plot(sub_1$Enrichment,  sub_2$Enrichment, main = latex2exp::TeX("$h^2_{SNP}$ Enrichment"),
+plot(sub_1$Enrichment,  sub_2$Enrichment, main = latex2exp::TeX("$\\textit{h}^2_{SNP}$ Enrichment"),
      xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "", pch = 19, cex.main = 2.5,
      col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[gsub(x = sub_1$cluster, "-sex_homogeneous_changing", "")], 0.5),
      xlim = xlims, ylim = ylims, cex = 2)
@@ -337,13 +337,13 @@ abline(0,1, col = "red", lty = 2, lwd = 4)
 
 xlims <- range(sub_1$Prop._h2)
 ylims <- range(sub_2$Prop._h2)
-plot(sub_1$Prop._h2,  sub_2$Prop._h2, main = latex2exp::TeX("Proportion $h^2_{SNP}$"),
+plot(sub_1$Prop._h2,  sub_2$Prop._h2, main = latex2exp::TeX("Proportion $\\textit{h}^2_{SNP}$"),
      xaxt = "n", yaxt = "n", frame.plot = FALSE, xlab = "", ylab = "", pch = 19, cex.main = 2.5,
      col = adjustcolor(MotrpacRatTraining6moData::TISSUE_COLORS[gsub(x = sub_1$cluster, "-sex_homogeneous_changing", "")], 0.5),
      xlim = xlims, ylim = ylims, cex = 2)
 rect(xleft = par("usr")[1], ybottom = par("usr")[3], xright = par("usr")[2], ytop = par("usr")[4], lwd = 2, xpd = NA)
-text(x = mean(xlims), y = ylims[1] - diff(ylims) / 7, labels = latex2exp::TeX("Proportion $h^2_{SNP}$ (Conditional on Tissue Annotation)"), cex = 1.75, pos = 1, xpd = NA)
-text(x = xlims[1] - diff(xlims) / 4.5, y = mean(ylims), labels = latex2exp::TeX("Proportion $h^2_{SNP}$ (Unconditional on Tissue Annotation)"), cex = 1.75, srt = 90, xpd = NA)
+text(x = mean(xlims), y = ylims[1] - diff(ylims) / 7, labels = latex2exp::TeX("Proportion $\\textit{h}^2_{SNP}$ (Conditional on Tissue Annotation)"), cex = 1.75, pos = 1, xpd = NA)
+text(x = xlims[1] - diff(xlims) / 4.5, y = mean(ylims), labels = latex2exp::TeX("Proportion $\\textit{h}^2_{SNP}$ (Unconditional on Tissue Annotation)"), cex = 1.75, srt = 90, xpd = NA)
 
 #axes
 xvals <- round(seq((xlims[1]), (xlims[2]), length.out = 5), 2)

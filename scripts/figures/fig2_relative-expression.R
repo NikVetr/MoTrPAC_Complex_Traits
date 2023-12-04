@@ -82,7 +82,7 @@ for(tissue in tissues[-1]){
   plot(h2_freqs[[tissue]], col = adjustcolor(cols$Tissue[tissue], 0.5), add = T)
 }
 text(x = par("usr")[1] - diff(par("usr")[1:2])/4, y = mean(par("usr")[3:4]), labels = "Density", srt = 90, xpd = NA)
-text(x = mean(par("usr")[1:2]), y = par("usr")[3] - diff(par("usr")[3:4])/4.5, labels = latex2exp::TeX("Estimated $h^2_{SNP}$"), srt = 0, xpd = NA)
+text(x = mean(par("usr")[1:2]), y = par("usr")[3] - diff(par("usr")[3:4])/4.5, labels = latex2exp::TeX("Estimated $\\textit{h}^2_{SNP}$"), srt = 0, xpd = NA)
 box("plot")
 
 
@@ -126,7 +126,10 @@ for(sex_i in c("male", "female")){
     
     plot(100,100,xlim = c(0,1.3), ylim = ylims, xpd=NA, ylab = "", xlab = "", xaxt = "n", yaxt = "n", bty="n", cex.lab = 1.25, cex.axis = 1.25)
     text(x = par("usr")[1] - diff(par("usr")[1:2])/6, y = mean(par("usr")[3:4]), 
-         labels = latex2exp::TeX(paste0("Standardized Effect Size (\\textit{SD$_{", ifelse(type == "phenotypic_expression_sexhomo", "pheno", "geno"), "}}$)")), srt = 90, xpd = NA)
+         labels = latex2exp::TeX(paste0("Standardized Effect Size (SD$_{", 
+                                        ifelse(type == "phenotypic_expression_sexhomo", "pheno", "geno"), 
+                                        "}$)")), 
+         srt = 90, xpd = NA)
     
     text("Quantile", x = 0.5, y = ylims[1] - diff(ylims)/5, pos = 1, cex = 1)
     if(ti == "2w"){

@@ -1978,10 +1978,10 @@ plot.scatter <- function(x, y, xlabel = "", ylabel = "", main.title = "",
   rho <- cor.test(x = x, y = y, method = 'spearman')
   rho_pval <- strsplit(formatC(rho$p.value, format = "e", digits = 1), "e")[[1]]
   print(summary(rho))
-  rholab <- c(paste0("Spearman's $\\rho$ = ", 
+  rholab <- c(paste0("Spearman's $\\textit{\\rho}$ = ", 
                      round(rho$estimate, 2), ","), 
-              paste0("p-value = ", 
-                     rho_pval[1], " × 10$^{", as.integer(rho_pval[2]), "}$", ", n = ", length(x)))
+              paste0("\\textit{p}-value = ", 
+                     rho_pval[1], " × 10$^{", as.integer(rho_pval[2]), "}$", ", \\textit{n} = ", length(x)))
   text3(x = par("usr")[1] + diff(par("usr")[1:2])/100, 
         y = par("usr")[4] - diff(par("usr")[3:4])/100, pos = c(1,4),
         labels = rholab[1], cex = 1.25)
