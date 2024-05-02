@@ -1,8 +1,8 @@
 # The impact of exercise on gene regulation in association with complex trait genetics
 
-This is the GitHub repository associated with the publication: [insert publication link and citation here] 
+This is the GitHub repository associated with the publication: 
 
->**If this line is still here, it's still a WiP, so apologies for any missing components!**
+Vetr, Nikolai G., Nicole R. Gay, MoTrPAC Study Group, and Stephen B. Montgomery. "The Impact of Exercise on Gene Regulation in Association with Complex Trait Genetics." *Nature Communications* **15**, no. 1 (May 1, 2024). [https://doi.org/10.1038/s41467-024-45966-w](https://doi.org/10.1038/s41467-024-45966-w)
 
 It primarily hosts scripts written in the R programming language, but interfacing with several other languages, that were used to carry out all analyses and generate all of the paper figures. Upon publication, it will also host the LaTeX files used to generate the final draft version of the paper. The names of all figure-generating scripts are given in figure order in `/scripts/figures/fig*_*`. Analysis scripts should be run first to generate larger intermediate files and are contained in `/scripts/analyses/analysis_*`. Software and data dependencies are listed below. Smaller data dependencies are also provided in the `/data/internal/` folder, where possible.
 
